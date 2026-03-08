@@ -21,18 +21,22 @@ impl UiSpriteMapEditor {
     pub(in super::super) fn update_renderers(&mut self) {
         // Build 512-byte CGRAM from level palette
         let level_idx = self.level_num as usize;
-        let palette_result = self.rom.levels.get(level_idx)
+        let palette_result = self
+            .rom
+            .levels
+            .get(level_idx)
             .and_then(|lvl| self.rom.gfx.color_palettes.get_level_palette(&lvl.primary_header).ok());
 
         let mut cgram = vec![0u8; 512];
         if let Some(palette) = palette_result {
             for row in 0..=0xF_usize {
                 for col in 0..=0xF_usize {
-                    let color = palette.get_color_at(row, col)
+                    let color = palette
+                        .get_color_at(row, col)
                         .unwrap_or(smwe_rom::graphics::palette::ColorPalettes::TRANSPARENT);
                     let idx = (row * 16 + col) * 2;
                     let le = color.0.to_le_bytes();
-                    cgram[idx]     = le[0];
+                    cgram[idx] = le[0];
                     cgram[idx + 1] = le[1];
                 }
             }
@@ -45,10 +49,14 @@ impl UiSpriteMapEditor {
             let base = file_slot * 0x80 * 32;
             for (tile_idx, tile) in gfx_file.tiles.iter().enumerate().take(0x80) {
                 let tile_base = base + tile_idx * 32;
-                if tile_base + 32 > vram.len() { break; }
+                if tile_base + 32 > vram.len() {
+                    break;
+                }
                 for row in 0..8_usize {
-                    let mut p0 = 0u8; let mut p1 = 0u8;
-                    let mut p2 = 0u8; let mut p3 = 0u8;
+                    let mut p0 = 0u8;
+                    let mut p1 = 0u8;
+                    let mut p2 = 0u8;
+                    let mut p3 = 0u8;
                     for col in 0..8_usize {
                         let ci = tile.color_indices[row * 8 + col];
                         let bit = 7 - col;
@@ -57,8 +65,8 @@ impl UiSpriteMapEditor {
                         p2 |= ((ci >> 2) & 1) << bit;
                         p3 |= ((ci >> 3) & 1) << bit;
                     }
-                    vram[tile_base + row * 2 + 0]  = p0;
-                    vram[tile_base + row * 2 + 1]  = p1;
+                    vram[tile_base + row * 2 + 0] = p0;
+                    vram[tile_base + row * 2 + 1] = p1;
                     vram[tile_base + row * 2 + 16] = p2;
                     vram[tile_base + row * 2 + 17] = p3;
                 }

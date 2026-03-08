@@ -9,9 +9,9 @@ use crate::{
 
 #[derive(Debug)]
 pub struct UiProjectCreator {
-    base_rom_path:        String,
-    recent_files:         Vec<PathBuf>,
-    err_base_rom_path:    String,
+    base_rom_path: String,
+    recent_files: Vec<PathBuf>,
+    err_base_rom_path: String,
     err_project_creation: String,
 }
 
@@ -19,9 +19,9 @@ impl Default for UiProjectCreator {
     fn default() -> Self {
         log::info!("Opened Project Creator");
         UiProjectCreator {
-            base_rom_path:        String::new(),
-            recent_files:         Project::load_recent_files(),
-            err_base_rom_path:    String::new(),
+            base_rom_path: String::new(),
+            recent_files: Project::load_recent_files(),
+            err_base_rom_path: String::new(),
             err_project_creation: String::new(),
         }
     }
@@ -43,9 +43,7 @@ impl UiProjectCreator {
                         ui.set_min_width(360.0);
                         let mut chosen = None;
                         for path in &self.recent_files {
-                            let name = path.file_name()
-                                .map(|n| n.to_string_lossy().into_owned())
-                                .unwrap_or_default();
+                            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                             let full = path.to_string_lossy().into_owned();
                             if ui.selectable_label(false, format!("{name}  —  {full}")).clicked() {
                                 chosen = Some(path.clone());
@@ -69,10 +67,7 @@ impl UiProjectCreator {
                     }
                 });
                 if !self.err_base_rom_path.is_empty() {
-                    ui.colored_label(
-                        ErrorStyle::get_from_egui(ui.ctx(), |s| s.text_color),
-                        &self.err_base_rom_path,
-                    );
+                    ui.colored_label(ErrorStyle::get_from_egui(ui.ctx(), |s| s.text_color), &self.err_base_rom_path);
                 }
 
                 ui.add_space(4.0);
@@ -87,10 +82,7 @@ impl UiProjectCreator {
                     }
                 });
                 if !self.err_project_creation.is_empty() {
-                    ui.colored_label(
-                        ErrorStyle::get_from_egui(ui.ctx(), |s| s.text_color),
-                        &self.err_project_creation,
-                    );
+                    ui.colored_label(ErrorStyle::get_from_egui(ui.ctx(), |s| s.text_color), &self.err_project_creation);
                 }
             },
         );
@@ -119,13 +111,16 @@ impl UiProjectCreator {
         // On WSL the XDG portal is broken; use the GTK/native backend directly.
         // rfd's FileDialog falls back to GTK when the portal isn't available.
         std::env::remove_var("DBUS_SESSION_BUS_ADDRESS");
-        if let Some(path) = rfd::FileDialog::new()
-            .add_filter("SNES ROM", &["smc", "sfc"])
-            .pick_file()
-        {
+        if let Some(path) = rfd::FileDialog::new().add_filter("SNES ROM", &["smc", "sfc"]).pick_file() {
             self.base_rom_path = path.to_string_lossy().into_owned();
             self.validate_path();
         }
+    }
+
+    /// Called by the welcome screen when the user clicks a recent file.
+    pub fn set_path_and_open(&mut self, path: PathBuf) {
+        self.base_rom_path = path.to_string_lossy().into_owned();
+        self.validate_path();
     }
 
     fn open_project_at(&mut self, path: PathBuf, ui: &Ui, done: &mut bool) {

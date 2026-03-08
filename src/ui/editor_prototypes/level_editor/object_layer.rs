@@ -7,32 +7,32 @@ const SCREEN_WIDTH: u32 = 16;
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct EditableObject {
-    pub x:        u32,
-    pub y:        u32,
-    pub id:       u8,
+    pub x: u32,
+    pub y: u32,
+    pub id: u8,
     pub settings: u8,
 }
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct EditableExit {
-    pub screen:    u8,
-    pub midway:    bool,
+    pub screen: u8,
+    pub midway: bool,
     pub secondary: bool,
-    pub id:        u16,
+    pub id: u16,
 }
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct EditableObjectLayer {
     pub objects: Vec<EditableObject>,
-    pub exits:   Vec<EditableExit>,
+    pub exits: Vec<EditableExit>,
 }
 
 impl EditableObject {
     pub fn from_raw(object: Object, current_screen: u32, vertical_level: bool) -> Option<Self> {
         (!object.is_exit() && !object.is_screen_jump()).then(|| EditableObject {
-            x:        object.x() as u32 + if vertical_level { 0 } else { current_screen * SCREEN_WIDTH },
-            y:        object.y() as u32 + if vertical_level { current_screen * SCREEN_WIDTH } else { 0 },
-            id:       object.standard_object_number(),
+            x: object.x() as u32 + if vertical_level { 0 } else { current_screen * SCREEN_WIDTH },
+            y: object.y() as u32 + if vertical_level { current_screen * SCREEN_WIDTH } else { 0 },
+            id: object.standard_object_number(),
             settings: object.settings(),
         })
     }
@@ -52,10 +52,10 @@ impl EditableObject {
 impl EditableExit {
     pub fn from_raw(object: Object) -> Option<Self> {
         object.is_exit().then(|| EditableExit {
-            screen:    object.screen_number(),
-            midway:    object.is_midway(),
+            screen: object.screen_number(),
+            midway: object.is_midway(),
             secondary: object.is_secondary_exit(),
-            id:        object.exit_id(),
+            id: object.exit_id(),
         })
     }
 
@@ -97,5 +97,4 @@ impl EditableObjectLayer {
         }
         layer
     }
-
 }

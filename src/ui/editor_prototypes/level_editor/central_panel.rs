@@ -36,7 +36,10 @@ impl UiLevelEditor {
 
         // Background — use the back area color from the level's primary header.
         let back_area = self.level_properties.back_area_color as usize;
-        let bg_color = self.rom.levels.get(self.level_num as usize)
+        let bg_color = self
+            .rom
+            .levels
+            .get(self.level_num as usize)
             .and_then(|_| self.rom.gfx.color_palettes.lv_specific_set.back_area_colors.get(back_area).copied())
             .unwrap_or(smwe_render::color::Abgr1555::BLACK);
         let bg_color = Color32::from(bg_color);
@@ -44,7 +47,7 @@ impl UiLevelEditor {
 
         // Level.
         ui.painter().add(PaintCallback {
-            rect:     view_rect,
+            rect: view_rect,
             callback: Arc::new(CallbackFn::new(move |_info, painter| {
                 level_renderer.lock().expect("Cannot lock mutex on level_renderer").paint(
                     painter.gl(),

@@ -5,15 +5,15 @@ use inline_tweak::tweak;
 use crate::ui::tool::DockableEditorTool;
 
 pub struct UiBlockEditor {
-    editing_modes:    Vec<String>,
+    editing_modes: Vec<String>,
     editing_mode_idx: usize,
 
-    tile_palettes:         [u32; 4],
+    tile_palettes: [u32; 4],
     tile_horizontal_flips: [bool; 4],
-    tile_vertical_flips:   [bool; 4],
-    tile_priorities:       [bool; 4],
+    tile_vertical_flips: [bool; 4],
+    tile_priorities: [bool; 4],
 
-    collision_types:    Vec<String>,
+    collision_types: Vec<String>,
     collision_type_idx: usize,
 
     highlight_same_type: bool,
@@ -22,13 +22,13 @@ pub struct UiBlockEditor {
 impl Default for UiBlockEditor {
     fn default() -> Self {
         UiBlockEditor {
-            editing_modes:         vec![String::from("Blocks"), String::from("Tiles")],
-            editing_mode_idx:      0,
-            tile_palettes:         [5, 5, 5, 5],
+            editing_modes: vec![String::from("Blocks"), String::from("Tiles")],
+            editing_mode_idx: 0,
+            tile_palettes: [5, 5, 5, 5],
             tile_horizontal_flips: [false, true, false, true],
-            tile_vertical_flips:   [false, false, false, false],
-            tile_priorities:       [false, false, false, false],
-            collision_types:       vec![
+            tile_vertical_flips: [false, false, false, false],
+            tile_priorities: [false, false, false, false],
+            collision_types: vec![
                 String::from("Hurt Mario"),
                 String::from("Collect coin"),
                 String::from("Eject coin"),
@@ -37,8 +37,8 @@ impl Default for UiBlockEditor {
                 String::from("Eject feather"),
                 String::from("Eject 1-up"),
             ],
-            collision_type_idx:    0,
-            highlight_same_type:   false,
+            collision_type_idx: 0,
+            highlight_same_type: false,
         }
     }
 }

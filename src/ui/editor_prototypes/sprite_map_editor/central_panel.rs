@@ -126,9 +126,9 @@ impl UiSpriteMapEditor {
                 let canvas_rect = Rect::from_center_size(editing_area_rect.center(), self.canvas_size().0);
                 let max_rect = editing_area_rect.union(canvas_rect);
                 let margin = Margin {
-                    left:   canvas_rect.min.x - max_rect.min.x,
-                    right:  max_rect.max.x - canvas_rect.max.x,
-                    top:    canvas_rect.min.y - max_rect.min.y,
+                    left: canvas_rect.min.x - max_rect.min.x,
+                    right: max_rect.max.x - canvas_rect.max.x,
+                    top: canvas_rect.min.y - max_rect.min.y,
                     bottom: max_rect.max.y - canvas_rect.max.y,
                 };
                 Frame::canvas(ui.style()).inner_margin(Margin::same(0.)).outer_margin(margin).show(ui, |ui| {
@@ -142,7 +142,7 @@ impl UiSpriteMapEditor {
 
         // Tiles
         ui.painter().add(PaintCallback {
-            rect:     canvas_rect,
+            rect: canvas_rect,
             callback: {
                 let sprite_renderer = Arc::clone(&self.sprite_renderer);
                 let gfx_bufs = self.gfx_bufs;

@@ -15,10 +15,10 @@ use crate::ui::{
 #[derive(Debug)]
 pub struct UiAddressConverter {
     conversion_mode: ConversionMode,
-    include_header:  bool,
+    include_header: bool,
 
-    text_pc:    String,
-    text_snes:  String,
+    text_pc: String,
+    text_snes: String,
     text_error: String,
 }
 
@@ -26,10 +26,10 @@ impl Default for UiAddressConverter {
     fn default() -> Self {
         UiAddressConverter {
             conversion_mode: ConversionMode::LoRom,
-            include_header:  false,
-            text_pc:         String::from("0"),
-            text_snes:       String::from("8000"),
-            text_error:      String::new(),
+            include_header: false,
+            text_pc: String::from("0"),
+            text_snes: String::from("8000"),
+            text_error: String::new(),
         }
     }
 }

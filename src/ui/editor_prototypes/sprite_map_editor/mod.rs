@@ -13,13 +13,13 @@ use std::{
 
 use egui::*;
 use glow::Context;
-use smwe_rom::SmwRom;
 use smwe_math::coordinates::*;
 use smwe_render::{
     gfx_buffers::GfxBuffers,
     palette_renderer::PaletteRenderer,
     tile_renderer::{Tile, TileRenderer},
 };
+use smwe_rom::SmwRom;
 use smwe_widgets::vram_view::{VramSelectionMode, VramView};
 use sprite_tiles::SpriteTiles;
 
@@ -29,34 +29,34 @@ use crate::{
 };
 
 pub struct UiSpriteMapEditor {
-    gl:                Arc<Context>,
-    rom:               Arc<SmwRom>,
-    tile_palette:      Vec<Tile>,
-    vram_renderer:     Arc<Mutex<TileRenderer>>,
-    sprite_renderer:   Arc<Mutex<TileRenderer>>,
-    palette_renderer:  Arc<Mutex<PaletteRenderer>>,
-    gfx_bufs:          GfxBuffers,
+    gl: Arc<Context>,
+    rom: Arc<SmwRom>,
+    tile_palette: Vec<Tile>,
+    vram_renderer: Arc<Mutex<TileRenderer>>,
+    sprite_renderer: Arc<Mutex<TileRenderer>>,
+    palette_renderer: Arc<Mutex<PaletteRenderer>>,
+    gfx_bufs: GfxBuffers,
     state_needs_reset: bool,
 
-    level_num:           u16,
+    level_num: u16,
     vram_selection_mode: VramSelectionMode,
-    editing_mode:        EditingMode,
-    always_show_grid:    bool,
+    editing_mode: EditingMode,
+    always_show_grid: bool,
 
     #[cfg(debug_assertions)]
     debug_selection_bounds: bool,
 
-    tile_size_px:           f32,
-    zoom:                   f32,
-    pixels_per_point:       f32,
-    grid_size:              OnGrid<Vec2>,
+    tile_size_px: f32,
+    zoom: f32,
+    pixels_per_point: f32,
+    grid_size: OnGrid<Vec2>,
     hovering_selected_tile: bool,
-    selection_bounds:       Option<OnCanvas<Rect>>,
-    selection_offset:       Option<OnScreen<Vec2>>,
+    selection_bounds: Option<OnCanvas<Rect>>,
+    selection_offset: Option<OnScreen<Vec2>>,
 
-    selected_vram_tile:           (u32, u32),
-    selected_palette:             u32,
-    sprite_tiles:                 UndoableData<SpriteTiles>,
+    selected_vram_tile: (u32, u32),
+    selected_palette: u32,
+    sprite_tiles: UndoableData<SpriteTiles>,
     selected_sprite_tile_indices: HashSet<usize>,
 }
 

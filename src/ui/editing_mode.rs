@@ -23,7 +23,7 @@ pub enum Selection {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Drag {
     pub from: OnScreen<Pos2>,
-    pub to:   OnScreen<Pos2>,
+    pub to: OnScreen<Pos2>,
 }
 
 #[derive(Debug, Default, Copy, Clone, Eq, PartialEq)]

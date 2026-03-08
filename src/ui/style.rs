@@ -21,9 +21,9 @@ pub struct ErrorStyle {
 pub struct CellSelectorStyle {
     pub hovered_void_highlight_color: Color32,
     pub hovered_tile_highlight_color: Color32,
-    pub selection_highlight_color:    Color32,
-    pub selection_outline_color:      Color32,
-    pub delete_highlight_color:       Color32,
+    pub selection_highlight_color: Color32,
+    pub selection_outline_color: Color32,
+    pub delete_highlight_color: Color32,
 }
 
 impl EditorStyle for ErrorStyle {
@@ -49,9 +49,9 @@ impl Default for CellSelectorStyle {
         Self {
             hovered_void_highlight_color: Color32::from_rgba_premultiplied(50, 50, 0, 30),
             hovered_tile_highlight_color: Color32::from_white_alpha(100),
-            selection_highlight_color:    Color32::from_white_alpha(40),
-            selection_outline_color:      Color32::from_rgba_premultiplied(255, 0, 0, 10),
-            delete_highlight_color:       Color32::from_rgba_premultiplied(255, 0, 0, 10),
+            selection_highlight_color: Color32::from_white_alpha(40),
+            selection_outline_color: Color32::from_rgba_premultiplied(255, 0, 0, 10),
+            delete_highlight_color: Color32::from_rgba_premultiplied(255, 0, 0, 10),
         }
     }
 }
