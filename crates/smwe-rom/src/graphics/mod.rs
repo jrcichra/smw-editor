@@ -70,7 +70,7 @@ impl Gfx {
     pub fn tiles_from_block(
         &self, block: &Block, tileset: usize, blue_pswitch: bool, silver_pswitch: bool, on_off_switch: bool,
         offset: u16,
-    ) -> BlockGfx {
+    ) -> BlockGfx<'_> {
         assert!(tileset < TILESETS_COUNT);
 
         const BLANK_ANIM: [AddrSnes; 4] =

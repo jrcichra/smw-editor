@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
-use smwe_emu::Cpu;
-use smwe_rom::level::PrimaryHeader;
+use smwe_rom::level::Level;
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct LevelProperties {
@@ -26,47 +25,27 @@ pub(super) struct LevelProperties {
 }
 
 impl LevelProperties {
-    pub fn parse_from_ram(cpu: &mut Cpu) -> Self {
-        let raw_header = PrimaryHeader::new(&cpu.mem.extram[..5]);
-        let is_vertical = cpu.mem.load_u8(0x5B) & 1 != 0;
-        let has_layer2 = {
-            let mode = cpu.mem.load_u8(0x1925);
-            let renderer_table = cpu.mem.cart.resolve("CODE_058955").unwrap() + 9;
-            let renderer = cpu.mem.load_u24(renderer_table + (mode as u32) * 3);
-            let l2_renderers = [cpu.mem.cart.resolve("CODE_058B8D"), cpu.mem.cart.resolve("CODE_058C71")];
-            l2_renderers.contains(&Some(renderer))
-        };
+    pub fn from_level(level: &Level) -> Self {
+        let h = &level.primary_header;
+        let is_vertical = level.secondary_header.vertical_level();
+        let has_layer2 = matches!(level.layer2, smwe_rom::level::Layer2Data::Objects(_));
         Self {
-            palette_bg: raw_header.palette_bg(),
-            level_length: raw_header.level_length(),
-            back_area_color: raw_header.back_area_color(),
-            level_mode: raw_header.level_mode(),
-            layer3_priority: raw_header.layer3_priority(),
-            music: raw_header.music(),
-            sprite_gfx: raw_header.sprite_gfx(),
-            timer: raw_header.timer(),
-            palette_sprite: raw_header.palette_sprite(),
-            palette_fg: raw_header.palette_fg(),
-            item_memory: raw_header.item_memory(),
-            vertical_scroll: raw_header.vertical_scroll(),
-            fg_bg_gfx: raw_header.fg_bg_gfx(),
+            palette_bg:      h.palette_bg(),
+            level_length:    h.level_length(),
+            back_area_color: h.back_area_color(),
+            level_mode:      h.level_mode(),
+            layer3_priority: h.layer3_priority(),
+            music:           h.music(),
+            sprite_gfx:      h.sprite_gfx(),
+            timer:           h.timer(),
+            palette_sprite:  h.palette_sprite(),
+            palette_fg:      h.palette_fg(),
+            item_memory:     h.item_memory(),
+            vertical_scroll: h.vertical_scroll(),
+            fg_bg_gfx:       h.fg_bg_gfx(),
             is_vertical,
             has_layer2,
         }
-    }
-
-    pub fn write_to_ram(&self, cpu: &mut Cpu) {
-        // Primary header
-        cpu.mem.extram[0] = ((self.palette_bg & 0x07) << 5) | (self.level_length & 0x1F);
-        cpu.mem.extram[1] = ((self.back_area_color & 0x07) << 5) | (self.level_mode & 0x1F);
-        cpu.mem.extram[2] = ((self.layer3_priority as u8) << 7) | ((self.music & 0x07) << 4) | (self.sprite_gfx & 0x0F);
-        cpu.mem.extram[3] = ((self.timer & 0x02) << 6) | ((self.palette_sprite & 0x07) << 3) | (self.palette_fg & 0x07);
-        cpu.mem.extram[4] =
-            ((self.item_memory & 0x02) << 6) | ((self.vertical_scroll & 0x02) << 4) | (self.fg_bg_gfx & 0x0F);
-
-        // Other
-        let b = cpu.mem.load_u8(0x5B);
-        cpu.mem.store_u8(0x5B, if self.is_vertical { b | 1 } else { b & !1 });
     }
 
     /// (width, height)

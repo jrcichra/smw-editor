@@ -4,7 +4,6 @@ use egui::{vec2, Color32, PaintCallback, PointerButton, Rect, Rounding, Sense, S
 use egui_glow::CallbackFn;
 use inline_tweak::tweak;
 use smwe_math::coordinates::{OnCanvas, OnGrid, OnScreen};
-use smwe_render::color::Abgr1555;
 
 use super::UiLevelEditor;
 
@@ -35,9 +34,12 @@ impl UiLevelEditor {
             level_renderer.set_offset(self.offset);
         }
 
-        // Background.
-        let bg_color = self.cpu.mem.load_u16(0x7E0701);
-        let bg_color = Color32::from(Abgr1555(bg_color));
+        // Background — use the back area color from the level's primary header.
+        let back_area = self.level_properties.back_area_color as usize;
+        let bg_color = self.rom.levels.get(self.level_num as usize)
+            .and_then(|_| self.rom.gfx.color_palettes.lv_specific_set.back_area_colors.get(back_area).copied())
+            .unwrap_or(smwe_render::color::Abgr1555::BLACK);
+        let bg_color = Color32::from(bg_color);
         ui.painter().rect_filled(self.editable_area_rect(OnScreen(view_rect)).0, Rounding::ZERO, bg_color);
 
         // Level.

@@ -1,8 +1,7 @@
 #![allow(clippy::identity_op)]
 #![allow(dead_code)]
 
-use smwe_emu::Cpu;
-use smwe_rom::objects::Object;
+use smwe_rom::{level::Level, objects::Object};
 
 const SCREEN_WIDTH: u32 = 16;
 
@@ -71,72 +70,32 @@ impl EditableExit {
 }
 
 impl EditableObjectLayer {
-    pub fn parse_from_ram(cpu: &mut Cpu, is_vertical_level: bool) -> Option<Self> {
-        let raw_objects = Object::parse_from_ram(&cpu.mem.extram)?;
+    pub fn from_level(level: &Level) -> Self {
+        let is_vertical = level.secondary_header.vertical_level();
+        let raw_bytes = level.layer1.as_bytes();
+        let raw_objects = match Object::parse_from_ram(raw_bytes) {
+            Some(objs) => objs,
+            None => return Self::default(),
+        };
         let mut layer = Self::default();
-        let mut current_screen = 0;
-
-        for raw_object in raw_objects.into_iter() {
+        let mut current_screen: u8 = 0;
+        for raw_object in raw_objects {
             if raw_object.is_exit() {
-                layer.exits.push(EditableExit::from_raw(raw_object)?);
+                if let Some(exit) = EditableExit::from_raw(raw_object) {
+                    layer.exits.push(exit);
+                }
             } else if raw_object.is_screen_jump() {
                 current_screen = raw_object.screen_number();
             } else {
                 if raw_object.is_new_screen() {
-                    current_screen += 1;
+                    current_screen = current_screen.saturating_add(1);
                 }
-                let object = EditableObject::from_raw(raw_object, current_screen as u32, is_vertical_level)?;
-                layer.objects.push(object);
+                if let Some(obj) = EditableObject::from_raw(raw_object, current_screen as u32, is_vertical) {
+                    layer.objects.push(obj);
+                }
             }
         }
-
-        Some(layer)
+        layer
     }
 
-    pub fn write_to_extram(&mut self, cpu: &mut Cpu, is_vertical_level: bool) {
-        let mut current_offset = 5; // Start after primary header
-
-        // Exits
-        for exit in self.exits.iter() {
-            Self::store_object_at(cpu, exit.to_raw(), &mut current_offset, 4);
-        }
-
-        if is_vertical_level {
-            self.objects.sort_by(|a, b| a.y.cmp(&b.y));
-        } else {
-            self.objects.sort_by(|a, b| a.x.cmp(&b.x));
-        }
-
-        let mut current_screen = 0;
-        for object in self.objects.iter() {
-            let screen_number = if is_vertical_level { object.y } else { object.x } / SCREEN_WIDTH;
-            debug_assert!(screen_number >= current_screen, "screen numbers must be in increasing order");
-            debug_assert!(screen_number < 0x20, "exceeded maximum number of screens");
-
-            let screen_difference = screen_number - current_screen;
-            current_screen = screen_number;
-
-            let new_screen = match (screen_difference > 0, screen_difference > 1) {
-                (true, true) => {
-                    // Screen jump
-                    let jump = Object(((screen_number & 0x1F) << 16) | 0x100);
-                    Self::store_object_at(cpu, jump, &mut current_offset, 3);
-                    false
-                }
-                (new_screen, _) => new_screen,
-            };
-
-            // Standard/extended object
-            Self::store_object_at(cpu, object.to_raw(new_screen), &mut current_offset, 3);
-        }
-    }
-
-    fn store_object_at(cpu: &mut Cpu, object: Object, current_offset: &mut usize, length: usize) {
-        debug_assert!(length > 0);
-        debug_assert!(length <= 4);
-        for byte_index in 0..length {
-            cpu.mem.extram[*current_offset] = (object.0 >> ((3 - byte_index) * 8)) as u8;
-            *current_offset += 1;
-        }
-    }
 }

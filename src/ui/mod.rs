@@ -12,7 +12,7 @@ use eframe::{CreationContext, Frame};
 use egui::*;
 use egui_dock::{DockArea, DockState, Style as DockStyle};
 use egui_phosphor::Variant;
-use smwe_emu::rom::Rom;
+use smwe_rom::SmwRom;
 
 use crate::{
     project::{Project, ProjectRef},
@@ -94,12 +94,12 @@ impl UiMainWindow {
     }
 
     fn main_menu_bar(&mut self, ctx: &Context) {
-        let rom: Option<Arc<Rom>> = ctx.data(|data| data.get_temp(Id::new("rom")));
+        let rom: Option<Arc<SmwRom>> = ctx.data(|data| data.get_temp(Id::new("rom")));
 
         TopBottomPanel::top("main_top_bar").show(ctx, |ui| {
             menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
-                    if ui.button("New project").clicked() {
+                    if ui.button("Open ROM...").clicked() {
                         self.project_creator = Some(UiProjectCreator::default());
                         ui.close_menu();
                     }
@@ -121,11 +121,11 @@ impl UiMainWindow {
                         ui.close_menu();
                     }
                     if ui.add_enabled(rom.is_some(), Button::new("Level editor")).clicked() {
-                        self.open_tool(UiLevelEditor::new(Arc::clone(&self.gl), rom.clone().unwrap()));
+                        self.open_tool(UiLevelEditor::new(Arc::clone(&self.gl), Arc::clone(rom.as_ref().unwrap())));
                         ui.close_menu();
                     }
                     if ui.add_enabled(rom.is_some(), Button::new("Sprite map editor")).clicked() {
-                        self.open_tool(UiSpriteMapEditor::new(Arc::clone(&self.gl), rom.clone().unwrap()));
+                        self.open_tool(UiSpriteMapEditor::new(Arc::clone(&self.gl), Arc::clone(rom.as_ref().unwrap())));
                         ui.close_menu();
                     }
                 });

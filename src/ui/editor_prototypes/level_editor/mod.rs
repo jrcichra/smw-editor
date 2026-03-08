@@ -7,25 +7,20 @@ mod properties;
 use std::sync::{Arc, Mutex};
 
 use egui::{CentralPanel, SidePanel, Ui, WidgetText, *};
-use smwe_emu::{emu::CheckedMem, rom::Rom, Cpu};
+use smwe_rom::{
+    graphics::palette::ColorPalette,
+    SmwRom,
+};
 
 use self::{level_renderer::LevelRenderer, object_layer::EditableObjectLayer, properties::LevelProperties};
 use crate::ui::tool::DockableEditorTool;
 
 pub struct UiLevelEditor {
     gl:             Arc<glow::Context>,
-    cpu:            Cpu,
+    rom:            Arc<SmwRom>,
     level_renderer: Arc<Mutex<LevelRenderer>>,
 
-    level_num:      u16,
-    blue_pswitch:   bool,
-    silver_pswitch: bool,
-    on_off_switch:  bool,
-    run_sprites:    bool,
-    palette_line:   u8,
-    sprite_id:      u8,
-    timestamp:      std::time::Instant,
-
+    level_num:        u16,
     offset:           Vec2,
     zoom:             f32,
     tile_size_px:     f32,
@@ -37,20 +32,13 @@ pub struct UiLevelEditor {
 }
 
 impl UiLevelEditor {
-    pub fn new(gl: Arc<glow::Context>, rom: Arc<Rom>) -> Self {
+    pub fn new(gl: Arc<glow::Context>, rom: Arc<SmwRom>) -> Self {
         let level_renderer = Arc::new(Mutex::new(LevelRenderer::new(&gl)));
         let mut editor = Self {
             gl,
-            cpu: Cpu::new(CheckedMem::new(rom)),
+            rom,
             level_renderer,
             level_num: 0x105,
-            blue_pswitch: false,
-            silver_pswitch: false,
-            on_off_switch: false,
-            run_sprites: false,
-            palette_line: 0,
-            sprite_id: 0,
-            timestamp: std::time::Instant::now(),
             offset: Vec2::ZERO,
             zoom: 2.,
             tile_size_px: 16.,
@@ -59,9 +47,7 @@ impl UiLevelEditor {
             level_properties: LevelProperties::default(),
             layer1: EditableObjectLayer::default(),
         };
-        editor.init_cpu();
-        editor.update_cpu_sprite();
-        editor.update_renderer();
+        editor.load_level();
         editor
     }
 }
@@ -70,26 +56,10 @@ impl UiLevelEditor {
 impl DockableEditorTool for UiLevelEditor {
     fn update(&mut self, ui: &mut Ui) {
         self.pixels_per_point = ui.ctx().pixels_per_point();
-
         SidePanel::left("level_editor.left_panel").resizable(false).show_inside(ui, |ui| self.left_panel(ui));
-
         CentralPanel::default()
             .frame(Frame::none().inner_margin(0.).fill(Color32::GRAY))
             .show_inside(ui, |ui| self.central_panel(ui));
-
-        // Auto-play animations
-        let ft = std::time::Duration::from_secs_f32(1. / 60.);
-        let now = std::time::Instant::now();
-        while now - self.timestamp > ft {
-            self.timestamp += ft;
-            self.update_timers();
-            self.update_anim_frame();
-            if self.run_sprites {
-                self.update_cpu_sprite();
-                //self.level_renderer.lock().unwrap().upload_level(&self.gl, &mut self.cpu);
-            }
-        }
-        ui.ctx().request_repaint();
     }
 
     fn title(&self) -> WidgetText {
@@ -103,65 +73,79 @@ impl DockableEditorTool for UiLevelEditor {
 
 // Internals
 impl UiLevelEditor {
-    fn init_cpu(&mut self) {
-        smwe_emu::emu::decompress_sublevel(&mut self.cpu, self.level_num);
-        println!("Updated CPU");
-        self.level_renderer.lock().unwrap().upload_level(&self.gl, &mut self.cpu);
-        self.update_level_properties();
-        self.update_layer1();
+    pub(super) fn load_level(&mut self) {
+        let level_idx = self.level_num as usize;
+        if level_idx >= self.rom.levels.len() {
+            log::warn!("Level {:#X} out of range", self.level_num);
+            return;
+        }
+        let level = &self.rom.levels[level_idx];
+        self.level_properties = LevelProperties::from_level(level);
+        self.layer1 = EditableObjectLayer::from_level(level);
+        self.upload_gfx_palette();
+        self.upload_level_tiles();
     }
 
-    fn update_cpu(&mut self) {
-        smwe_emu::emu::decompress_extram(&mut self.cpu, self.level_num);
-        println!("Updated CPU");
-        self.level_renderer.lock().unwrap().upload_level(&self.gl, &mut self.cpu);
+    fn upload_gfx_palette(&self) {
+        let level_idx = self.level_num as usize;
+        if level_idx >= self.rom.levels.len() {
+            return;
+        }
+        let level = &self.rom.levels[level_idx];
+        let palette = match self.rom.gfx.color_palettes.get_level_palette(&level.primary_header) {
+            Ok(p) => p,
+            Err(e) => { log::warn!("Palette error: {e}"); return; }
+        };
+
+        // Build a 256-color CGRAM buffer (16 rows × 16 cols × 2 bytes/color = 512 bytes)
+        let mut cgram = vec![0u8; 512];
+        for row in 0..=0xF_usize {
+            for col in 0..=0xF_usize {
+                let color = palette.get_color_at(row, col)
+                    .unwrap_or(smwe_rom::graphics::palette::ColorPalettes::TRANSPARENT);
+                let idx = (row * 16 + col) * 2;
+                let le = color.0.to_le_bytes();
+                cgram[idx] = le[0];
+                cgram[idx + 1] = le[1];
+            }
+        }
+        let renderer = self.level_renderer.lock().expect("Cannot lock level_renderer");
+        renderer.upload_palette(&self.gl, &cgram);
+
+        // Build VRAM from GFX files — 4bpp, 0x2000 bytes (128 tiles × 32 bytes each)
+        // Use the first 128 tiles from the relevant GFX files for this level's tileset.
+        let mut vram = vec![0u8; 0x10000];
+        let tileset = level.primary_header.fg_bg_gfx() as usize % smwe_rom::objects::tilesets::TILESETS_COUNT;
+        for (file_slot, gfx_file) in self.rom.gfx.files.iter().enumerate().take(4) {
+            let base = file_slot * 0x80 * 32; // 0x80 tiles per slot, 32 bytes per 4bpp tile
+            for (tile_idx, tile) in gfx_file.tiles.iter().enumerate().take(0x80) {
+                let tile_base = base + tile_idx * 32;
+                if tile_base + 32 > vram.len() { break; }
+                // Convert color_indices back to 4bpp planar format
+                for row in 0..8_usize {
+                    let mut p0 = 0u8; let mut p1 = 0u8;
+                    let mut p2 = 0u8; let mut p3 = 0u8;
+                    for col in 0..8_usize {
+                        let ci = tile.color_indices[row * 8 + col];
+                        let bit = 7 - col;
+                        p0 |= ((ci >> 0) & 1) << bit;
+                        p1 |= ((ci >> 1) & 1) << bit;
+                        p2 |= ((ci >> 2) & 1) << bit;
+                        p3 |= ((ci >> 3) & 1) << bit;
+                    }
+                    vram[tile_base + row * 2 + 0]  = p0;
+                    vram[tile_base + row * 2 + 1]  = p1;
+                    vram[tile_base + row * 2 + 16] = p2;
+                    vram[tile_base + row * 2 + 17] = p3;
+                }
+            }
+        }
+        let _ = tileset; // will be used for tileset-specific GFX selection in future
+        renderer.upload_gfx(&self.gl, &vram);
     }
 
-    fn update_level_properties(&mut self) {
-        self.level_properties = LevelProperties::parse_from_ram(&mut self.cpu);
-    }
-
-    fn update_layer1(&mut self) {
-        self.layer1 = EditableObjectLayer::parse_from_ram(&mut self.cpu, self.level_properties.is_vertical)
-            .expect("Failed to parse objects from ExtRAM");
-    }
-
-    fn update_timers(&mut self) {
-        let m = self.cpu.mem.load_u8(0x13);
-        self.cpu.mem.store_u8(0x13, m.wrapping_add(1));
-        let m = self.cpu.mem.load_u8(0x14);
-        self.cpu.mem.store_u8(0x14, m.wrapping_add(1));
-    }
-
-    fn update_cpu_sprite(&mut self) {
-        self.cpu.mem.wram[0x300..0x400].fill(0xE0);
-        smwe_emu::emu::exec_sprites(&mut self.cpu);
-        self.level_renderer.lock().unwrap().upload_sprites(&self.gl, &mut self.cpu);
-    }
-
-    fn update_cpu_sprite_id(&mut self) {
-        let mut cpu = self.cpu.clone();
-        cpu.mem.wram[0x300..0x400].fill(0xE0);
-        smwe_emu::emu::exec_sprite_id(&mut cpu, self.sprite_id);
-        self.level_renderer.lock().unwrap().upload_sprites(&self.gl, &mut cpu);
-    }
-
-    fn update_anim_frame(&mut self) {
-        self.cpu.mem.store_u8(0x14AD, self.blue_pswitch as u8);
-        self.cpu.mem.store_u8(0x14AE, self.silver_pswitch as u8);
-        self.cpu.mem.store_u8(0x14AF, self.on_off_switch as u8);
-        smwe_emu::emu::fetch_anim_frame(&mut self.cpu);
-        self.level_renderer
-            .lock()
-            .expect("Cannot lock mutex on level_renderer")
-            .upload_gfx(&self.gl, &self.cpu.mem.vram);
-    }
-
-    fn update_renderer(&mut self) {
-        self.update_anim_frame();
-
-        let level_renderer = self.level_renderer.lock().expect("Cannot lock mutex on level_renderer");
-        level_renderer.upload_palette(&self.gl, &self.cpu.mem.cgram);
-        level_renderer.upload_gfx(&self.gl, &self.cpu.mem.vram);
+    fn upload_level_tiles(&mut self) {
+        self.level_renderer.lock().expect("Cannot lock level_renderer")
+            .upload_level_from_rom(&self.gl, &self.rom, self.level_num);
     }
 }

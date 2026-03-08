@@ -13,7 +13,7 @@ use std::{
 
 use egui::*;
 use glow::Context;
-use smwe_emu::{emu::CheckedMem, rom::Rom, Cpu};
+use smwe_rom::SmwRom;
 use smwe_math::coordinates::*;
 use smwe_render::{
     gfx_buffers::GfxBuffers,
@@ -30,7 +30,7 @@ use crate::{
 
 pub struct UiSpriteMapEditor {
     gl:                Arc<Context>,
-    cpu:               Cpu,
+    rom:               Arc<SmwRom>,
     tile_palette:      Vec<Tile>,
     vram_renderer:     Arc<Mutex<TileRenderer>>,
     sprite_renderer:   Arc<Mutex<TileRenderer>>,
@@ -61,14 +61,14 @@ pub struct UiSpriteMapEditor {
 }
 
 impl UiSpriteMapEditor {
-    pub fn new(gl: Arc<Context>, rom: Arc<Rom>) -> Self {
+    pub fn new(gl: Arc<Context>, rom: Arc<SmwRom>) -> Self {
         let (vram_renderer, tile_palette) = VramView::new_renderer(&gl);
         let sprite_renderer = TileRenderer::new(&gl);
         let palette_renderer = PaletteRenderer::new(&gl);
         let gfx_bufs = GfxBuffers::new(&gl);
         Self {
             gl,
-            cpu: Cpu::new(CheckedMem::new(rom)),
+            rom,
             tile_palette,
             vram_renderer: Arc::new(Mutex::new(vram_renderer)),
             sprite_renderer: Arc::new(Mutex::new(sprite_renderer)),

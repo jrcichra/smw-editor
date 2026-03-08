@@ -222,7 +222,6 @@ pub fn fetch_anim_frame(cpu: &mut Cpu<CheckedMem>) -> u64 {
         cy += cpu.dispatch() as u64;
         //if cy > cy_limit { break; }
         if cpu.ill {
-            println!("ILLEGAL INSTR");
             break;
         }
         if cpu.pc == addr as u16 {
@@ -234,7 +233,7 @@ pub fn fetch_anim_frame(cpu: &mut Cpu<CheckedMem>) -> u64 {
 }
 
 pub fn exec_sprite_id(cpu: &mut Cpu<CheckedMem>, id: u8) -> u64 {
-    let now = std::time::Instant::now();
+    let _now = std::time::Instant::now();
     cpu.emulation = false;
     cpu.mem.store(0x9E, id);
     cpu.mem.store(0x1A, 0x00);
@@ -265,23 +264,21 @@ pub fn exec_sprite_id(cpu: &mut Cpu<CheckedMem>, id: u8) -> u64 {
         cy += cpu.dispatch() as u64;
         //if cy > cy_limit { break; }
         if cpu.ill {
-            println!("ILLEGAL INSTR");
             break;
         }
         if cpu.pc == addr as u16 {
             break;
         }
         if cy > 10000000 {
-            println!("took too long");
+            eprintln!("exec_sprite_id: exceeded cycle limit");
             break;
         }
         cpu.mem.process_dma();
     }
-    println!("took {}µs", now.elapsed().as_micros());
     cy
 }
 pub fn exec_sprites(cpu: &mut Cpu<CheckedMem>) -> u64 {
-    let now = std::time::Instant::now();
+    let _now = std::time::Instant::now();
     cpu.emulation = false;
     /*
     cpu.mem.store(0x9E, id);
@@ -307,7 +304,6 @@ pub fn exec_sprites(cpu: &mut Cpu<CheckedMem>) -> u64 {
         cy += cpu.dispatch() as u64;
         //if cy > cy_limit { break; }
         if cpu.ill {
-            println!("ILLEGAL INSTR");
             break;
         }
         if cpu.pc == addr as u16 {
@@ -315,11 +311,10 @@ pub fn exec_sprites(cpu: &mut Cpu<CheckedMem>) -> u64 {
         }
         cpu.mem.process_dma();
     }
-    println!("took {}µs", now.elapsed().as_micros());
     cy
 }
 pub fn decompress_sublevel(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
-    let now = std::time::Instant::now();
+    let _now = std::time::Instant::now();
     cpu.emulation = false;
     // set submap
     cpu.mem.store(0x1F11, (id >> 8) as _);
@@ -351,7 +346,6 @@ pub fn decompress_sublevel(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
         cy += cpu.dispatch() as u64;
         //if cy > cy_limit { break; }
         if cpu.ill {
-            println!("ILLEGAL INSTR");
             break;
         }
         if cpu.pc == 0xD8B7 && cpu.pbr == 0x05 {
@@ -369,11 +363,10 @@ pub fn decompress_sublevel(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
         }
         cpu.mem.process_dma();
     }
-    println!("took {}µs", now.elapsed().as_micros());
     cy
 }
 pub fn decompress_extram(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
-    let now = std::time::Instant::now();
+    let _now = std::time::Instant::now();
     cpu.emulation = false;
     // set submap
     cpu.mem.store(0x1F11, (id >> 8) as _);
@@ -405,7 +398,6 @@ pub fn decompress_extram(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
         cy += cpu.dispatch() as u64;
         //if cy > cy_limit { break; }
         if cpu.ill {
-            println!("ILLEGAL INSTR");
             break;
         }
         if cpu.pc == 0xD8B7 && cpu.pbr == 0x05 {
@@ -419,6 +411,5 @@ pub fn decompress_extram(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
         }
         cpu.mem.process_dma();
     }
-    println!("took {}µs", now.elapsed().as_micros());
     cy
 }

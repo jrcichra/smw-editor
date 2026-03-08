@@ -256,7 +256,7 @@ impl IsDecompressed for Decompressed {
 }
 
 impl Decompressed {
-    pub fn view(&self) -> DecompressedView {
+    pub fn view(&self) -> DecompressedView<'_> {
         DecompressedView { decompressed: self }
     }
 }

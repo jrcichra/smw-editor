@@ -41,7 +41,8 @@ pub enum ObjectInstance {
 
 #[derive(Debug, Clone)]
 pub struct ObjectLayer {
-    _objects: Vec<ObjectInstance>,
+    _objects:  Vec<ObjectInstance>,
+    raw_bytes: Vec<u8>,
 }
 
 impl ExitObject {
@@ -154,6 +155,12 @@ impl ObjectLayer {
     pub fn parse(input: &[u8]) -> IResult<&[u8], (Self, usize)> {
         let (rest, (objects, _)) = many_till(Self::parse_object, tag(&[0xFFu8]))(input)?;
         let bytes_consumed = input.len() - rest.len();
-        Ok((rest, (Self { _objects: objects }, bytes_consumed)))
+        let raw_bytes = input[..bytes_consumed].to_vec();
+        Ok((rest, (Self { _objects: objects, raw_bytes }, bytes_consumed)))
+    }
+
+    /// Returns the raw bytes of this object layer including the 0xFF terminator.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.raw_bytes
     }
 }

@@ -10,6 +10,13 @@ use smw_editor::{
 fn main() -> eframe::Result<()> {
     log4rs::init_file("log4rs.yaml", Default::default()).expect("Failed to initialize log4rs");
 
+    // In WSL environments the Wayland socket exists but is non-functional,
+    // causing an immediate crash. Force X11 and software rendering if we detect WSL.
+    if std::fs::exists("/proc/sys/fs/binfmt_misc/WSLInterop").unwrap_or(false) {
+        std::env::remove_var("WAYLAND_DISPLAY");
+        std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
+    }
+
     let project = dev_open_rom();
     let native_options = NativeOptions {
         renderer: Renderer::Glow,
@@ -25,13 +32,14 @@ fn dev_open_rom() -> Option<ProjectRef> {
         return None;
     };
 
-    log::info!("Opening ROM from path defined in ROM_PATH");
-    let project = Project::new(rom_path)
+    log::info!("Opening ROM from path defined in ROM_PATH: {rom_path}");
+    let project = Project::new(&rom_path)
         .map_err(|e| {
-            log::info!("Cannot create project: {e}");
+            log::error!("Cannot create project: {e}");
             e
         })
         .ok()?;
 
+    Project::add_to_recent(std::path::Path::new(&rom_path));
     Some(Rc::new(RefCell::new(project)))
 }

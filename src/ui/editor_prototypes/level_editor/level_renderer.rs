@@ -1,10 +1,10 @@
 use egui::Vec2;
 use glow::*;
-use smwe_emu::Cpu;
 use smwe_render::{
     gfx_buffers::GfxBuffers,
     tile_renderer::{Tile, TileRenderer, TileUniforms},
 };
+use smwe_rom::SmwRom;
 
 #[derive(Debug)]
 pub(super) struct LevelRenderer {
@@ -57,52 +57,70 @@ impl LevelRenderer {
         self.gfx_bufs.upload_palette(gl, data);
     }
 
-    pub(super) fn upload_level(&mut self, gl: &Context, cpu: &mut Cpu) {
+    pub(super) fn upload_level_from_rom(&mut self, gl: &Context, rom: &SmwRom, level_num: u16) {
         if self.destroyed {
             return;
         }
-        self.load_layer(gl, cpu, false);
-        self.load_layer(gl, cpu, true);
-    }
-
-    pub(super) fn upload_sprites(&mut self, gl: &Context, cpu: &mut Cpu) {
-        if self.destroyed {
+        let level_idx = level_num as usize;
+        if level_idx >= rom.levels.len() {
             return;
         }
+        let level = &rom.levels[level_idx];
+        let is_vertical = level.secondary_header.vertical_level();
+        let has_layer2 = matches!(level.layer2, smwe_rom::level::Layer2Data::Objects(_));
+        let scr_len: u32 = match (is_vertical, has_layer2) {
+            (false, false) => 0x20,
+            (true,  false) => 0x1C,
+            (false, true)  => 0x10,
+            (true,  true)  => 0x0E,
+        };
+        let (scr_w, scr_h): (u32, u32) = if is_vertical { (16, 32) } else { (16, 27) };
 
-        let mut tiles = Vec::new();
-        for spr in (0..64).rev() {
-            let mut x = cpu.mem.load_u8(0x300 + spr * 4) as u32;
-            let mut y = cpu.mem.load_u8(0x301 + spr * 4) as u32;
-            if y >= 0xE0 {
-                continue;
-            }
-            x += cpu.mem.load_u16(0x1A) as u32;
-            y += cpu.mem.load_u16(0x1C) as u32;
-            let tile = cpu.mem.load_u16(0x302 + spr * 4);
-            let size = cpu.mem.load_u8(0x460 + spr);
-            if size & 0x01 != 0 {
-                if x > 0x80 {
-                    x = x.wrapping_sub(256);
-                } else {
-                    x = x.wrapping_add(256);
-                }
-            }
-            if size & 0x02 != 0 {
-                let (xn, xf) = if tile & 0x4000 == 0 { (0, 8) } else { (8, 0) };
-                let (yn, yf) = if tile & 0x8000 == 0 { (0, 8) } else { (8, 0) };
-                tiles.push(sp_tile(x.wrapping_add(xn), y.wrapping_add(yn), tile));
-                tiles.push(sp_tile(x.wrapping_add(xf), y.wrapping_add(yn), tile + 1));
-                tiles.push(sp_tile(x.wrapping_add(xn), y.wrapping_add(yf), tile + 16));
-                tiles.push(sp_tile(x.wrapping_add(xf), y.wrapping_add(yf), tile + 17));
-                //Self::draw_tile_sp(cpu, &mut new_image, tile + 1, x + xf, y + yn);
-                //Self::draw_tile_sp(cpu, &mut new_image, tile + 16, x + xn, y + yf);
-                //Self::draw_tile_sp(cpu, &mut new_image, tile + 17, x + xf, y + yf);
+        // Build layer1 tile list from the map16 tileset data.
+        // The map16 tiles tell us which 8x8 sub-tiles to use.
+        let tileset_idx = level.primary_header.fg_bg_gfx() as usize
+            % smwe_rom::objects::tilesets::TILESETS_COUNT;
+
+        let mut l1_tiles: Vec<Tile> = Vec::new();
+        let total_blocks = (scr_len * scr_w * scr_h) as usize;
+
+        for block_idx in 0..total_blocks.min(rom.map16_tilesets.tiles.len()) {
+            use smwe_rom::objects::tilesets::Tile as TilesetTile;
+            let map16 = &rom.map16_tilesets.tiles[block_idx];
+            let block = match map16 {
+                TilesetTile::Shared(b) => b,
+                TilesetTile::TilesetSpecific(arr) => &arr[tileset_idx.min(arr.len() - 1)],
+            };
+
+            let (block_x, block_y) = if is_vertical {
+                let screen  = block_idx / (scr_w * scr_h) as usize;
+                let in_scr  = block_idx % (scr_w * scr_h) as usize;
+                let col     = in_scr % scr_w as usize;
+                let row     = in_scr / scr_w as usize;
+                let sub_y   = screen / 2;
+                let sub_x   = screen % 2;
+                (col as u32 * 16 + sub_x as u32 * 256, row as u32 * 16 + sub_y as u32 * 256)
             } else {
-                tiles.push(sp_tile(x, y, tile));
+                let screen = block_idx / (scr_w * scr_h) as usize;
+                let in_scr = block_idx % (scr_w * scr_h) as usize;
+                let col    = in_scr % scr_w as usize;
+                let row    = in_scr / scr_w as usize;
+                (col as u32 * 16 + screen as u32 * 256, row as u32 * 16)
+            };
+
+            for (sub_tile, (ox, oy)) in [
+                (block.upper_left,  (0u32, 0u32)),
+                (block.upper_right, (8,    0   )),
+                (block.lower_left,  (0,    8   )),
+                (block.lower_right, (8,    8   )),
+            ] {
+                l1_tiles.push(bg_tile(block_x + ox, block_y + oy, sub_tile.0));
             }
         }
-        self.sprites.set_tiles(gl, tiles);
+
+        self.layer1.set_tiles(gl, l1_tiles);
+        self.layer2.set_tiles(gl, Vec::new()); // layer2 rendering deferred
+        self.sprites.set_tiles(gl, Vec::new());
     }
 
     pub(super) fn set_offset(&mut self, offset: Vec2) {
@@ -112,66 +130,6 @@ impl LevelRenderer {
         self.offset = offset;
     }
 
-    fn load_layer(&mut self, gl: &Context, cpu: &mut Cpu, bg: bool) {
-        let mut tiles = Vec::new();
-        let map16_bank = cpu.mem.cart.resolve("Map16Common").expect("Cannot resolve Map16Common") & 0xFF0000;
-        let map16_bg = cpu.mem.cart.resolve("Map16BGTiles").expect("Cannot resolve Map16BGTiles");
-        let vertical = cpu.mem.load_u8(0x5B) & if bg { 2 } else { 1 } != 0;
-        let has_layer2 = {
-            let mode = cpu.mem.load_u8(0x1925);
-            let renderer_table = cpu.mem.cart.resolve("CODE_058955").unwrap() + 9;
-            let renderer = cpu.mem.load_u24(renderer_table + (mode as u32) * 3);
-            let l2_renderers = [cpu.mem.cart.resolve("CODE_058B8D"), cpu.mem.cart.resolve("CODE_058C71")];
-            l2_renderers.contains(&Some(renderer))
-        };
-        let scr_len = match (vertical, has_layer2) {
-            (false, false) => 0x20,
-            (true, false) => 0x1C,
-            (false, true) => 0x10,
-            (true, true) => 0x0E,
-        };
-        let scr_size = if vertical { 16 * 32 } else { 16 * 27 };
-        let (blocks_lo_addr, blocks_hi_addr) = match (bg, has_layer2) {
-            (true, true) => {
-                let offset = scr_len * scr_size;
-                (0x7EC800 + offset, 0x7FC800 + offset)
-            }
-            (true, false) => (0x7EB900, 0x7EBD00),
-            (false, _) => (0x7EC800, 0x7FC800),
-        };
-        let len = if has_layer2 { 256 * 27 } else { 512 * 27 };
-        for idx in 0..len {
-            let (block_x, block_y) = if vertical {
-                let (screen, sidx) = (idx / (16 * 16), idx % (16 * 16));
-                let (row, column) = (sidx / 16, sidx % 16);
-                let (sub_y, sub_x) = (screen / 2, screen % 2);
-                (column * 16 + sub_x * 256, row * 16 + sub_y * 256)
-            } else {
-                let (screen, sidx) = (idx / (16 * 27), idx % (16 * 27));
-                let (row, column) = (sidx / 16, sidx % 16);
-                (column * 16 + screen * 256, row * 16)
-            };
-            let idx = if bg && !has_layer2 { idx % (16 * 27 * 2) } else { idx };
-            let block_id =
-                cpu.mem.load_u8(blocks_lo_addr + idx) as u16 | ((cpu.mem.load_u8(blocks_hi_addr + idx) as u16) << 8);
-            let block_ptr = if bg && !has_layer2 {
-                block_id as u32 * 8 + map16_bg
-            } else {
-                cpu.mem.load_u16(0x0FBE + block_id as u32 * 2) as u32 + map16_bank
-            };
-            for (tile_id, (off_x, off_y)) in (0..4).zip([(0, 0), (0, 8), (8, 0), (8, 8)]) {
-                let tile_id = cpu.mem.load_u16(block_ptr + tile_id * 2);
-                tiles.push(bg_tile(block_x + off_x, block_y + off_y, tile_id));
-            }
-        }
-
-        // todo: non-background layer2
-        if bg {
-            self.layer2.set_tiles(gl, tiles);
-        } else {
-            self.layer1.set_tiles(gl, tiles);
-        }
-    }
 }
 
 fn bg_tile(x: u32, y: u32, t: u16) -> Tile {
@@ -183,6 +141,7 @@ fn bg_tile(x: u32, y: u32, t: u16) -> Tile {
     Tile([x, y, tile, params])
 }
 
+#[allow(dead_code)]
 fn sp_tile(x: u32, y: u32, t: u16) -> Tile {
     let t = t as u32;
     let tile = (t & 0x1FF) + 0x600;

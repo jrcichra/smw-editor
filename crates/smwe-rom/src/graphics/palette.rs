@@ -218,6 +218,8 @@ fn make_color_parser(
 }
 
 impl ColorPalettes {
+    pub const TRANSPARENT: smwe_render::color::Abgr1555 = smwe_render::color::Abgr1555(0x8000);
+
     pub fn parse(disasm: &mut RomDisassembly, levels: &[Level]) -> Result<Self, ColorPaletteParseError> {
         duplicate! {
             [
