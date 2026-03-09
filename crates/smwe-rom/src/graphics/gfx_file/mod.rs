@@ -10,10 +10,7 @@ use thiserror::Error;
 
 use crate::{
     compression::{lc_lz2, DecompressionError},
-    DataBlock,
-    DataKind,
-    RomDisassembly,
-    RomError,
+    DataBlock, DataKind, RomDisassembly, RomError,
 };
 
 // -------------------------------------------------------------------------------------------------
@@ -51,7 +48,7 @@ pub struct Tile {
 #[derive(Debug, Clone)]
 pub struct GfxFile {
     pub tile_format: TileFormat,
-    pub tiles:       Vec<Tile>,
+    pub tiles: Vec<Tile>,
 }
 
 // -------------------------------------------------------------------------------------------------

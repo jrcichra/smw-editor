@@ -11,9 +11,7 @@ use crate::{
         map16::{Block, Tile8x8},
     },
     snes_utils::rom_slice::SnesSlice,
-    DataBlock,
-    DataKind,
-    RomDisassembly,
+    DataBlock, DataKind, RomDisassembly,
 };
 
 // -------------------------------------------------------------------------------------------------

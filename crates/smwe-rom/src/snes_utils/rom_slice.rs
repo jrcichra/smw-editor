@@ -5,7 +5,7 @@ use crate::snes_utils::addr::{Addr, AddrPc, AddrSnes};
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct RomSlice<A: Addr> {
     pub begin: A,
-    pub size:  usize,
+    pub size: usize,
 }
 
 pub type PcSlice = RomSlice<AddrPc>;

@@ -15,8 +15,7 @@ use crate::{
     compression::DecompressionError,
     disassembler::binary_block::{DataBlock, DataKind},
     snes_utils::{addr::AddrSnes, rom_slice::SnesSlice},
-    RomDisassembly,
-    RomError,
+    RomDisassembly, RomError,
 };
 
 pub mod background;
@@ -70,12 +69,12 @@ pub enum Layer2Data {
 
 #[derive(Debug, Clone)]
 pub struct Level {
-    pub primary_header:   PrimaryHeader,
+    pub primary_header: PrimaryHeader,
     pub secondary_header: SecondaryHeader,
-    pub sprite_header:    SpriteHeader,
-    pub layer1:           ObjectLayer,
-    pub layer2:           Layer2Data,
-    pub sprite_layer:     SpriteLayer,
+    pub sprite_header: SpriteHeader,
+    pub layer1: ObjectLayer,
+    pub layer2: Layer2Data,
+    pub sprite_layer: SpriteLayer,
 }
 
 // -------------------------------------------------------------------------------------------------

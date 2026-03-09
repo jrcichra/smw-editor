@@ -7,13 +7,13 @@ pub enum LineKind {
         file: String,
     },
     Label {
-        label:   String,
+        label: String,
         #[serde(skip_serializing_if = "String::is_empty")]
         #[serde(default)]
         comment: String,
     },
     Op {
-        op:      String,
+        op: String,
         #[serde(skip_serializing_if = "String::is_empty")]
         #[serde(default)]
         comment: String,

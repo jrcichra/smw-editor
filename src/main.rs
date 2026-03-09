@@ -27,12 +27,21 @@ fn main() -> eframe::Result<()> {
 }
 
 fn dev_open_rom() -> Option<ProjectRef> {
-    let Ok(rom_path) = env::var("ROM_PATH") else {
-        log::info!("No path defined in ROM_PATH");
-        return None;
-    };
+    let rom_path = env::var("ROM_PATH").unwrap_or_else(|_| {
+        let default_path = "smw.smc";
+        if std::path::Path::new(default_path).exists() {
+            default_path.to_string()
+        } else {
+            return String::new();
+        }
+    });
 
-    log::info!("Opening ROM from path defined in ROM_PATH: {rom_path}");
+    if rom_path.is_empty() {
+        log::info!("No ROM path defined (ROM_PATH not set, and smw.smc not found in current directory)");
+        return None;
+    }
+    let source = if env::var("ROM_PATH").is_ok() { "ROM_PATH" } else { "default smw.smc" };
+    log::info!("Opening ROM from {source}: {rom_path}");
     let project = Project::new(&rom_path)
         .map_err(|e| {
             log::error!("Cannot create project: {e}");

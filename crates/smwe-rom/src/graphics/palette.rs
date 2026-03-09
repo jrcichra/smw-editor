@@ -9,9 +9,7 @@ use thiserror::Error;
 use crate::{
     level::{headers::PrimaryHeader, Level},
     snes_utils::{addr::AddrSnes, rom_slice::SnesSlice},
-    DataBlock,
-    DataKind,
-    RomDisassembly,
+    DataBlock, DataKind, RomDisassembly,
 };
 
 // -------------------------------------------------------------------------------------------------
@@ -153,9 +151,9 @@ pub struct ColorPalettes {
     pub ow_layer3: Box<[Abgr1555]>,
     pub ow_sprite: Box<[Abgr1555]>,
 
-    pub wtf:         Box<[Abgr1555]>,
-    pub lv_layer3:   Box<[Abgr1555]>,
-    pub lv_berry:    Box<[Abgr1555]>,
+    pub wtf: Box<[Abgr1555]>,
+    pub lv_layer3: Box<[Abgr1555]>,
+    pub lv_berry: Box<[Abgr1555]>,
     pub lv_animated: Box<[Abgr1555]>,
 
     pub ow_specific_set: OverworldColorPaletteSet,
@@ -164,40 +162,40 @@ pub struct ColorPalettes {
 
 #[derive(Debug, Clone)]
 pub struct OverworldColorPaletteSet {
-    pub layer2_pre_special:  Vec<Box<[Abgr1555]>>,
+    pub layer2_pre_special: Vec<Box<[Abgr1555]>>,
     pub layer2_post_special: Vec<Box<[Abgr1555]>>,
-    pub layer2_indices:      Vec<usize>,
+    pub layer2_indices: Vec<usize>,
 }
 
 #[derive(Debug, Clone)]
 pub struct LevelColorPaletteSet {
     pub back_area_colors: Vec<Abgr1555>,
-    pub bg_palettes:      Vec<Box<[Abgr1555]>>,
-    pub fg_palettes:      Vec<Box<[Abgr1555]>>,
-    pub sprite_palettes:  Vec<Box<[Abgr1555]>>,
+    pub bg_palettes: Vec<Box<[Abgr1555]>>,
+    pub fg_palettes: Vec<Box<[Abgr1555]>>,
+    pub sprite_palettes: Vec<Box<[Abgr1555]>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct SpecificLevelColorPalette {
     pub back_area_color: Abgr1555,
-    pub background:      Box<[Abgr1555]>,
-    pub foreground:      Box<[Abgr1555]>,
-    pub sprite:          Box<[Abgr1555]>,
-    pub players:         Box<[Abgr1555]>,
-    pub wtf:             Box<[Abgr1555]>,
-    pub layer3:          Box<[Abgr1555]>,
-    pub berry:           Box<[Abgr1555]>,
-    pub animated:        Box<[Abgr1555]>,
+    pub background: Box<[Abgr1555]>,
+    pub foreground: Box<[Abgr1555]>,
+    pub sprite: Box<[Abgr1555]>,
+    pub players: Box<[Abgr1555]>,
+    pub wtf: Box<[Abgr1555]>,
+    pub layer3: Box<[Abgr1555]>,
+    pub berry: Box<[Abgr1555]>,
+    pub animated: Box<[Abgr1555]>,
 }
 
 #[derive(Debug, Clone)]
 pub struct SpecificOverworldColorPalette {
-    pub layer1:  Box<[Abgr1555]>,
-    pub layer2:  Box<[Abgr1555]>,
-    pub layer3:  Box<[Abgr1555]>,
-    pub sprite:  Box<[Abgr1555]>,
+    pub layer1: Box<[Abgr1555]>,
+    pub layer2: Box<[Abgr1555]>,
+    pub layer3: Box<[Abgr1555]>,
+    pub sprite: Box<[Abgr1555]>,
     pub players: Box<[Abgr1555]>,
-    pub wtf:     Box<[Abgr1555]>,
+    pub wtf: Box<[Abgr1555]>,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
@@ -301,9 +299,9 @@ impl LevelColorPaletteSet {
 
         let mut palette_set = Self {
             back_area_colors: Vec::with_capacity(8),
-            bg_palettes:      Vec::with_capacity(8),
-            fg_palettes:      Vec::with_capacity(8),
-            sprite_palettes:  Vec::with_capacity(8),
+            bg_palettes: Vec::with_capacity(8),
+            fg_palettes: Vec::with_capacity(8),
+            sprite_palettes: Vec::with_capacity(8),
         };
 
         for (level_num, level) in levels.iter().enumerate() {
@@ -379,14 +377,14 @@ impl LevelColorPaletteSet {
                 .get(i_back_area_color)
                 .cloned()
                 .ok_or(ColorPaletteError::LvBackAreaColor)?,
-            background:      self.bg_palettes.get(i_background).cloned().ok_or(ColorPaletteError::LvBackground)?,
-            foreground:      self.fg_palettes.get(i_foreground).cloned().ok_or(ColorPaletteError::LvForeground)?,
-            sprite:          self.sprite_palettes.get(i_sprite).cloned().ok_or(ColorPaletteError::LvSprite)?,
-            wtf:             palettes.wtf.clone(),
-            layer3:          palettes.lv_layer3.clone(),
-            berry:           palettes.lv_berry.clone(),
-            animated:        palettes.lv_animated.clone(),
-            players:         palettes.players.clone(),
+            background: self.bg_palettes.get(i_background).cloned().ok_or(ColorPaletteError::LvBackground)?,
+            foreground: self.fg_palettes.get(i_foreground).cloned().ok_or(ColorPaletteError::LvForeground)?,
+            sprite: self.sprite_palettes.get(i_sprite).cloned().ok_or(ColorPaletteError::LvSprite)?,
+            wtf: palettes.wtf.clone(),
+            layer3: palettes.lv_layer3.clone(),
+            berry: palettes.lv_berry.clone(),
+            animated: palettes.lv_animated.clone(),
+            players: palettes.players.clone(),
         })
     }
 }
@@ -440,7 +438,7 @@ impl OverworldColorPaletteSet {
             let index_offset = LAYER2_PALETTE_INDIRECT2.offset_forward(2 * offset as usize).begin;
             let ptr16_block = DataBlock {
                 slice: SnesSlice::new(index_offset, 2),
-                kind:  DataKind::ColorPaletteOverworldLayer2Indirect2,
+                kind: DataKind::ColorPaletteOverworldLayer2Indirect2,
             };
             let ptr16 = disasm
                 .rom_slice_at_block(ptr16_block, |_| ColorPaletteParseError::OverworldLayer2IndexRead(offset as usize))?
@@ -468,12 +466,12 @@ impl OverworldColorPaletteSet {
             OverworldState::PostSpecial => &self.layer2_post_special,
         };
         let mut palette = SpecificOverworldColorPalette {
-            layer1:  palettes.ow_layer1.clone(),
-            layer2:  layer2_pal.get(i_submap_palette).cloned().ok_or(ColorPaletteError::OwLayer2)?,
-            layer3:  palettes.ow_layer3.clone(),
-            sprite:  palettes.ow_sprite.clone(),
+            layer1: palettes.ow_layer1.clone(),
+            layer2: layer2_pal.get(i_submap_palette).cloned().ok_or(ColorPaletteError::OwLayer2)?,
+            layer3: palettes.ow_layer3.clone(),
+            sprite: palettes.ow_sprite.clone(),
             players: palettes.players.clone(),
-            wtf:     palettes.wtf.clone()[23..=27].into(),
+            wtf: palettes.wtf.clone()[23..=27].into(),
         };
         palette.wtf[0] = Abgr1555::WHITE;
         Ok(palette)

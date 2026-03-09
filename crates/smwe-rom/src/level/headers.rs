@@ -5,8 +5,7 @@ use nom::{bytes::complete::take, IResult};
 use crate::{
     disassembler::binary_block::{DataBlock, DataKind},
     snes_utils::{addr::AddrSnes, rom::noop_error_mapper, rom_slice::SnesSlice},
-    RomDisassembly,
-    RomError,
+    RomDisassembly, RomError,
 };
 
 pub const PRIMARY_HEADER_SIZE: usize = 5;
@@ -113,7 +112,7 @@ impl SecondaryHeader {
         for (byte, addr) in bytes.iter_mut().zip(byte_table_addrs) {
             let data_block = DataBlock {
                 slice: SnesSlice::new(AddrSnes(addr), 0x200),
-                kind:  DataKind::LevelHeaderSecondaryByteTable,
+                kind: DataKind::LevelHeaderSecondaryByteTable,
             };
             let byte_table = disasm.rom_slice_at_block(data_block, noop_error_mapper)?.as_bytes()?;
             *byte = byte_table[level_num as usize];

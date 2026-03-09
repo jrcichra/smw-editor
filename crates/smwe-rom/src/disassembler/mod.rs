@@ -26,10 +26,7 @@ use crate::{
         binary_block::{BinaryBlock, CodeBlock, DataBlock, DataKind},
         instruction::Instruction,
         jump_tables::{
-            get_jump_table_from_rom,
-            EXECUTE_PTR_LONG_TRAMPOLINE_ADDR,
-            EXECUTE_PTR_TRAMPOLINE_ADDR,
-            JUMP_TABLES,
+            get_jump_table_from_rom, EXECUTE_PTR_LONG_TRAMPOLINE_ADDR, EXECUTE_PTR_TRAMPOLINE_ADDR, JUMP_TABLES,
             NON_CODE_JUMP_ADDRESSES,
         },
         processor::Processor,
@@ -40,9 +37,7 @@ use crate::{
         rom::{RomViewWithErrorMapper, SnesSliced},
         rom_slice::SnesSlice,
     },
-    Rom,
-    RomError,
-    RomInternalHeader,
+    Rom, RomError, RomInternalHeader,
 };
 
 // -------------------------------------------------------------------------------------------------
@@ -58,16 +53,16 @@ pub enum DisassemblyError {
 // -------------------------------------------------------------------------------------------------
 
 pub struct RomDisassembly {
-    pub rom:        Rom,
+    pub rom: Rom,
     /// Start index, Block data
-    pub chunks:     Vec<(AddrPc, BinaryBlock)>,
+    pub chunks: Vec<(AddrPc, BinaryBlock)>,
     pub code_lines: Vec<LineKind>,
 
     cached_data_blocks: HashSet<DataBlock>,
 }
 
 struct RomAssemblyWalker {
-    rom:        Rom,
+    rom: Rom,
     /// Start index, Block data
     pub chunks: Vec<(AddrPc, BinaryBlock)>,
 
@@ -75,10 +70,10 @@ struct RomAssemblyWalker {
     analysed_chunks: BTreeMap<AddrPc, (AddrPc, usize)>,
 
     // Temporary until code scanning
-    remaining_steps:      VecDeque<RomAssemblyWalkerStep>,
+    remaining_steps: VecDeque<RomAssemblyWalkerStep>,
     analysed_code_starts: HashSet<AddrPc>,
     /// Subroutine start -> addresses of call return points
-    subroutine_returns:   HashMap<AddrPc, Vec<AddrPc>>,
+    subroutine_returns: HashMap<AddrPc, Vec<AddrPc>>,
     analysed_subroutines: HashMap<AddrPc, Rc<RefCell<SubroutineAnalysisState>>>,
 }
 
@@ -91,23 +86,23 @@ enum RomAssemblyWalkerStep {
 #[derive(Clone)]
 struct StepSubroutine {
     code_start: AddrPc,
-    entrance:   AddrSnes,
-    caller:     Option<Box<StepSubroutine>>,
+    entrance: AddrSnes,
+    caller: Option<Box<StepSubroutine>>,
 }
 
 #[derive(Clone)]
 struct StepBasicBlock {
     code_start: AddrPc,
-    processor:  Processor,
-    entrance:   AddrSnes,
+    processor: Processor,
+    entrance: AddrSnes,
 }
 
 #[derive(Clone)]
 struct SubroutineAnalysisState {
     /// (block address, block index)
-    code_blocks:           Vec<usize>,
-    analysed_blocks:       HashSet<AddrPc>,
-    remaining_blocks:      Vec<AddrPc>,
+    code_blocks: Vec<usize>,
+    analysed_blocks: HashSet<AddrPc>,
+    remaining_blocks: Vec<AddrPc>,
     final_processor_state: Processor,
 }
 
@@ -375,8 +370,8 @@ impl RomAssemblyWalker {
             .filter(|a| a.0 != 0xFFFF)
             .map(|&addr| StepBasicBlock {
                 code_start: AddrPc::try_from(addr).unwrap(),
-                processor:  Processor::new(),
-                entrance:   addr,
+                processor: Processor::new(),
+                entrance: addr,
             })
             .map(RomAssemblyWalkerStep::BasicBlock)
             .collect();
@@ -453,9 +448,9 @@ impl RomAssemblyWalker {
             .entry(step.code_start)
             .or_insert_with(|| {
                 Rc::new(RefCell::new(SubroutineAnalysisState {
-                    code_blocks:           Vec::with_capacity(32),
-                    analysed_blocks:       HashSet::with_capacity(32),
-                    remaining_blocks:      vec![step.code_start],
+                    code_blocks: Vec::with_capacity(32),
+                    analysed_blocks: HashSet::with_capacity(32),
+                    remaining_blocks: vec![step.code_start],
                     final_processor_state: Processor::new(),
                 }))
             })
@@ -485,14 +480,14 @@ impl RomAssemblyWalker {
                             if step.sub_exists_in_call_hierarchy(sub_location) {
                                 self.enqueue_basic_block(StepBasicBlock {
                                     code_start: addr_after_block,
-                                    processor:  sub.final_processor_state.clone(),
-                                    entrance:   step.entrance,
+                                    processor: sub.final_processor_state.clone(),
+                                    entrance: step.entrance,
                                 });
                             } else {
                                 let next_step = StepSubroutine {
                                     code_start: sub_location,
-                                    entrance:   last_instruction.offset.try_into().unwrap(),
-                                    caller:     Some(Box::new(step.clone())),
+                                    entrance: last_instruction.offset.try_into().unwrap(),
+                                    caller: Some(Box::new(step.clone())),
                                 };
                                 if self.enqueue_subroutine(next_step) {
                                     sub.remaining_blocks.push(addr_after_block);
@@ -541,8 +536,8 @@ impl RomAssemblyWalker {
             for return_addr in returns.clone().into_iter() {
                 self.enqueue_basic_block(StepBasicBlock {
                     code_start: return_addr,
-                    processor:  sub.final_processor_state.clone(),
-                    entrance:   step.entrance,
+                    processor: sub.final_processor_state.clone(),
+                    entrance: step.entrance,
                 });
             }
         }
@@ -602,7 +597,7 @@ impl RomAssemblyWalker {
                             addr_after_block,
                             BinaryBlock::Data(DataBlock {
                                 slice: SnesSlice::new(jtv.begin, jtv.length),
-                                kind:  if jtv.long_ptrs { DataKind::JumpTableLong } else { DataKind::JumpTableShort },
+                                kind: if jtv.long_ptrs { DataKind::JumpTableLong } else { DataKind::JumpTableShort },
                             }),
                         ));
                     }
@@ -610,8 +605,8 @@ impl RomAssemblyWalker {
             } else if last_instruction.is_subroutine_call() {
                 let mut step_following_block = StepBasicBlock {
                     code_start: addr_after_block,
-                    processor:  processor.clone(),
-                    entrance:   code_start.try_into().unwrap(),
+                    processor: processor.clone(),
+                    entrance: code_start.try_into().unwrap(),
                 };
 
                 match AddrPc::try_from(next_instructions[0]) {
@@ -653,8 +648,8 @@ impl RomAssemblyWalker {
 
                         self.enqueue_basic_block(StepBasicBlock {
                             code_start: next_target_pc,
-                            processor:  processor.clone(),
-                            entrance:   code_start.try_into().unwrap(),
+                            processor: processor.clone(),
+                            entrance: code_start.try_into().unwrap(),
                         });
                     }
                 }

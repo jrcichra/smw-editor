@@ -230,7 +230,7 @@ pub enum Mnemonic {
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub struct Opcode {
     pub mnemonic: Mnemonic,
-    pub mode:     AddressingMode,
+    pub mode: AddressingMode,
 }
 
 // -------------------------------------------------------------------------------------------------

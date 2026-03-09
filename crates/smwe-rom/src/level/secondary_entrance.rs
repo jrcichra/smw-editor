@@ -1,8 +1,7 @@
 use crate::{
     disassembler::binary_block::{DataBlock, DataKind},
     snes_utils::{addr::AddrSnes, rom::noop_error_mapper, rom_slice::SnesSlice},
-    RomDisassembly,
-    RomError,
+    RomDisassembly, RomError,
 };
 
 pub const SECONDARY_ENTRANCE_TABLE: SnesSlice = SnesSlice::new(AddrSnes(0x05F800), 512);

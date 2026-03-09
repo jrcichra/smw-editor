@@ -18,9 +18,9 @@ pub enum BinaryBlock {
 
 #[derive(Default, Clone)]
 pub struct CodeBlock {
-    pub instructions:          Vec<Instruction>,
-    pub exits:                 Vec<AddrSnes>,
-    pub entrances:             Vec<AddrSnes>,
+    pub instructions: Vec<Instruction>,
+    pub exits: Vec<AddrSnes>,
+    pub entrances: Vec<AddrSnes>,
     pub entry_processor_state: Processor,
     pub final_processor_state: Processor,
 }
@@ -28,7 +28,7 @@ pub struct CodeBlock {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct DataBlock {
     pub slice: SnesSlice,
-    pub kind:  DataKind,
+    pub kind: DataKind,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]

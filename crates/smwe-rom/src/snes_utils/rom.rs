@@ -82,7 +82,7 @@ where
     EM: Fn(RomError) -> ET,
 {
     error_mapper: EM,
-    rom:          &'r Rom,
+    rom: &'r Rom,
 }
 
 pub struct RomViewWithErrorMapper<'r, EM, ET, RV>
@@ -90,8 +90,8 @@ where
     EM: Fn(RomError) -> ET,
 {
     error_mapper: EM,
-    rom_view:     RV,
-    _phantom:     std::marker::PhantomData<&'r [u8]>,
+    rom_view: RV,
+    _phantom: std::marker::PhantomData<&'r [u8]>,
 }
 
 #[derive(Clone)]
@@ -102,7 +102,7 @@ pub struct SnesSliced<'r> {
 #[derive(Clone)]
 pub struct PcSliced<'r> {
     slice: PcSlice,
-    rom:   &'r Rom,
+    rom: &'r Rom,
 }
 
 pub struct Decompressed {
@@ -194,11 +194,7 @@ where
         Decompressor: 'static + Fn(&[u8]) -> Result<Vec<u8>, DecompressionError>,
     {
         let decomp = self.rom_view.decompress(decompressor).map_err(&self.error_mapper)?;
-        Ok(RomViewWithErrorMapper {
-            error_mapper: self.error_mapper,
-            rom_view:     decomp,
-            _phantom:     Default::default(),
-        })
+        Ok(RomViewWithErrorMapper { error_mapper: self.error_mapper, rom_view: decomp, _phantom: Default::default() })
     }
 
     pub fn parse<'s, Ret: 's, Parser>(&'s self, f: Parser) -> Result<Ret, ET>

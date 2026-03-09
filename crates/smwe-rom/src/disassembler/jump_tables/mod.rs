@@ -9,8 +9,7 @@ use nom::{
 
 use crate::{
     snes_utils::{addr::AddrSnes, rom_slice::SnesSlice},
-    Rom,
-    RomError,
+    Rom, RomError,
 };
 
 // -------------------------------------------------------------------------------------------------
@@ -22,9 +21,9 @@ pub const EXECUTE_PTR_LONG_TRAMPOLINE_ADDR: AddrSnes = AddrSnes(0x0086FA);
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct JumpTableView {
-    pub begin:     AddrSnes,
+    pub begin: AddrSnes,
     /// Number of pointers (16-bit or 24-bit ints), not bytes.
-    pub length:    usize,
+    pub length: usize,
     pub long_ptrs: bool,
 }
 

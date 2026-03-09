@@ -41,7 +41,7 @@ pub enum ObjectInstance {
 
 #[derive(Debug, Clone)]
 pub struct ObjectLayer {
-    _objects:  Vec<ObjectInstance>,
+    _objects: Vec<ObjectInstance>,
     raw_bytes: Vec<u8>,
 }
 

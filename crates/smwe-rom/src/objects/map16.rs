@@ -6,8 +6,8 @@ pub struct Tile8x8(pub u16);
 
 #[derive(Copy, Clone, Debug)]
 pub struct Block {
-    pub upper_left:  Tile8x8,
-    pub lower_left:  Tile8x8,
+    pub upper_left: Tile8x8,
+    pub lower_left: Tile8x8,
     pub upper_right: Tile8x8,
     pub lower_right: Tile8x8,
 }

@@ -31,9 +31,9 @@ const ANIM_BEHAVIOUR_TABLE: SnesSlice = SnesSlice::new(AddrSnes(0x05B96B), 46);
 pub struct AnimatedTileData {
     pub src_addresses: Vec<AddrSnes>,
     pub dst_addresses: Vec<AddrVram>,
-    pub behaviours:    Vec<u8>,
-    pub switches:      Vec<u8>,
-    pub tilesets:      Vec<u8>,
+    pub behaviours: Vec<u8>,
+    pub switches: Vec<u8>,
+    pub tilesets: Vec<u8>,
 }
 
 impl AnimatedTileData {
