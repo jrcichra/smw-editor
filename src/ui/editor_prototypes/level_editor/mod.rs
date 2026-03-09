@@ -34,7 +34,9 @@ impl UiLevelEditor {
             rom,
             level_renderer,
             level_num: 0x105,
-            offset: Vec2::ZERO,
+            // Start scrolled to the typical SMW floor area (rows ~13-26 of 27).
+            // offset is in canvas units (SNES px); negative Y pans view down into the level.
+            offset: Vec2::new(0.0, -210.0),
             zoom: 2.0,
             always_show_grid: false,
             level_properties: LevelProperties::default(),
@@ -74,6 +76,8 @@ impl UiLevelEditor {
         let level = &self.rom.levels[level_idx];
         self.level_properties = LevelProperties::from_level(level);
         self.layer1 = EditableObjectLayer::from_level(level);
+        // Reset view to the floor area so tiles are visible immediately
+        self.offset = Vec2::new(0.0, -210.0);
         self.upload_gfx_palette();
         self.upload_level_tiles();
     }

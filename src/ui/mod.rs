@@ -154,7 +154,7 @@ impl UiMainWindow {
         }
     }
 
-    fn save_rom_as(&mut self, ctx: &Context) {
+    fn save_rom_as(&mut self, _ctx: &Context) {
         std::env::remove_var("DBUS_SESSION_BUS_ADDRESS");
         if let Some(dest) = rfd::FileDialog::new().add_filter("SNES ROM", &["smc", "sfc"]).save_file() {
             let Some(src) = &self.rom_path else {

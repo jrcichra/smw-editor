@@ -66,7 +66,10 @@ impl UiLevelEditor {
             // we need offset = Vec2::ZERO when pan=0. Pan shifts tile positions,
             // so offset = self.offset * ppp  (pan in physical pixels, pre-zoom).
             let screen_size_px = view_rect.size() * ppp;
-            let gl_offset = self.offset * ppp;
+            // offset is in canvas-pixel units (same space as tile positions);
+            // gl_zoom = z * ppp already converts canvas→physical pixels.
+            // Do NOT multiply offset by ppp — that would over-scale it.
+            let gl_offset = self.offset;
             let gl_zoom = z * ppp;
             ui.painter().add(PaintCallback {
                 rect: view_rect,
