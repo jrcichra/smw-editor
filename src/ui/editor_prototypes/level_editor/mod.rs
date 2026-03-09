@@ -6,26 +6,24 @@ mod properties;
 
 use std::sync::{Arc, Mutex};
 
-use egui::{CentralPanel, SidePanel, Ui, WidgetText, *};
+use egui::{CentralPanel, Frame, SidePanel, Ui, WidgetText, *};
 use smwe_rom::{graphics::palette::ColorPalette, SmwRom};
 
 use self::{level_renderer::LevelRenderer, object_layer::EditableObjectLayer, properties::LevelProperties};
 use crate::ui::tool::DockableEditorTool;
 
 pub struct UiLevelEditor {
-    gl: Arc<glow::Context>,
-    rom: Arc<SmwRom>,
+    gl:             Arc<glow::Context>,
+    rom:            Arc<SmwRom>,
     level_renderer: Arc<Mutex<LevelRenderer>>,
 
-    level_num: u16,
-    offset: Vec2,
-    zoom: f32,
-    tile_size_px: f32,
-    pixels_per_point: f32,
+    level_num:        u16,
+    offset:           Vec2,
+    zoom:             f32,
     always_show_grid: bool,
 
     level_properties: LevelProperties,
-    layer1: EditableObjectLayer,
+    layer1:           EditableObjectLayer,
 }
 
 impl UiLevelEditor {
@@ -37,9 +35,7 @@ impl UiLevelEditor {
             level_renderer,
             level_num: 0x105,
             offset: Vec2::ZERO,
-            zoom: 2.,
-            tile_size_px: 16.,
-            pixels_per_point: 1.,
+            zoom: 2.0,
             always_show_grid: false,
             level_properties: LevelProperties::default(),
             layer1: EditableObjectLayer::default(),
@@ -52,10 +48,9 @@ impl UiLevelEditor {
 // UI
 impl DockableEditorTool for UiLevelEditor {
     fn update(&mut self, ui: &mut Ui) {
-        self.pixels_per_point = ui.ctx().pixels_per_point();
         SidePanel::left("level_editor.left_panel").resizable(false).show_inside(ui, |ui| self.left_panel(ui));
         CentralPanel::default()
-            .frame(Frame::none().inner_margin(0.).fill(Color32::GRAY))
+            .frame(Frame::none().inner_margin(0.))
             .show_inside(ui, |ui| self.central_panel(ui));
     }
 

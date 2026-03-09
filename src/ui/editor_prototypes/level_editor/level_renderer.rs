@@ -6,6 +6,7 @@ use smwe_render::{
 };
 use smwe_rom::SmwRom;
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub(super) struct LevelRenderer {
     layer1: TileRenderer,
@@ -77,6 +78,7 @@ impl LevelRenderer {
     }
 }
 
+#[allow(dead_code)]
 fn bg_tile(x: u32, y: u32, t: u16) -> Tile {
     let t = t as u32;
     let tile = t & 0x3FF;
