@@ -18,6 +18,21 @@ const TILE_PX: f32 = 8.0;
 const MAP_W_PX: f32 = MAP_TILE_COLS as f32 * TILE_PX; // 256 px
 const MAP_H_PX: f32 = MAP_TILE_ROWS as f32 * TILE_PX; // 216 px
 
+/// GFX file indices loaded into each of the 8 VRAM pages for each OW submap.
+/// Data from ROM table at $00A8C3 (normal / pre-special state).
+///
+/// The SNES OW BG2 layer loads 8 GFX files into VRAM at 128-tile boundaries:
+///   VRAM page N (CHR 0xN*0x80 .. 0xN*0x80+0x7F) = GFX file OW_GFX_FILES[submap][N].
+/// CHR index decode: page = chr >> 7, tile_in_file = chr & 0x7F.
+const OW_GFX_FILES: [[usize; 8]; 6] = [
+    [0x00, 0x01, 0x13, 0x02, 0x00, 0x01, 0x12, 0x03], // Yoshi's Island
+    [0x00, 0x01, 0x13, 0x05, 0x00, 0x01, 0x13, 0x04], // Donut Plains
+    [0x00, 0x01, 0x13, 0x06, 0x00, 0x01, 0x13, 0x09], // Vanilla Dome
+    [0x00, 0x01, 0x13, 0x04, 0x00, 0x01, 0x06, 0x11], // Twin Bridges
+    [0x00, 0x01, 0x13, 0x20, 0x00, 0x01, 0x13, 0x0F], // Forest of Illusion
+    [0x00, 0x01, 0x13, 0x23, 0x00, 0x01, 0x0D, 0x14], // Chocolate Island
+];
+
 const SUBMAP_NAMES: &[&str] = &[
     "Yoshi's Island",
     "Donut Plains",
@@ -566,12 +581,13 @@ fn render_ow_map(
     let mut pixels = vec![Color32::from_gray(20); img_w * img_h];
     let mut buf = [Color32::TRANSPARENT; 64];
 
+    // OW VRAM has 8 pages of 128 tiles each; each page maps to a GFX file.
+    let gfx_pages = OW_GFX_FILES.get(sm).copied().unwrap_or(OW_GFX_FILES[0]);
     let get_tile = |chr: usize| -> Option<&smwe_rom::graphics::gfx_file::Tile> {
-        if chr < 128 {
-            rom.gfx.files.get(0)?.tiles.get(chr)
-        } else {
-            rom.gfx.files.get(1)?.tiles.get(chr - 128)
-        }
+        let page   = chr >> 7;        // which 128-tile VRAM block
+        let offset = chr & 0x7F;      // tile index within that block
+        let file_idx = *gfx_pages.get(page)?;
+        rom.gfx.files.get(file_idx)?.tiles.get(offset)
     };
 
     // ── Layer 2: terrain background ──────────────────────────────────────────
