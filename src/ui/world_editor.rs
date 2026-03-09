@@ -294,22 +294,6 @@ impl UiWorldEditor {
                 .unwrap_or(Color32::from_rgb(24, 56, 144)));
         painter.rect_filled(resp.rect, Rounding::ZERO, bg);
 
-        // ── Draw overworld GFX tile sheet as the map background texture ────────
-        if let Some(tex) = &self.gfx_texture {
-            // Tile the GFX sheet across the map canvas boundary
-            let map_rect = Rect::from_min_size(canvas_tl, vec2(OW_NATIVE_W * z, OW_NATIVE_H * z));
-            let visible = map_rect.intersect(resp.rect);
-            if visible.is_positive() {
-                // Draw at lower opacity so nodes are clearly visible
-                painter.image(
-                    tex.id(),
-                    map_rect.with_max_x(map_rect.max.x.min(resp.rect.max.x))
-                           .with_max_y(map_rect.max.y.min(resp.rect.max.y)),
-                    Rect::from_min_size(Pos2::ZERO, vec2(1.0, 1.0)),
-                    Color32::from_rgba_unmultiplied(255, 255, 255, 200),
-                );
-            }
-        }
 
         // ── Optional tile grid ────────────────────────────────────────────────
         if self.show_grid {
