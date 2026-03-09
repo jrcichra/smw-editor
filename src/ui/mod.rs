@@ -6,6 +6,7 @@ mod style;
 mod tab_viewer;
 mod tool;
 mod welcome;
+mod world_editor;
 
 use std::{path::PathBuf, sync::Arc};
 
@@ -25,6 +26,7 @@ use crate::{
         project_creator::UiProjectCreator,
         tab_viewer::EditorToolTabViewer,
         tool::DockableEditorTool,
+        world_editor::UiWorldEditor,
     },
 };
 
@@ -207,6 +209,10 @@ impl UiMainWindow {
                     ui.add_enabled_ui(has_rom, |ui| {
                         if ui.button("Level Editor").clicked() {
                             self.open_tool(UiLevelEditor::new(Arc::clone(&self.gl), Arc::clone(rom.unwrap())));
+                            ui.close_menu();
+                        }
+                        if ui.button("World Map Editor").clicked() {
+                            self.open_tool(UiWorldEditor::new(Arc::clone(rom.unwrap())));
                             ui.close_menu();
                         }
                         if ui.button("Sprite Tile Editor").clicked() {

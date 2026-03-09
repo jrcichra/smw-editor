@@ -1,39 +1,14 @@
+use std::sync::Arc;
+
 use egui::{
-    Align2, Color32, FontId, Rect, Rounding, Sense, Stroke, Ui, Vec2, vec2,
+    Align2, Color32, FontId, PaintCallback, Rect, Rounding, Sense, Stroke, Ui, Vec2, vec2,
 };
+use egui_glow::CallbackFn;
 
 use super::UiLevelEditor;
 
 // Pixels per game tile at zoom=1
 const TILE_PX: f32 = 16.0;
-
-// ── Object colours by category ────────────────────────────────────────────────
-fn object_color(id: u8) -> (Color32, Color32) {
-    // (fill, label-text)
-    match id {
-        0x00..=0x0F => (Color32::from_rgb(70,  130, 70),  Color32::WHITE),  // terrain / solid
-        0x10..=0x1F => (Color32::from_rgb(50,  90,  170), Color32::WHITE),  // pipes / water
-        0x20..=0x2F => (Color32::from_rgb(150, 110, 40),  Color32::WHITE),  // slopes / dirt
-        0x30..=0x3F => (Color32::from_rgb(170, 70,  70),  Color32::WHITE),  // special blocks
-        0x40..=0x4F => (Color32::from_rgb(130, 50,  150), Color32::WHITE),  // moving / rotating
-        0x50..=0x5F => (Color32::from_rgb(50,  150, 150), Color32::BLACK),  // coins / items
-        0x60..=0x6F => (Color32::from_rgb(190, 150, 30),  Color32::BLACK),  // platforms
-        _           => (Color32::from_rgb(90,  90,  90),  Color32::WHITE),  // unknown
-    }
-}
-
-fn object_label(id: u8) -> &'static str {
-    match id {
-        0x00 => "Ground",  0x01 => "Slope\\", 0x02 => "Slope/",
-        0x03 => "Ledge",   0x04 => "Wall",     0x05 => "Ceiling",
-        0x06 => "Pit",     0x07 => "Fill",     0x08 => "Pipe↑",
-        0x09 => "Pipe↓",   0x0A => "Pipe→",    0x0B => "Pipe←",
-        0x0C => "Water",   0x0D => "Lava",     0x0E => "Cloud",
-        0x0F => "Platform",0x24 => "?Block",   0x25 => "Brick",
-        0x26 => "Coin",    0x2B => "NoteBlk",  0x31 => "YoshiCoin",
-        0x74 => "Door",    _ => "",
-    }
-}
 
 impl UiLevelEditor {
     pub(super) fn central_panel(&mut self, ui: &mut Ui) {
@@ -60,7 +35,7 @@ impl UiLevelEditor {
             self.zoom = (self.zoom * factor).clamp(0.25, 8.0);
         }
 
-        // ── Level background colour ───────────────────────────
+        // ── Level background colour (fills entire canvas before GL tiles) ───
         let back_area = self.level_properties.back_area_color as usize;
         let bg = self
             .rom
@@ -79,6 +54,29 @@ impl UiLevelEditor {
             .unwrap_or(Color32::from_rgb(92, 148, 252)); // SMW default sky-blue
 
         painter.rect_filled(view_rect, Rounding::ZERO, bg);
+
+        // ── GL tile rendering (actual SNES graphics) ────────────
+        {
+            let level_renderer = Arc::clone(&self.level_renderer);
+            let ppp = ui.ctx().pixels_per_point();
+            // egui_glow sets the GL viewport to `rect` before calling the callback,
+            // so screen_size = rect.size() * ppp  (physical pixels of the viewport).
+            // The shader: ndc = ((tile_px + offset)*zoom / screen_size * 2 - 1) * (1,-1)
+            // For tile (0,0) to appear at canvas origin (top-left of view_rect),
+            // we need offset = Vec2::ZERO when pan=0. Pan shifts tile positions,
+            // so offset = self.offset * ppp  (pan in physical pixels, pre-zoom).
+            let screen_size_px = view_rect.size() * ppp;
+            let gl_offset = self.offset * ppp;
+            let gl_zoom = z * ppp;
+            ui.painter().add(PaintCallback {
+                rect: view_rect,
+                callback: Arc::new(CallbackFn::new(move |_info, painter| {
+                    let mut r = level_renderer.lock().expect("Cannot lock level_renderer");
+                    r.set_offset(gl_offset);
+                    r.paint(painter.gl(), screen_size_px, gl_zoom);
+                })),
+            });
+        }
 
         let props = &self.level_properties;
         let (level_w, level_h) = props.level_dimensions_in_tiles();
@@ -135,73 +133,21 @@ impl UiLevelEditor {
             }
         }
 
-        // ── Draw placed objects ───────────────────────────────
-        for obj in &self.layer1.objects {
-            let ox = obj.x as f32 * tile_sz;
-            let oy = obj.y as f32 * tile_sz;
-            let sz = tile_sz.max(4.0);
-            let pos = origin + vec2(ox, oy);
-
-            // Skip off-screen objects
-            if pos.x > view_rect.max.x + sz || pos.y > view_rect.max.y + sz
-                || pos.x + sz < view_rect.min.x || pos.y + sz < view_rect.min.y
-            {
-                continue;
-            }
-
-            let obj_rect = Rect::from_min_size(pos, Vec2::splat(sz));
-            let (fill, text_col) = object_color(obj.id);
-            let fill_a = Color32::from_rgba_unmultiplied(fill.r(), fill.g(), fill.b(), 210);
-
-            painter.rect_filled(obj_rect, Rounding::same(1.5 * z.min(1.0)), fill_a);
-            painter.rect_stroke(
-                obj_rect,
-                Rounding::same(1.5 * z.min(1.0)),
-                Stroke::new(1.0, Color32::from_white_alpha(180)),
-            );
-
-            if z >= 0.8 {
-                let lbl = if !object_label(obj.id).is_empty() {
-                    object_label(obj.id).to_string()
-                } else {
-                    format!("{:02X}:{:02X}", obj.id, obj.settings)
-                };
-                painter.text(
-                    obj_rect.center(),
-                    Align2::CENTER_CENTER,
-                    &lbl,
-                    FontId::proportional(7.5 * z.min(1.5)),
-                    text_col,
-                );
-            } else {
-                // At tiny zoom: just a filled dot
-                painter.circle_filled(obj_rect.center(), 2.5, fill);
-            }
-        }
-
-        // ── Draw level exits ──────────────────────────────────
+        // ── Draw exit markers (subtle gold badges over GL tiles) ───
         for exit in &self.layer1.exits {
             let sx = if props.is_vertical { 0 } else { exit.screen as u32 };
             let sy = if props.is_vertical { exit.screen as u32 } else { 0 };
             let ex = (sx * scr_w) as f32 * tile_sz;
             let ey = (sy * scr_h) as f32 * tile_sz;
-            let er = Rect::from_min_size(
-                origin + vec2(ex, ey),
-                Vec2::splat(tile_sz * 2.0),
-            );
-            painter.rect_filled(
-                er, Rounding::same(4.0),
-                Color32::from_rgba_unmultiplied(255, 220, 0, 180),
-            );
+            let er = Rect::from_min_size(origin + vec2(ex, ey), Vec2::splat(tile_sz * 2.0));
+            painter.rect_filled(er, Rounding::same(3.0),
+                Color32::from_rgba_unmultiplied(255, 220, 0, 120));
+            painter.rect_stroke(er, Rounding::same(3.0),
+                Stroke::new(1.5, Color32::from_rgba_unmultiplied(255, 200, 0, 200)));
             if z >= 0.8 {
-                let dest = format!("→{:03X}", exit.id);
-                painter.text(
-                    er.center(),
-                    Align2::CENTER_CENTER,
-                    &dest,
-                    FontId::proportional(7.5 * z.min(1.5)),
-                    Color32::BLACK,
-                );
+                painter.text(er.center(), Align2::CENTER_CENTER,
+                    format!("→{:03X}", exit.id),
+                    FontId::proportional(7.0 * z.min(1.5)), Color32::BLACK);
             }
         }
 
