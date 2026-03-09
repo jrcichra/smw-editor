@@ -1,7 +1,6 @@
 [workspace]
 
 members = [
-    "crates/smwe-emu",
     "crates/smwe-math",
     "crates/smwe-math/wrapped_vec2_derive",
     "crates/smwe-math/wrapped_pos2_derive",
@@ -9,7 +8,6 @@ members = [
     "crates/smwe-render",
     "crates/smwe-rom",
     "crates/smwe-widgets",
-    "crates/wdc65816",
 ]
 
 [package]
@@ -22,12 +20,10 @@ readme = "README.md"
 rust-version = "1.70"
 
 [dependencies]
-smwe-emu = { path = "crates/smwe-emu" }
 smwe-math = { path = "crates/smwe-math" }
 smwe-render = { path = "crates/smwe-render" }
 smwe-rom = { path = "crates/smwe-rom" }
 smwe-widgets = { path = "crates/smwe-widgets" }
-wdc65816 = { path = "crates/wdc65816" }
 
 anyhow = "1.0"
 duplicate = "1.0"

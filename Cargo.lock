@@ -3050,21 +3050,12 @@ dependencies = [
  "serde",
  "serde_json",
  "shrinkwraprs",
- "smwe-emu",
  "smwe-math",
  "smwe-render",
  "smwe-rom",
  "smwe-widgets",
  "thiserror",
- "wdc65816",
  "zstd",
-]
-
-[[package]]
-name = "smwe-emu"
-version = "0.1.0"
-dependencies = [
- "wdc65816",
 ]
 
 [[package]]
@@ -3090,7 +3081,6 @@ dependencies = [
  "log",
  "serde",
  "shrinkwraprs",
- "smwe-emu",
  "smwe-math",
  "thiserror",
 ]
@@ -3126,7 +3116,6 @@ dependencies = [
  "glow",
  "inline_tweak",
  "itertools 0.12.1",
- "smwe-emu",
  "smwe-render",
  "thiserror",
 ]
@@ -3658,10 +3647,6 @@ dependencies = [
  "once_cell",
  "pkg-config",
 ]
-
-[[package]]
-name = "wdc65816"
-version = "0.1.0"
 
 [[package]]
 name = "web-sys"
