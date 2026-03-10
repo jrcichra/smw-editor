@@ -591,37 +591,137 @@ fn place_object_disx(
     level_w: u32,
     level_h: u32,
 ) -> bool {
-    match obj_id {
-        0x01..=0x0F => {
+    match disx_routine_for_object(obj_id) {
+        DisxRoutine::Da8c3 => {
             place_obj_0da8c3(tile_map, obj_id, s_lo, s_hi, base_x, base_y, level_w, level_h);
             true
         }
-        0x0F => {
+        DisxRoutine::Daa26 => {
             place_obj_0daa26(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
             true
         }
-        0x13 => {
+        DisxRoutine::Daab4 => {
+            place_obj_0daab4(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Dab0d => {
+            place_obj_0dab0d(tile_map, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Dab3e => {
+            place_obj_0dab3e(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Db075 => {
             place_obj_0db075(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
             true
         }
-        0x39 => {
-            place_obj_0xdb73f(tile_map, s_hi, base_x, base_y, level_w, level_h);
-            true
-        }
-        0x3A => {
-            place_obj_0xdb7aa(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
-            true
-        }
-        0x3F => {
-            place_obj_0xdb5b7(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
-            true
-        }
-        0x14 => {
+        DisxRoutine::Db1d4 => {
             place_obj_0db1d4(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
             true
         }
-        0x21 => {
+        DisxRoutine::Db1c8 => {
             place_obj_0db1c8(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Db224 => {
+            place_obj_0xdb224(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Db336 => {
+            place_obj_0db336(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Db3bd => {
+            place_obj_0db3bd(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Db3e3 => {
+            place_obj_0db3e3(tile_map, obj_id, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Db42d => {
+            place_obj_0db42d(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Db461 => {
+            place_obj_0db461(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Db49e => {
+            place_obj_0db49e(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Db51f => {
+            place_obj_0db51f(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Db547 => {
+            place_obj_0db547(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Db73f => {
+            place_obj_0xdb73f(tile_map, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Db7aa => {
+            place_obj_0xdb7aa(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Db863 => {
+            place_obj_0db863(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Db604 => {
+            place_obj_0db604(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Db6c3 => {
+            place_obj_0db6c3(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Db705 => {
+            place_obj_0db705(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Db5b7 => {
+            place_obj_0xdb5b7(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Dbb2c => {
+            place_obj_0dbb2c(tile_map, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Dbb63 => {
+            place_obj_0da8c3(tile_map, 0x0E, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Db916 => {
+            place_obj_0db91e(tile_map, 0, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Db91e => {
+            place_obj_0db91e(tile_map, 1, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Db966 => {
+            place_obj_0db966(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Db9c0 => {
+            place_obj_0db9c0(tile_map, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Dba0a => {
+            place_obj_0dba0a(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Dba4c => {
+            place_obj_0dba4c(tile_map, s_lo, s_hi, base_x, base_y, level_w, level_h);
+            true
+        }
+        DisxRoutine::Dbadc => {
+            place_obj_0dbadc(tile_map, base_x, base_y, level_w, level_h);
             true
         }
         _ => false,
@@ -681,25 +781,34 @@ impl<'a> ObjCursor<'a> {
         }
     }
 
+    fn advance(&mut self) {
+        self.x += 1;
+    }
+
+    fn write_low(&mut self, low: u8) {
+        self.place_low(low, false);
+    }
+
     fn place_low_adjust_abfd(&mut self, low: u8) {
+        // CODE_0DABFD: adjust based on the current tile
+        const MATCH: [u8; 3] = [0x3F, 0x01, 0x03];
+        const DELTA: [u8; 3] = [0x01, 0x03, 0x04];
         let mut out = low;
         let cur_low = self.get_cur_low();
-        if cur_low == 0x3F {
-            out = out.wrapping_add(0x01);
-        } else if cur_low == 0x01 {
-            out = out.wrapping_add(0x03);
-        } else if cur_low == 0x03 {
-            out = out.wrapping_add(0x04);
+        for i in 0..MATCH.len() {
+            if cur_low == MATCH[i] {
+                out = out.wrapping_add(DELTA[i]);
+                break;
+            }
         }
         self.place_low(out, true);
     }
 
     fn place_low_adjust_b84e(&mut self, low: u8) {
+        // CODE_0DB84E: if current tile isn't 0x25, add 2.
         let mut out = low;
         let cur_low = self.get_cur_low();
-        if cur_low == 0x3F {
-            out = out.wrapping_add(0x01);
-        } else if cur_low != 0x25 {
+        if cur_low != 0x25 {
             out = out.wrapping_add(0x02);
         }
         self.place_low(out, true);
@@ -781,14 +890,15 @@ fn place_obj_0xdb73f(
     const DATA: [u8; 16] = [0xC4, 0xC5, 0xC7, 0xEC, 0xED, 0xC6, 0xC7, 0xEE, 0x59, 0x5A, 0xEF, 0xC7, 0xEE, 0x59, 0x5B, 0x5C];
     let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
     cur.set_hi(1);
-    let mut height = s_hi as i32 + 1;
+    let mut remaining = s_hi as i32 + 1;
     let mut row_len = 1i32;
     let mut idx: i32 = 0;
     cur.save_pos();
 
-    while height > 0 {
+    while remaining > 0 {
         let mut count = row_len;
         while count >= 0 && idx < DATA.len() as i32 {
+            cur.set_hi(1);
             cur.place_low(DATA[idx as usize], true);
             idx += 1;
             count -= 1;
@@ -796,17 +906,18 @@ fn place_obj_0xdb73f(
         cur.restore_pos();
         cur.step_down_left();
         row_len += 2;
-        height -= 1;
+        remaining -= 1;
         if idx == 6 {
             break;
         }
     }
 
-    if height > 0 {
+    if remaining > 0 {
         row_len -= 1;
-        while height > 0 {
+        while remaining > 0 {
             let mut count = row_len;
             while count >= 0 && idx < DATA.len() as i32 {
+                cur.set_hi(1);
                 cur.place_low(DATA[idx as usize], true);
                 idx += 1;
                 count -= 1;
@@ -816,11 +927,13 @@ fn place_obj_0xdb73f(
             if idx == 0x10 {
                 idx -= 5;
             }
-            height -= 1;
+            remaining -= 1;
         }
     }
 
-    cur.place_low(0xEB, false);
+    cur.advance();
+    cur.set_hi(1);
+    cur.write_low(0xEB);
 }
 
 fn place_obj_0xdb7aa(
@@ -833,47 +946,75 @@ fn place_obj_0xdb7aa(
     level_h: u32,
 ) {
     let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
-    let mut width = s_lo as i32 + 1;
-    let mut height = s_hi as i32 + 1;
-    if width < 1 {
-        width = 1;
-    }
-    if height < 1 {
-        height = 1;
-    }
+    let mut len = s_lo as i32;
+    let mut remain = s_hi as i32;
+    let mut row_len = 1i32;
 
-    // Top section (approximation of CODE_0DB7AA): alternating solid and fill rows
     cur.save_pos();
-    let mut row = 0;
-    while row < height {
+    cur.set_hi(1);
+    cur.place_low_adjust_abfd(0xAA);
+    cur.set_hi(0);
+    cur.place_low_adjust_b84e(0xA1);
+
+    while len >= 0 {
         cur.restore_pos();
-        cur.y += row;
-        cur.x -= row;
+        cur.step_down_left();
+        row_len += 2;
+        let mut x = row_len;
+        len -= 1;
+        if len < 0 {
+            break;
+        }
+
         cur.set_hi(1);
         cur.place_low_adjust_abfd(0xAA);
-        for _ in 0..width {
-            cur.set_hi(1);
-            cur.place_low(0xE2, true);
+        x -= 1;
+        cur.set_hi(1);
+        cur.place_low(0xE2, true);
+        x -= 1;
+        while x != 0 {
             cur.set_hi(0);
             cur.place_low(0x3F, true);
+            x -= 1;
         }
         cur.set_hi(0);
         cur.place_low_adjust_b84e(0xA6);
-        row += 1;
     }
 
-    // Bottom cap
-    cur.restore_pos();
-    cur.y += height;
-    cur.x -= height;
-    cur.set_hi(1);
-    cur.place_low_adjust_abfd(0xF7);
-    for _ in 0..width {
+    cur.advance();
+    cur.save_pos();
+    let mut first = true;
+    loop {
+        if first {
+            cur.set_hi(1);
+            cur.place_low_adjust_abfd(0xF7);
+            let mut mid = row_len.saturating_sub(2);
+            while mid > 0 {
+                cur.set_hi(0);
+                cur.place_low(0x3F, true);
+                mid -= 1;
+            }
+        } else {
+            cur.set_hi(0);
+            cur.place_low_adjust_b84e(0xA3);
+            let mut mid = row_len.saturating_sub(1);
+            while mid > 0 {
+                cur.set_hi(0);
+                cur.place_low(0x3F, true);
+                mid -= 1;
+            }
+        }
         cur.set_hi(0);
-        cur.place_low(0x3F, true);
+        cur.place_low_adjust_b84e(0xA6);
+
+        cur.restore_pos();
+        cur.step_down_right();
+        remain -= 1;
+        if remain < 0 {
+            break;
+        }
+        first = false;
     }
-    cur.set_hi(0);
-    cur.place_low_adjust_b84e(0xA6);
 }
 
 fn place_obj_0da8c3(
@@ -907,6 +1048,61 @@ fn place_obj_0da8c3(
                 }
             }
         }
+    }
+}
+
+fn place_obj_0daab4(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    s_lo: u32,
+    s_hi: u32,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    const A: [u8; 8] = [0x3B, 0x3C, 0x3B, 0x3F, 0x3B, 0x3C, 0x3B, 0x3F];
+    const B: [u8; 8] = [0x3D, 0x3E, 0x3D, 0x3E, 0x3D, 0x3E, 0x3D, 0x3E];
+    let width = s_lo as i32 + 1;
+    let height = (s_hi >> 4) as i32 + 1;
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    cur.set_hi(1);
+    let mut x = (s_hi >> 4) as usize;
+    let mut row = 0;
+    while row < height {
+        cur.x = base_x;
+        cur.y = base_y + row;
+        for col in 0..width {
+            let t = if x < 4 { A[x] } else { B[x - 4] };
+            cur.place_low(t, true);
+            if col + 1 < width {
+                x = (x + 1) & 7;
+            }
+        }
+        row += 1;
+        x = (x + 1) & 7;
+    }
+}
+
+fn place_obj_0dab0d(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    s_hi: u32,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    cur.set_hi(1);
+    let height = s_hi as i32 + 1;
+    cur.place_low(0x41, false);
+    if height <= 1 {
+        return;
+    }
+    cur.y += 1;
+    cur.place_low(0x42, false);
+    for row in 2..height {
+        cur.y = base_y + row;
+        cur.place_low(0x43, false);
     }
 }
 
@@ -965,6 +1161,38 @@ fn place_obj_0daa26(
     }
 }
 
+fn place_obj_0dab3e(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    s_lo: u32,
+    s_hi: u32,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    // Complex multi-object dispatcher in SMWDisX; approximate with a 2x2 motif per variant.
+    const TOP_L: [u8; 10] = [0x96, 0xAA, 0xAF, 0xA9, 0xA3, 0xA6, 0x9B, 0xF7, 0x61, 0x63];
+    const TOP_R: [u8; 10] = [0x9B, 0xE2, 0xAF, 0xE4, 0xA6, 0xA6, 0xDE, 0xE2, 0x62, 0x64];
+    let idx = (s_lo % 10) as usize;
+    let width = 2;
+    let height = (s_hi as i32 + 1).max(1);
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    cur.set_hi(1);
+    for row in 0..height {
+        cur.x = base_x;
+        cur.y = base_y + row;
+        cur.place_low(TOP_L[idx], true);
+        cur.place_low(TOP_R[idx], true);
+    }
+    for row in 1..height {
+        cur.x = base_x;
+        cur.y = base_y + row;
+        for _ in 0..width {
+            cur.place_low(0x3F, true);
+        }
+    }
+}
+
 fn place_obj_0db075(
     tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
     s_lo: u32,
@@ -1002,6 +1230,501 @@ fn place_obj_0db075(
         for _ in 0..width {
             cur.place_low(tile, true);
         }
+    }
+}
+
+fn place_obj_0db336(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    _s_lo: u32,
+    _s_hi: u32,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    // Item-memory controlled object in SMWDisX; render a simple marker tile.
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    cur.set_hi(0);
+    cur.place_low(0x2D, false);
+}
+
+fn place_obj_0db3bd(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    s_lo: u32,
+    s_hi: u32,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    const DATA: [u8; 2] = [0x05, 0x06];
+    let kind = (s_hi as usize).min(1);
+    let width = s_lo as i32 + 1;
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    cur.set_hi(1);
+    cur.x = base_x;
+    cur.y = base_y;
+    for _ in 0..width {
+        cur.place_low(DATA[kind], true);
+    }
+}
+
+fn place_obj_0db3e3(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    obj_id: u32,
+    s_lo: u32,
+    s_hi: u32,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    const TOP: [u8; 4] = [0x00, 0x01, 0x04, 0x08];
+    const MID: [u8; 4] = [0x02, 0x03, 0x05, 0x0B];
+    let mut idx = obj_id.saturating_sub(0x17) as usize;
+    if idx >= TOP.len() {
+        idx = TOP.len() - 1;
+    }
+    let width = s_lo as i32 + 1;
+    let height = s_hi as i32 + 1;
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    cur.set_hi(0);
+    if height > 0 {
+        cur.x = base_x;
+        cur.y = base_y;
+        for _ in 0..width {
+            cur.place_low(TOP[idx], true);
+        }
+        for row in 1..height {
+            cur.x = base_x;
+            cur.y = base_y + row;
+            for _ in 0..width {
+                cur.place_low(MID[idx], true);
+            }
+        }
+    }
+}
+
+fn place_obj_0db42d(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    s_lo: u32,
+    _s_hi: u32,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    const DATA: [u8; 2] = [0x26, 0x44];
+    let width = s_lo as i32 + 1;
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    cur.set_hi(0);
+    for col in 0..2 {
+        cur.x = base_x + col;
+        cur.y = base_y;
+        for _ in 0..width {
+            cur.place_low(DATA[col as usize], true);
+        }
+    }
+}
+
+fn place_obj_0db461(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    s_lo: u32,
+    s_hi: u32,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    let width = s_lo as i32 + 1;
+    let height = s_hi as i32 + 1;
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    cur.set_hi(0);
+    for row in 0..height {
+        cur.x = base_x;
+        cur.y = base_y + row;
+        let tile = if row + 1 == height { 0x0E } else { 0x0B };
+        for _ in 0..width {
+            cur.place_low(tile, true);
+        }
+    }
+}
+
+fn place_obj_0db49e(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    s_lo: u32,
+    s_hi: u32,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    const DATA: [u8; 2] = [0x0A, 0x0C];
+    let kind = (s_lo as usize).min(1);
+    let height = s_hi as i32 + 1;
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    cur.set_hi(0);
+    for row in 0..height {
+        cur.x = base_x;
+        cur.y = base_y + row;
+        cur.place_low(DATA[kind], true);
+    }
+}
+
+fn place_obj_0db51f(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    s_lo: u32,
+    s_hi: u32,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    let width = s_lo as i32 + 1;
+    let height = s_hi as i32 + 1;
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    cur.set_hi(1);
+    for row in 0..height {
+        cur.x = base_x;
+        cur.y = base_y + row;
+        for _ in 0..width {
+            cur.place_low(0x54, true);
+        }
+    }
+}
+
+fn place_obj_0db547(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    s_lo: u32,
+    _s_hi: u32,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    let width = s_lo as i32 + 1;
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    cur.set_hi(1);
+    cur.place_low(0x56, true);
+    for _ in 0..width {
+        cur.place_low(0x57, true);
+    }
+    cur.place_low(0x58, false);
+}
+
+fn place_obj_0db604(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    s_lo: u32,
+    _s_hi: u32,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    const DATA: [u8; 26] = [
+        0x0A, 0x08, 0x0A, 0x0A, 0x09, 0x81, 0x82, 0x83, 0x81, 0x82, 0x83, 0x81, 0x81, 0x25, 0x84, 0x81,
+        0x25, 0x84, 0x81, 0x81, 0x25, 0x84, 0x81, 0x25, 0x84, 0x81,
+    ];
+    let width = s_lo as i32 + 1;
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    cur.set_hi(1);
+    let mut idx = 0usize;
+    for row in 0..3 {
+        cur.x = base_x;
+        cur.y = base_y + row;
+        for _ in 0..width {
+            let t = DATA[idx % DATA.len()];
+            idx += 1;
+            cur.place_low(t, true);
+        }
+    }
+}
+
+fn place_obj_0db6c3(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    s_lo: u32,
+    s_hi: u32,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    const DATA: [u8; 2] = [0x93, 0x9C];
+    let kind = (s_hi as usize).min(1);
+    let width = s_lo as i32 + 1;
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    cur.set_hi(1);
+    for _ in 0..width {
+        cur.place_low(DATA[kind], true);
+    }
+}
+
+fn place_obj_0db705(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    s_lo: u32,
+    s_hi: u32,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    const TOP: [u8; 8] = [0x94, 0x8F, 0x9D, 0x98, 0x95, 0x90, 0x9E, 0x99];
+    const MID: [u8; 8] = [0x8F, 0x8F, 0x98, 0x98, 0x90, 0x90, 0x99, 0x99];
+    let kind = (s_lo as usize).min(7);
+    let height = s_hi as i32 + 1;
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    cur.set_hi(1);
+    for row in 0..height {
+        cur.x = base_x;
+        cur.y = base_y + row;
+        let tile = if row == 0 { TOP[kind] } else { MID[kind] };
+        cur.place_low(tile, true);
+    }
+}
+
+fn place_obj_0db91e(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    variant: u8,
+    s_lo: u32,
+    s_hi: u32,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    const DATA: [u8; 2] = [0x6C, 0x6D];
+    let tile = DATA[variant as usize % 2];
+    let width = s_lo as i32 + 1;
+    let height = s_hi as i32 + 1;
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    cur.set_hi(1);
+    for row in 0..height {
+        cur.x = base_x;
+        cur.y = base_y + row;
+        for _ in 0..width {
+            cur.place_low(tile, true);
+        }
+    }
+}
+
+fn place_obj_0db966(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    s_lo: u32,
+    s_hi: u32,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    const A: [u8; 2] = [0xBD, 0xBF];
+    const B: [u8; 2] = [0xBE, 0xC0];
+    let kind = (s_lo as usize).min(1);
+    let height = s_hi as i32 + 1;
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    cur.set_hi(1);
+    for row in 0..height {
+        cur.x = base_x;
+        cur.y = base_y + row;
+        let tile = if row % 2 == 0 { A[kind] } else { B[kind] };
+        cur.place_low(tile, true);
+    }
+}
+
+fn place_obj_0db9c0(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    s_hi: u32,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    let height = s_hi as i32 + 1;
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    cur.set_hi(1);
+    for row in 0..height {
+        cur.x = base_x;
+        cur.y = base_y + row;
+        if row % 2 == 0 {
+            cur.place_low(0xB9, true);
+            cur.place_low(0xBA, true);
+        } else {
+            cur.place_low(0xBB, true);
+            cur.place_low(0xBC, true);
+        }
+    }
+}
+
+fn place_obj_0dba0a(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    s_lo: u32,
+    s_hi: u32,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    let width = s_lo as i32 + 1;
+    let height = s_hi as i32 + 1;
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    cur.set_hi(1);
+    for row in 0..height {
+        cur.x = base_x;
+        cur.y = base_y + row;
+        let tile = if row == 0 { 0x0E } else { 0xB8 };
+        for _ in 0..width {
+            cur.place_low(tile, true);
+        }
+    }
+}
+
+fn place_obj_0dba4c(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    s_lo: u32,
+    s_hi: u32,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    const TOP: [u8; 4] = [0x5F, 0x5E, 0x10, 0x0F];
+    const MID: [u8; 4] = [0x60, 0x5D, 0xC5, 0xC4];
+    let kind = (s_lo as usize).min(3);
+    let height = s_hi as i32 + 1;
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    cur.set_hi(1);
+    for row in 0..height {
+        cur.x = base_x;
+        cur.y = base_y + row;
+        let tile = if row == 0 { TOP[kind] } else { MID[kind] };
+        cur.place_low(tile, true);
+    }
+}
+
+fn place_obj_0dbadc(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    const DATA: [u8; 96] = [
+        0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4,
+        0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4,
+        0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB4, 0xB5,
+        0xB3, 0xB5, 0xB3, 0xB3, 0xB4, 0xB4, 0xB5, 0xB3, 0xB4, 0xB4, 0xB4, 0xB4, 0xB5, 0xB3, 0xB5,
+        0xB6, 0xB1, 0xB6, 0xB1, 0xB1, 0xB3, 0xB5, 0xB6, 0xB1, 0xB3, 0xB5, 0xB3, 0xB5, 0xB6, 0xB1,
+        0xB6, 0x25, 0x25, 0x25, 0x25, 0x25, 0xB1, 0xB6, 0x25, 0x25, 0xB1, 0xB6, 0xB1, 0xB6, 0x25, 0x25,
+        0x25, 0x25, 0x25, 0x25, 0x25,
+    ];
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    cur.set_hi(1);
+    let mut idx = 0usize;
+    for row in 0..6 {
+        cur.x = base_x;
+        cur.y = base_y + row;
+        for _ in 0..16 {
+            if idx < DATA.len() {
+                cur.place_low(DATA[idx], true);
+                idx += 1;
+            }
+        }
+    }
+}
+
+fn place_obj_0dbb2c(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    s_hi: u32,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    let height = s_hi as i32 + 1;
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    cur.set_hi(1);
+    for row in 0..height {
+        cur.x = base_x;
+        cur.y = base_y + row;
+        let (a, b) = if row == 0 { (0x61, 0x62) } else { (0x63, 0x64) };
+        cur.place_low(a, true);
+        cur.place_low(b, true);
+    }
+}
+
+fn place_obj_0db863(
+    tile_map: &mut std::collections::HashMap<(u32, u32), usize>,
+    s_lo: u32,
+    s_hi: u32,
+    base_x: i32,
+    base_y: i32,
+    level_w: u32,
+    level_h: u32,
+) {
+    let mut cur = ObjCursor::new(tile_map, base_x, base_y, level_w, level_h);
+    let mut len = s_lo as i32;
+    let mut remain = s_hi as i32;
+    let mut row_len = 1i32;
+
+    cur.save_pos();
+    cur.set_hi(0);
+    cur.place_low_adjust_b84e(0xAF);
+    cur.set_hi(1);
+    cur.place_low_adjust_abfd(0xAF);
+
+    while len >= 0 {
+        cur.restore_pos();
+        cur.step_down_left();
+        row_len += 2;
+        let mut x = row_len;
+        len -= 1;
+        if len < 0 {
+            break;
+        }
+
+        cur.set_hi(0);
+        cur.place_low_adjust_b84e(0xA9);
+        x -= 1;
+        while x != 1 {
+            cur.set_hi(0);
+            cur.place_low(0x3F, true);
+            x -= 1;
+        }
+        cur.set_hi(1);
+        cur.place_low(0xE4, true);
+        cur.set_hi(1);
+        cur.place_low_adjust_abfd(0xAF);
+    }
+
+    row_len -= 1;
+    let mut x = row_len;
+    cur.set_hi(0);
+    cur.place_low_adjust_b84e(0xA9);
+    x -= 1;
+    while x != 0 {
+        cur.set_hi(0);
+        cur.place_low(0x3F, true);
+        x -= 1;
+    }
+    cur.set_hi(1);
+    cur.place_low_adjust_b84e(0xF9);
+    loop {
+        cur.restore_pos();
+        cur.step_down_left();
+        remain -= 1;
+        if remain < 0 {
+            break;
+        }
+        x = row_len;
+        cur.set_hi(0);
+        cur.place_low_adjust_b84e(0xA9);
+        x -= 1;
+        while x != 0 {
+            cur.set_hi(0);
+            cur.place_low(0x3F, true);
+            x -= 1;
+        }
+        cur.set_hi(0);
+        cur.place_low_adjust_b84e(0xAC);
     }
 }
 
@@ -1160,6 +1883,119 @@ fn extended_object_map16(ext_id: usize) -> Option<u16> {
         Some(DATA_0DA548[idx] as u16)
     } else {
         None
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+enum DisxRoutine {
+    Da8c3,
+    Daa26,
+    Daab4,
+    Dab0d,
+    Dab3e,
+    Db075,
+    Db1d4,
+    Db224,
+    Db336,
+    Db3bd,
+    Db3e3,
+    Db42d,
+    Db461,
+    Db49e,
+    Db51f,
+    Db547,
+    Db1c8,
+    Dbb2c,
+    Dbb63,
+    Db916,
+    Dbadc,
+    Dba4c,
+    Dba0a,
+    Db9c0,
+    Db966,
+    Db91e,
+    Db73f,
+    Db7aa,
+    Db863,
+    Db604,
+    Db6c3,
+    Db705,
+    Db5b7,
+    Unknown,
+}
+
+fn disx_routine_for_object(obj_id: u32) -> DisxRoutine {
+    const MAP: [DisxRoutine; 0x40] = [
+        DisxRoutine::Da8c3, // 00
+        DisxRoutine::Da8c3, // 01
+        DisxRoutine::Da8c3, // 02
+        DisxRoutine::Da8c3, // 03
+        DisxRoutine::Da8c3, // 04
+        DisxRoutine::Da8c3, // 05
+        DisxRoutine::Da8c3, // 06
+        DisxRoutine::Da8c3, // 07
+        DisxRoutine::Da8c3, // 08
+        DisxRoutine::Da8c3, // 09
+        DisxRoutine::Da8c3, // 0A
+        DisxRoutine::Da8c3, // 0B
+        DisxRoutine::Da8c3, // 0C
+        DisxRoutine::Da8c3, // 0D
+        DisxRoutine::Daa26, // 0E
+        DisxRoutine::Daab4, // 0F
+        DisxRoutine::Dab0d, // 10
+        DisxRoutine::Dab3e, // 11
+        DisxRoutine::Db075, // 12
+        DisxRoutine::Db1d4, // 13
+        DisxRoutine::Db224, // 14
+        DisxRoutine::Db336, // 15
+        DisxRoutine::Db3bd, // 16
+        DisxRoutine::Db3e3, // 17
+        DisxRoutine::Db3e3, // 18
+        DisxRoutine::Db3e3, // 19
+        DisxRoutine::Db3e3, // 1A
+        DisxRoutine::Db42d, // 1B
+        DisxRoutine::Db461, // 1C
+        DisxRoutine::Db49e, // 1D
+        DisxRoutine::Db51f, // 1E
+        DisxRoutine::Db547, // 1F
+        DisxRoutine::Db1c8, // 20
+        DisxRoutine::Db3e3, // 21
+        DisxRoutine::Db3e3, // 22
+        DisxRoutine::Db3e3, // 23
+        DisxRoutine::Db3e3, // 24
+        DisxRoutine::Db3e3, // 25
+        DisxRoutine::Db3e3, // 26
+        DisxRoutine::Db3e3, // 27
+        DisxRoutine::Db3e3, // 28
+        DisxRoutine::Db3e3, // 29
+        DisxRoutine::Db3e3, // 2A
+        DisxRoutine::Db3e3, // 2B
+        DisxRoutine::Db3e3, // 2C
+        DisxRoutine::Db3e3, // 2D
+        DisxRoutine::Db3e3, // 2E
+        DisxRoutine::Dbb2c, // 2F
+        DisxRoutine::Dbb63, // 30
+        DisxRoutine::Db916, // 31
+        DisxRoutine::Dbadc, // 32
+        DisxRoutine::Dba4c, // 33
+        DisxRoutine::Dba0a, // 34
+        DisxRoutine::Db9c0, // 35
+        DisxRoutine::Db966, // 36
+        DisxRoutine::Db91e, // 37
+        DisxRoutine::Db73f, // 38
+        DisxRoutine::Db7aa, // 39
+        DisxRoutine::Db863, // 3A
+        DisxRoutine::Db604, // 3B
+        DisxRoutine::Db6c3, // 3C
+        DisxRoutine::Db705, // 3D
+        DisxRoutine::Db5b7, // 3E
+        DisxRoutine::Db3e3, // 3F
+    ];
+    let idx = obj_id as usize;
+    if idx < MAP.len() {
+        MAP[idx]
+    } else {
+        DisxRoutine::Unknown
     }
 }
 
