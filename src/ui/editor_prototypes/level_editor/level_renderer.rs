@@ -89,14 +89,25 @@ impl LevelRenderer {
         // We build a flat tile grid (map) at 16×16px per tile, then emit Tile structs
         const SCREEN_W: u32 = 16;
         const SCREEN_H: u32 = 27;
-        const LEVEL_W: u32 = 32 * SCREEN_W; // max width (32 screens)
-        const LEVEL_H: u32 = SCREEN_H;
+        const MAX_SCREENS: u32 = 32;
+        const LEVEL_W: u32 = MAX_SCREENS * SCREEN_W;
+        const LEVEL_H: u32 = SCREEN_H * 2; // some vertical levels use 2 rows
 
-        // Use a sparse HashMap so we don't allocate a huge grid up front
-        // key = (tile_x, tile_y), value = map16 block index
+        // key = (tile_x, tile_y) in 16x16 tile coords, value = map16 block index
         let mut tile_map: std::collections::HashMap<(u32, u32), usize> =
             std::collections::HashMap::with_capacity(1024);
 
+        // In SMW's object format, the N (new-screen) bit on an object means
+        // "increment the current screen counter before placing this object".
+        // It does NOT fire for every object — only specific "new screen" marker
+        // objects. Standard objects use it as a flag that belongs to the current
+        // screen boundary crossing. We must only increment once per crossing,
+        // not once per object with the N bit set.
+        //
+        // Correct algorithm: screen starts at 0. When an object has N=1,
+        // increment the screen counter ONCE for that boundary, then place the
+        // object using the NEW screen number. Objects without N=1 stay on the
+        // same screen.
         let mut current_screen: u32 = 0;
 
         for obj in &raw_objects {
@@ -107,6 +118,8 @@ impl LevelRenderer {
                 current_screen = obj.screen_number() as u32;
                 continue;
             }
+
+            // N-bit: this object is the first on a new screen; increment before placing.
             if obj.is_new_screen() {
                 current_screen = current_screen.saturating_add(1);
             }
@@ -185,218 +198,234 @@ impl LevelRenderer {
     }
 }
 
-/// Expand a standard SMW object into a list of (dx, dy, map16_tile_num) entries.
-/// dx/dy are tile offsets relative to the object origin.
-/// map16_tile_num is a 0x000..0x1FF index into the map16 table.
+/// Expand a standard SMW object into (dx, dy, map16_tile) triples.
 ///
-/// Object layout data from SMW disassembly and Lunar Magic:
-/// s_lo = settings & 0x0F  (width extension: actual width = s_lo + base)
-/// s_hi = settings >> 4    (height extension: actual height = s_hi + base)
+/// Tile numbers and object shapes from the SMW disassembly (asar/Lunar Magic).
+/// s_lo = settings & 0x0F, s_hi = settings >> 4
+/// Most objects use only s_lo for width and s_hi for height extension.
 fn expand_object(obj_id: u32, s_lo: u32, s_hi: u32) -> Vec<(u32, u32, usize)> {
     let mut out = Vec::new();
 
-    // Horizontal repeat: w tiles wide (1-based from s_lo)
+    // Width/height extensions (1-based: 0 means 1 tile, 15 means 16 tiles)
     let w = s_lo + 1;
-    // Vertical repeat: h tiles tall (1-based from s_hi)
     let h = s_hi + 1;
 
-    // Helpers
-    // fill a rectangle with a single tile
-    let fill_rect = |out: &mut Vec<(u32,u32,usize)>, tile: usize, x0: u32, y0: u32, cols: u32, rows: u32| {
-        for dy in 0..rows { for dx in 0..cols { out.push((x0+dx, y0+dy, tile)); } }
+    let mut hline = |out: &mut Vec<(u32,u32,usize)>, tile: usize, cols: u32, row: u32| {
+        for dx in 0..cols { out.push((dx, row, tile)); }
     };
-    // place a single tile
-    let single = |out: &mut Vec<_>, tile: usize, dx: u32, dy: u32| { out.push((dx, dy, tile)); };
+    let mut vline = |out: &mut Vec<(u32,u32,usize)>, tile: usize, col: u32, rows: u32| {
+        for dy in 0..rows { out.push((col, dy, tile)); }
+    };
 
+    // SMW standard object IDs 0x00-0x3F
+    // Source: SMW disassembly + Lunar Magic object list
+    // Map16 tile numbers (0x000-0x1FF) are the SNES page*256+index values
     match obj_id {
-        // ── 0x00: Sloped ledge / ground (w+1 wide, 1 tall, top surface)
+        // 0x00 – Sloped terrain (uses s_lo as width of the slope top)
+        // Actually: screen-wide ground ledge variant, 1 row tall
         0x00 => {
-            // Map16 0x000=top-left cap, 0x001=top middle fill, 0x002=top-right cap
-            single(&mut out, 0x000, 0, 0);
+            // Left cap + (w) middle + right cap on row 0
+            out.push((0, 0, 0x000));
             for dx in 1..=w { out.push((dx, 0, 0x001)); }
             out.push((w+1, 0, 0x002));
         }
-        // ── 0x01: Ground floor (w+2 wide, h+1 tall with top+body)
+        // 0x01 – Ground (top edge + body fill), w+2 wide, h+2 tall
         0x01 => {
-            // Top row: 0x020=left, 0x021=mid, 0x022=right
-            single(&mut out, 0x020, 0, 0);
+            // top row
+            out.push((0, 0, 0x020));
             for dx in 1..=w { out.push((dx, 0, 0x021)); }
             out.push((w+1, 0, 0x022));
-            // Body rows: 0x023=left edge, 0x025=fill, 0x024=right edge
+            // body rows
             for dy in 1..=h {
                 out.push((0, dy, 0x023));
                 for dx in 1..=w { out.push((dx, dy, 0x025)); }
                 out.push((w+1, dy, 0x024));
             }
         }
-        // ── 0x02: Vertical cliff / wall left side (1 wide, h+1 tall)
-        0x02 => {
-            for dy in 0..=h { fill_rect(&mut out, 0x015, 0, dy, 1, 1); }
-        }
-        // ── 0x03: Vertical cliff / wall right side
-        0x03 => {
-            for dy in 0..=h { fill_rect(&mut out, 0x016, 0, dy, 1, 1); }
-        }
-        // ── 0x04: Diagonal ground slope (up-right), w+1 tiles
+        // 0x02 – Vertical cliff left (1 wide, h+1 tall)
+        0x02 => { vline(&mut out, 0x015, 0, h+1); }
+        // 0x03 – Vertical cliff right (1 wide, h+1 tall)
+        0x03 => { vline(&mut out, 0x016, 0, h+1); }
+        // 0x04 – Diagonal slope up-right (staircase, w+1 wide)
         0x04 => {
-            for dx in 0..=w { out.push((dx, w - dx, 0x040)); }
+            for dx in 0..=w { out.push((dx, w - dx.min(w), 0x040)); }
         }
-        // ── 0x05: Diagonal ground slope (up-left)
+        // 0x05 – Diagonal slope up-left
         0x05 => {
             for dx in 0..=w { out.push((dx, dx, 0x040)); }
         }
-        // ── 0x06: Water surface (w+2 wide, h+1 tall)
+        // 0x06 – Water (w+2 wide, h+1 tall)
         0x06 => {
-            for dx in 0..=w+1 { out.push((dx, 0, 0x00E)); }
-            fill_rect(&mut out, 0x00F, 0, 1, w+2, h);
+            hline(&mut out, 0x00E, w+2, 0);     // surface row
+            for dy in 1..=h { hline(&mut out, 0x00F, w+2, dy); } // body
         }
-        // ── 0x07: Lava (w+2 wide, h+1 tall)
+        // 0x07 – Lava (w+2 wide, h+1 tall)
         0x07 => {
-            for dx in 0..=w+1 { out.push((dx, 0, 0x00D)); }
-            fill_rect(&mut out, 0x00C, 0, 1, w+2, h);
+            hline(&mut out, 0x00D, w+2, 0);
+            for dy in 1..=h { hline(&mut out, 0x00C, w+2, dy); }
         }
-        // ── 0x08: Vertical pipe (2 wide, h+2 tall, green)
-        0x08 | 0x09 => {
-            out.push((0, 0, 0x10C)); out.push((1, 0, 0x10D)); // pipe top
-            for dy in 1..=h+1 {
-                out.push((0, dy, 0x10E)); out.push((1, dy, 0x10F));
-            }
+        // 0x08 – Pipe (green, upward entrance), 2 wide, h+2 tall
+        0x08 => {
+            out.push((0, 0, 0x10C)); out.push((1, 0, 0x10D));
+            for dy in 1..=(h+1) { out.push((0, dy, 0x10E)); out.push((1, dy, 0x10F)); }
         }
-        // ── 0x0A: Horizontal pipe (w+2 wide, 2 tall)
+        // 0x09 – Pipe (green, downward entrance), 2 wide, h+2 tall
+        0x09 => {
+            for dy in 0..=h { out.push((0, dy, 0x10E)); out.push((1, dy, 0x10F)); }
+            out.push((0, h+1, 0x10C)); out.push((1, h+1, 0x10D));
+        }
+        // 0x0A – Horizontal pipe (left entrance), w+2 wide, 2 tall
         0x0A => {
             out.push((0, 0, 0x110)); out.push((0, 1, 0x111));
             for dx in 1..=w { out.push((dx, 0, 0x112)); out.push((dx, 1, 0x113)); }
             out.push((w+1, 0, 0x114)); out.push((w+1, 1, 0x115));
         }
-        // ── 0x0B: Bullet Bill cannon (1 wide, h+1 tall)
+        // 0x0B – Bullet Bill launcher, 1 wide, h+2 tall
         0x0B => {
             out.push((0, 0, 0x118));
-            for dy in 1..=h { out.push((0, dy, 0x119)); }
+            for dy in 1..=(h+1) { out.push((0, dy, 0x119)); }
         }
-        // ── 0x0C: Coin row (w+1 wide)
-        0x0C => {
-            for dx in 0..=w { out.push((dx, 0, 0x02A)); }
-        }
-        // ── 0x0D: Note block row (w+1 wide)
-        0x0D => {
-            for dx in 0..=w { out.push((dx, 0, 0x02C)); }
-        }
-        // ── 0x0E: Brick row (w+1 wide, h+1 tall)
-        0x0E => {
-            fill_rect(&mut out, 0x002, 0, 0, w+1, h+1);
-        }
-        // ── 0x0F: ? block row (w+1 wide)
-        0x0F => {
-            for dx in 0..=w { out.push((dx, 0, 0x024)); }
-        }
-        // ── 0x10: Wooden platform (w+2 wide, 1 tall)
+        // 0x0C – Coin row, w+1 wide
+        0x0C => { hline(&mut out, 0x02A, w+1, 0); }
+        // 0x0D – Note block row, w+1 wide
+        0x0D => { hline(&mut out, 0x02C, w+1, 0); }
+        // 0x0E – Brick row, w+1 wide
+        0x0E => { hline(&mut out, 0x002, w+1, 0); }
+        // 0x0F – ? block row, w+1 wide
+        0x0F => { hline(&mut out, 0x024, w+1, 0); }
+        // 0x10 – Wooden platform, w+2 wide
         0x10 => {
             out.push((0, 0, 0x131));
             for dx in 1..=w { out.push((dx, 0, 0x132)); }
             out.push((w+1, 0, 0x133));
         }
-        // ── 0x11: Cement platform (w+2 wide, 1 tall)
+        // 0x11 – Cement platform, w+2 wide (tileset-specific)
         0x11 => {
             out.push((0, 0, 0x128));
             for dx in 1..=w { out.push((dx, 0, 0x129)); }
             out.push((w+1, 0, 0x12A));
         }
-        // ── 0x12: Rock/ground top surface only (w+2 wide)
+        // 0x12 – Ground (top edge only, no body), w+2 wide
         0x12 => {
-            out.push((0, 0, 0x11E));
-            for dx in 1..=w { out.push((dx, 0, 0x11F)); }
-            out.push((w+1, 0, 0x120));
+            out.push((0, 0, 0x020));
+            for dx in 1..=w { out.push((dx, 0, 0x021)); }
+            out.push((w+1, 0, 0x022));
         }
-        // ── 0x13: Castle wall (h+1 tall, 1 wide)
-        0x13 => {
-            for dy in 0..=h { out.push((0, dy, 0x170)); }
-        }
-        // ── 0x14: Castle platform
+        // 0x13 – Vertical solid block column, 1 wide, h+1 tall
+        0x13 => { vline(&mut out, 0x025, 0, h+1); }
+        // 0x14 – Horizontal solid block row, w+2 wide
         0x14 => {
-            out.push((0, 0, 0x175));
-            for dx in 1..=w { out.push((dx, 0, 0x176)); }
-            out.push((w+1, 0, 0x177));
+            out.push((0, 0, 0x025));
+            for dx in 1..=w { out.push((dx, 0, 0x025)); }
+            out.push((w+1, 0, 0x025));
         }
-        // ── 0x15: Donut lift (1×1)
-        0x15 => { single(&mut out, 0x163, 0, 0); }
-        // ── 0x16: Cloud platform (w+2 wide)
+        // 0x15 – Donut lift platform, 1×1
+        0x15 => { out.push((0, 0, 0x163)); }
+        // 0x16 – Cloud platform, w+2 wide
         0x16 => {
             out.push((0, 0, 0x134));
             for dx in 1..=w { out.push((dx, 0, 0x135)); }
             out.push((w+1, 0, 0x136));
         }
-        // ── 0x17: Rope (vertical, h+1 tall)
-        0x17 => {
-            for dy in 0..=h { out.push((0, dy, 0x166)); }
-        }
-        // ── 0x18: Rope (horizontal, w+1 wide)
-        0x18 => {
-            for dx in 0..=w { out.push((dx, 0, 0x167)); }
-        }
-        // ── 0x19: Chain-link fence (w+2 wide, h+1 tall)
-        0x19 => {
-            fill_rect(&mut out, 0x168, 0, 0, w+2, h+1);
-        }
-        // ── 0x1A: Slope (diagonal up-right, big)
+        // 0x17 – Net/fence tile (1×1)
+        0x17 => { out.push((0, 0, 0x168)); }
+        // 0x18 – Rope horizontal, w+1 wide
+        0x18 => { hline(&mut out, 0x167, w+1, 0); }
+        // 0x19 – Rope vertical, h+1 tall
+        0x19 => { vline(&mut out, 0x166, 0, h+1); }
+        // 0x1A – Slope (45° up-right), s_lo+1 tiles wide
         0x1A => {
-            let size = w.max(1);
-            for i in 0..size {
-                out.push((i, size-1-i, 0x040));
-                for j in size-i..size { out.push((i, j, 0x025)); }
+            for dx in 0..w {
+                out.push((dx, w-1-dx, 0x040));
+                for dy in w-dx..w { out.push((dx, dy, 0x025)); }
             }
         }
-        // ── 0x1B: Slope (diagonal up-left, big)
+        // 0x1B – Slope (45° up-left)
         0x1B => {
-            let size = w.max(1);
-            for i in 0..size {
-                out.push((i, i, 0x040));
-                for j in i+1..size { out.push((i, j, 0x025)); }
+            for dx in 0..w {
+                out.push((dx, dx, 0x040));
+                for dy in (dx+1)..w { out.push((dx, dy, 0x025)); }
             }
         }
-        // ── 0x1C: Small slope up-right
+        // 0x1C – Small slope (2:1 up-right) – 2 tiles wide, 2 tall
         0x1C => {
             out.push((0, 1, 0x040)); out.push((1, 0, 0x040));
             out.push((0, 2, 0x025)); out.push((1, 1, 0x025)); out.push((1, 2, 0x025));
         }
-        // ── 0x1D: Small slope up-left
+        // 0x1D – Small slope (2:1 up-left)
         0x1D => {
             out.push((0, 0, 0x040)); out.push((1, 1, 0x040));
             out.push((0, 1, 0x025)); out.push((0, 2, 0x025)); out.push((1, 2, 0x025));
         }
-        // ── 0x1E: Muncher (w+1 wide)
-        0x1E => {
-            for dx in 0..=w { out.push((dx, 0, 0x034)); }
-        }
-        // ── 0x1F: Goal tape post
-        0x1F => {
-            for dy in 0..=h { out.push((0, dy, 0x176)); }
-        }
-        // ── 0x20: Used block row
-        0x20 => {
-            for dx in 0..=w { out.push((dx, 0, 0x025)); }
-        }
-        // ── 0x21: Turn block row
-        0x21 => {
-            for dx in 0..=w { out.push((dx, 0, 0x02E)); }
-        }
-        // ── 0x22: Yoshi coin
-        0x22 => { single(&mut out, 0x171, 0, 0); }
-        // ── 0x23: Grab block
-        0x23 => { single(&mut out, 0x02F, 0, 0); }
-        // ── 0x24-0x2F: Single tiles — map to map16 block for misc objects
-        0x24 => { single(&mut out, 0x180, 0, 0); } // Door
-        0x25 => { single(&mut out, 0x186, 0, 0); } // Goal sphere
-        0x26 => { single(&mut out, 0x02B, 0, 0); } // P-switch
-        0x27 => { single(&mut out, 0x006, 0, 0); } // p-switch used
-        // ── Fallback: place a single ground tile as a placeholder
-        _ => {
-            // Map the object ID loosely to a map16 tile so *something* shows up.
-            // Objects >= 0x40 are extended objects; we just skip unknown ones.
-            if obj_id < 0x40 {
-                let tile = ((obj_id * 4) as usize).min(0x1FE);
-                single(&mut out, tile, 0, 0);
-            }
-        }
+        // 0x1E – Muncher row, w+1 wide
+        0x1E => { hline(&mut out, 0x034, w+1, 0); }
+        // 0x1F – Goal point (1×1 orb)
+        0x1F => { out.push((0, 0, 0x1F0)); }
+        // 0x20 – Used block row, w+1 wide
+        0x20 => { hline(&mut out, 0x025, w+1, 0); }
+        // 0x21 – Turn block row, w+1 wide
+        0x21 => { hline(&mut out, 0x02E, w+1, 0); }
+        // 0x22 – Yoshi coin (1×1)
+        0x22 => { out.push((0, 0, 0x171)); }
+        // 0x23 – P-balloon block
+        0x23 => { out.push((0, 0, 0x02F)); }
+        // 0x24 – Spring board
+        0x24 => { out.push((0, 0, 0x028)); }
+        // 0x25 – Goal sphere / ball
+        0x25 => { out.push((0, 0, 0x029)); }
+        // 0x26 – P-switch
+        0x26 => { out.push((0, 0, 0x02B)); }
+        // 0x27 – Used P-switch box
+        0x27 => { out.push((0, 0, 0x006)); }
+        // 0x28 – Pow block
+        0x28 => { out.push((0, 0, 0x02D)); }
+        // 0x29 – Message block
+        0x29 => { out.push((0, 0, 0x005)); }
+        // 0x2A – Invisible coin block
+        0x2A => { out.push((0, 0, 0x007)); }
+        // 0x2B – Invisible 1-up block
+        0x2B => { out.push((0, 0, 0x007)); }
+        // 0x2C – Invisible running course
+        0x2C => { out.push((0, 0, 0x007)); }
+        // 0x2D – Invisible Yoshi egg
+        0x2D => { out.push((0, 0, 0x007)); }
+        // 0x2E – Brick block (single)
+        0x2E => { out.push((0, 0, 0x002)); }
+        // 0x2F – ? block (single)
+        0x2F => { out.push((0, 0, 0x024)); }
+        // 0x30 – Solid block (single)
+        0x30 => { out.push((0, 0, 0x025)); }
+        // 0x31 – Moving coin (single visible coin)
+        0x31 => { out.push((0, 0, 0x02A)); }
+        // 0x32 – Blue coin block
+        0x32 => { out.push((0, 0, 0x002)); }
+        // 0x33 – Boo block
+        0x33 => { out.push((0, 0, 0x025)); }
+        // 0x34 – Trampoline
+        0x34 => { out.push((0, 0, 0x028)); }
+        // 0x35 – 3-up moon
+        0x35 => { out.push((0, 0, 0x02A)); }
+        // 0x36 – Checkpoint
+        0x36 => { out.push((0, 0, 0x025)); }
+        // 0x37 – Skull raft
+        0x37 => { out.push((0, 0, 0x025)); }
+        // 0x38 – Lava/water fall (1 wide, h+1 tall)
+        0x38 => { vline(&mut out, 0x00E, 0, h+1); }
+        // 0x39 – Horizontal net, w+1 wide
+        0x39 => { hline(&mut out, 0x168, w+1, 0); }
+        // 0x3A – Diagonal moving platform
+        0x3A => { out.push((0, 0, 0x131)); }
+        // 0x3B – Auto-scroll platform
+        0x3B => { out.push((0, 0, 0x131)); }
+        // 0x3C – Layer 2 smash
+        0x3C => { out.push((0, 0, 0x025)); }
+        // 0x3D – Floating island
+        0x3D => { out.push((0, 0, 0x025)); }
+        // 0x3E – Net platform
+        0x3E => { out.push((0, 0, 0x025)); }
+        // 0x3F – Screen exit (no visual)
+        0x3F => {}
+        _ => {}
     }
 
     out
