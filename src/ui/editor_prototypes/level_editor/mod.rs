@@ -41,7 +41,7 @@ impl UiLevelEditor {
             offset: Vec2::ZERO,
             zoom: 1.0,
             always_show_grid: false,
-            show_object_overlay: true,
+            show_object_overlay: false,
             show_object_labels: true,
             level_properties: LevelProperties::default(),
             layer1: EditableObjectLayer::default(),

@@ -74,15 +74,12 @@ impl LevelRenderer {
         let tileset_idx = (level.primary_header.fg_bg_gfx() as usize) % smwe_rom::objects::tilesets::TILESETS_COUNT;
 
         let raw_bytes = level.layer1.as_bytes();
-        let raw_objects = match smwe_rom::objects::Object::parse_from_layer(raw_bytes) {
-            Some(o) => o,
-            None => {
-                self.layer1.set_tiles(gl, Vec::new());
-                self.layer2.set_tiles(gl, Vec::new());
-                self.sprites.set_tiles(gl, Vec::new());
-                return;
-            }
-        };
+        if raw_bytes.is_empty() {
+            self.layer1.set_tiles(gl, Vec::new());
+            self.layer2.set_tiles(gl, Vec::new());
+            self.sprites.set_tiles(gl, Vec::new());
+            return;
+        }
 
         // SMW level dimensions: each horizontal screen is 16×27 tiles; vertical screens are 16×16.
         // We build a flat tile grid (map) at 16×16px per tile, then emit Tile structs.
@@ -114,21 +111,122 @@ impl LevelRenderer {
         // object using the NEW screen number. Objects without N=1 stay on the
         // same screen.
         let mut current_screen: u32 = 0;
+        let mut i = 0usize;
+        let mut lm_out_of_range = 0usize;
+        let mut obj_count = 0usize;
 
-        for obj in &raw_objects {
-            if obj.is_exit() {
+        while i < raw_bytes.len() {
+            let b0 = raw_bytes[i];
+            if b0 == 0xFF {
+                break;
+            }
+            if i + 1 >= raw_bytes.len() {
+                break;
+            }
+            let b1 = raw_bytes[i + 1];
+
+            // Lunar Magic direct Map16 objects (22/23/27/29): N10YYYYY
+            if (b0 & 0x60) == 0x40 {
+                if i + 3 >= raw_bytes.len() {
+                    break;
+                }
+                let b2 = raw_bytes[i + 2];
+                let obj_kind = b1 & 0xF0;
+
+                // N-bit: new screen before placing
+                if (b0 & 0x80) != 0 {
+                    current_screen = current_screen.saturating_add(1);
+                }
+
+                let (local_x, local_y) = if is_vertical {
+                    (b0 as u32 & 0x1F, b1 as u32 & 0x0F)
+                } else {
+                    (b1 as u32 & 0x0F, b0 as u32 & 0x1F)
+                };
+                let abs_x = local_x + if is_vertical { 0 } else { current_screen * screen_w };
+                let abs_y = local_y + if is_vertical { current_screen * screen_h } else { 0 };
+
+                let h = (b2 >> 4) as u32 + 1;
+                let w = (b2 & 0x0F) as u32 + 1;
+
+                if obj_kind == 0x20 || obj_kind == 0x30 {
+                    // Object 22/23: direct Map16 pages 0-1
+                    let page = (b1 >> 4) & 1;
+                    let b3 = raw_bytes[i + 3];
+                    let tile = ((page as u16) << 8) | (b3 as u16);
+                    let tile_idx = tile as usize;
+                    for dy in 0..h {
+                        for dx in 0..w {
+                            let tx = abs_x + dx;
+                            let ty = abs_y + dy;
+                            if tx < level_w && ty < level_h {
+                                tile_map.insert((tx, ty), tile_idx);
+                            }
+                        }
+                    }
+                    obj_count += 1;
+                    i += 4;
+                    continue;
+                }
+
+                if obj_kind == 0x70 || obj_kind == 0x90 {
+                    // Object 27/29: direct Map16 pages 00-3F / 40-7F
+                    if i + 4 >= raw_bytes.len() {
+                        break;
+                    }
+                    let b3 = raw_bytes[i + 3];
+                    let b4 = raw_bytes[i + 4];
+                    let mode = (b3 >> 6) & 0x03;
+                    let mut tile = (((b3 & 0x3F) as u16) << 8) | (b4 as u16);
+                    if obj_kind == 0x90 {
+                        tile = tile.wrapping_add(0x400);
+                    }
+                    let mut tile_idx = tile as usize;
+                    if tile_idx >= 0x200 {
+                        lm_out_of_range += 1;
+                        tile_idx %= 0x200;
+                    }
+                    for dy in 0..h {
+                        for dx in 0..w {
+                            let tx = abs_x + dx;
+                            let ty = abs_y + dy;
+                            if tx < level_w && ty < level_h {
+                                tile_map.insert((tx, ty), tile_idx);
+                            }
+                        }
+                    }
+                    obj_count += 1;
+                    i += match mode {
+                        0 => 5,
+                        1 | 2 => 6,
+                        _ => 7,
+                    };
+                    continue;
+                }
+
+                // Unknown LM object type; skip three bytes to avoid stalling.
+                i += 3;
                 continue;
             }
+
+            // Exit (4 bytes)
+            if i + 3 < raw_bytes.len() && b0 & 0x50 == 0 && b1 & 0xF0 == 0 && raw_bytes[i + 2] == 0 {
+                i += 4;
+                continue;
+            }
+
+            // Standard/extended object (3 bytes)
+            if i + 2 >= raw_bytes.len() {
+                break;
+            }
+            let b2 = raw_bytes[i + 2];
+            let obj = smwe_rom::objects::Object(u32::from_be_bytes([b0, b1, b2, 0]));
+
             if obj.is_screen_jump() {
                 current_screen = obj.screen_number() as u32;
+                i += 3;
                 continue;
             }
-            if obj.is_extended() {
-                // Extended objects need a different expansion rule; skip for now to avoid garbage.
-                continue;
-            }
-
-            // N-bit: this object is the first on a new screen; increment before placing.
             if obj.is_new_screen() {
                 current_screen = current_screen.saturating_add(1);
             }
@@ -141,34 +239,19 @@ impl LevelRenderer {
             let abs_x = local_x + if is_vertical { 0 } else { current_screen * screen_w };
             let abs_y = local_y + if is_vertical { current_screen * screen_h } else { 0 };
 
+            if obj.is_extended() {
+                let map16_tile = obj.settings() as usize;
+                tile_map.insert((abs_x, abs_y), map16_tile);
+                obj_count += 1;
+                i += 3;
+                continue;
+            }
+
             let settings = obj.settings() as u32;
             let s_lo = settings & 0x0F;
             let s_hi = (settings >> 4) & 0x0F;
-
-            // All 0x40 standard object IDs map into the map16 table via a fixed
-            // encoding: each object ID occupies a 4×(max_ext+1) region of the
-            // map16 page starting at a well-known base.
-            //
-            // Rather than guessing tile layouts, we use the actual in-ROM
-            // object property encoding.  The standard object table at
-            // $05B37E (Lunar Magic calls it "Object Tiles") maps each of the 64
-            // standard objects to a (base_tile, width_style, height_style).
-            // We approximate this using the actual map16 blocks which are
-            // already parsed in rom.map16_tilesets.
-            //
-            // The reliable approach: SMW objects place map16 tiles.  For each
-            // object the first byte after its header is the "settings" byte
-            // which encodes the (w,h) extension.  We expand each object into
-            // its rectangular tile grid using the real map16 block data.
-
             let obj_id = obj.standard_object_number() as u32;
-
-            // Object-to-map16 base tile lookup (from SMW disassembly / Lunar Magic).
-            // Tile numbers here are map16 indices (0x000–0x1FF).
-            // Format: (base_tile, w_tiles fn, h_tiles fn)
-            // The closures return the (cols, rows) to fill given (s_lo, s_hi).
             let expand = expand_object(obj_id, s_lo, s_hi);
-
             for (dx, dy, map16_tile) in expand {
                 let tx = abs_x + dx;
                 let ty = abs_y + dy;
@@ -176,6 +259,16 @@ impl LevelRenderer {
                     tile_map.insert((tx, ty), map16_tile);
                 }
             }
+            obj_count += 1;
+            i += 3;
+        }
+
+        if lm_out_of_range > 0 {
+            log::warn!(
+                "Level {:#X}: {} LM map16 tiles were beyond 0x1FF (wrapped to fit current tileset)",
+                level_num,
+                lm_out_of_range
+            );
         }
 
         // Now convert the tile map to Tile structs for the renderer
@@ -197,11 +290,11 @@ impl LevelRenderer {
             }
         }
 
-        if l1_tiles.is_empty() && !raw_objects.is_empty() {
+        if l1_tiles.is_empty() && obj_count > 0 {
             log::warn!(
                 "Level {:#X}: no layer1 tiles built (objects={}, tile_map={})",
                 level_num,
-                raw_objects.len(),
+                obj_count,
                 tile_map.len()
             );
         }
@@ -452,6 +545,11 @@ fn expand_object(obj_id: u32, s_lo: u32, s_hi: u32) -> Vec<(u32, u32, usize)> {
             out.push((0, 0, tile));
         }
         _ => {}
+    }
+
+    if out.is_empty() && obj_id != 0x3F {
+        // Fallback tile so unmapped objects still appear visually.
+        out.push((0, 0, 0x025));
     }
 
     out
