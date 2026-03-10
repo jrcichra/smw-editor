@@ -38,8 +38,8 @@ void main() {
     uint lpart1 = part1[icoord.y / 2];
     uint lpart2 = part2[icoord.y / 2];
 
-    int line1 = int(lpart1 >> ((icoord.y % 4) * 16));
-    int line2 = int(lpart2 >> ((icoord.y % 4) * 16));
+    int line1 = int(lpart1 >> ((icoord.y % 2) * 16));
+    int line2 = int(lpart2 >> ((icoord.y % 2) * 16));
 
     int color_col = 0;
     color_col |= ((line1 >> ( 7 - icoord.x)) & 0x1) << 0;

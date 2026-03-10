@@ -63,7 +63,7 @@ impl Object {
             if it[0] == 0xFF {
                 break;
             }
-            if it.len() >= 4 && it[0] & 0x50 == 0 && it[1] & 0xF0 == 0 && it[2] == 0 {
+            if it.len() >= 4 && it[0] & 0x60 == 0 && it[1] & 0xF0 == 0 && it[2] == 0 {
                 // Exits
                 let [b1, b2, b3, b4] = it[..4] else {
                     return None;
@@ -101,7 +101,7 @@ impl Object {
             if it[0] == 0xFF {
                 break;
             }
-            if it.len() >= 4 && it[0] & 0x50 == 0 && it[1] & 0xF0 == 0 && it[2] == 0 {
+            if it.len() >= 4 && it[0] & 0x60 == 0 && it[1] & 0xF0 == 0 && it[2] == 0 {
                 // Exits
                 let [b1, b2, b3, b4] = it[..4] else {
                     return None;

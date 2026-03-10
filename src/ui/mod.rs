@@ -86,7 +86,8 @@ impl eframe::App for UiMainWindow {
         if self.pending_initial_editor || (rom.is_some() && self.dock_state.iter_all_tabs().count() == 0 && self.project_creator.is_none()) {
             self.pending_initial_editor = false;
             if let Some(ref rom) = rom {
-                self.open_tool(UiLevelEditor::new(Arc::clone(&self.gl), Arc::clone(rom)));
+                let path = self.rom_path.clone().unwrap_or_default();
+                self.open_tool(UiLevelEditor::new(Arc::clone(&self.gl), Arc::clone(rom), path));
             }
         }
 
@@ -132,7 +133,8 @@ impl eframe::App for UiMainWindow {
                         if let Some(p) = path {
                             self.rom_path = Some(PathBuf::from(p));
                         }
-                        self.open_tool(UiLevelEditor::new(Arc::clone(&self.gl), Arc::clone(&rom)));
+                        let path = self.rom_path.clone().unwrap_or_default();
+                        self.open_tool(UiLevelEditor::new(Arc::clone(&self.gl), Arc::clone(&rom), path));
                     }
                 }
                 self.project_creator = None;
@@ -222,7 +224,8 @@ impl UiMainWindow {
                 ui.menu_button("Editors", |ui| {
                     ui.add_enabled_ui(has_rom, |ui| {
                         if ui.button("Level Editor").clicked() {
-                            self.open_tool(UiLevelEditor::new(Arc::clone(&self.gl), Arc::clone(rom.unwrap())));
+                            let path = self.rom_path.clone().unwrap_or_default();
+                            self.open_tool(UiLevelEditor::new(Arc::clone(&self.gl), Arc::clone(rom.unwrap()), path));
                             ui.close_menu();
                         }
                         if ui.button("World Map Editor").clicked() {

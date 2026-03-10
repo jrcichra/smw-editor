@@ -3050,12 +3050,20 @@ dependencies = [
  "serde",
  "serde_json",
  "shrinkwraprs",
+ "smwe-emu",
  "smwe-math",
  "smwe-render",
  "smwe-rom",
  "smwe-widgets",
  "thiserror",
  "zstd",
+]
+
+[[package]]
+name = "smwe-emu"
+version = "0.1.0"
+dependencies = [
+ "wdc65816",
 ]
 
 [[package]]
@@ -3647,6 +3655,10 @@ dependencies = [
  "once_cell",
  "pkg-config",
 ]
+
+[[package]]
+name = "wdc65816"
+version = "0.1.0"
 
 [[package]]
 name = "web-sys"

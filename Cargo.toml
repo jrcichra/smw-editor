@@ -8,6 +8,8 @@ members = [
     "crates/smwe-render",
     "crates/smwe-rom",
     "crates/smwe-widgets",
+    "crates/wdc65816",
+    "crates/smwe-emu",
 ]
 
 [package]
@@ -24,6 +26,7 @@ smwe-math = { path = "crates/smwe-math" }
 smwe-render = { path = "crates/smwe-render" }
 smwe-rom = { path = "crates/smwe-rom" }
 smwe-widgets = { path = "crates/smwe-widgets" }
+smwe-emu = { path = "crates/smwe-emu" }
 
 anyhow = "1.0"
 duplicate = "1.0"
