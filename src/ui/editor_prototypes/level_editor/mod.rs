@@ -138,7 +138,15 @@ impl UiLevelEditor {
 
         // ── VRAM: pack 4 GFX files selected by the level's tileset into 0x200 tile slots
         // Slot N → tiles 0x80*N .. 0x80*N+0x7F, using gfx_file[object_gfx_list[tileset*4 + N]]
-        let tileset = (level.primary_header.fg_bg_gfx() as usize) % smwe_rom::objects::tilesets::TILESETS_COUNT;
+        let object_tileset = level.primary_header.fg_bg_gfx() as usize;
+        let map16_tileset = smwe_rom::objects::tilesets::object_tileset_to_map16_tileset(object_tileset);
+        log::info!(
+            "Level {:#X}: fg_bg_gfx={} -> object_tileset={} map16_tileset={}",
+            self.level_num,
+            level.primary_header.fg_bg_gfx(),
+            object_tileset,
+            map16_tileset
+        );
 
         // VRAM buffer layout (matches tile.fs.glsl):
         //   layout(std140) uniform Graphics { uvec4 graphics[0x1000]; };
@@ -157,7 +165,7 @@ impl UiLevelEditor {
         let mut vram = vec![0u8; 0x4000];
         for slot in 0..4_usize {
             let dummy_tile = smwe_rom::objects::map16::Tile8x8((slot as u16) << 7);
-            let file_num = self.rom.gfx.object_gfx_list.gfx_file_for_object_tile(dummy_tile, tileset);
+            let file_num = self.rom.gfx.object_gfx_list.gfx_file_for_object_tile(dummy_tile, object_tileset);
             let gfx_file = match self.rom.gfx.files.get(file_num) {
                 Some(f) => f,
                 None => continue,

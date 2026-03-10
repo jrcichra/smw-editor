@@ -38,15 +38,15 @@ fn run_nogui(args: &[String]) -> eframe::Result<()> {
         .and_then(parse_level_arg)
         .unwrap_or(0x000);
 
-    let rom_path = match env::var("ROM_PATH") {
-        Ok(p) if !p.is_empty() => p,
-        _ => {
-            log::error!("No ROM path defined (ROM_PATH not set)");
-            return Ok(());
-        }
-    };
+    let rom_path = resolve_rom_path(args).unwrap_or_else(|| {
+        log::error!("No ROM path defined (ROM_PATH not set, --rom missing, ./smw.smc not found)");
+        String::new()
+    });
+    if rom_path.is_empty() {
+        return Ok(());
+    }
 
-    log::info!("Opening ROM from ROM_PATH: {rom_path}");
+    log::info!("Opening ROM from: {rom_path}");
     let project = match Project::new(&rom_path) {
         Ok(p) => p,
         Err(e) => {
@@ -88,6 +88,9 @@ fn run_nogui(args: &[String]) -> eframe::Result<()> {
         level.primary_header.music(),
         level.primary_header.timer()
     );
+    let object_tileset = level.primary_header.fg_bg_gfx() as usize;
+    let map16_tileset = smwe_rom::objects::tilesets::object_tileset_to_map16_tileset(object_tileset);
+    println!("Tileset: object_tileset={} map16_tileset={}", object_tileset, map16_tileset);
 
     let raw = level.layer1.as_bytes();
     let objects = smwe_rom::objects::Object::parse_from_layer(raw).unwrap_or_default();
@@ -135,14 +138,15 @@ fn run_nogui(args: &[String]) -> eframe::Result<()> {
                 format!("{:02X}", obj.standard_object_number())
             };
             println!(
-                "  obj {:>3}: screen={:02X} pos=({:02},{:02}) abs=({:03},{:03}) id={}",
+                "  obj {:>3}: screen={:02X} pos=({:02},{:02}) abs=({:03},{:03}) id={} settings={:02X}",
                 printed + 1,
                 current_screen,
                 local_x,
                 local_y,
                 abs_x,
                 abs_y,
-                label
+                label,
+                obj.settings()
             );
             printed += 1;
         }
@@ -164,15 +168,9 @@ fn parse_level_arg(value: &str) -> Option<u16> {
 }
 
 fn dev_open_rom() -> Option<ProjectRef> {
-    let rom_path = match env::var("ROM_PATH") {
-        Ok(p) if !p.is_empty() => p,
-        _ => {
-            log::info!("No ROM path defined (ROM_PATH not set)");
-            return None;
-        }
-    };
+    let rom_path = resolve_rom_path(&env::args().collect::<Vec<_>>())?;
 
-    log::info!("Opening ROM from ROM_PATH: {rom_path}");
+    log::info!("Opening ROM from: {rom_path}");
     let project = Project::new(&rom_path)
         .map_err(|e| {
             log::error!("Cannot create project: {e}");
@@ -182,4 +180,22 @@ fn dev_open_rom() -> Option<ProjectRef> {
 
     Project::add_to_recent(std::path::Path::new(&rom_path));
     Some(Rc::new(RefCell::new(project)))
+}
+
+fn resolve_rom_path(args: &[String]) -> Option<String> {
+    if let Some(arg) = args.iter().find_map(|a| a.strip_prefix("--rom=")) {
+        if !arg.is_empty() {
+            return Some(arg.to_string());
+        }
+    }
+    if let Ok(p) = env::var("ROM_PATH") {
+        if !p.is_empty() {
+            return Some(p);
+        }
+    }
+    let default = std::path::Path::new("smw.smc");
+    if default.exists() {
+        return Some(default.display().to_string());
+    }
+    None
 }
