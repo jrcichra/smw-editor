@@ -20,7 +20,8 @@ impl GfxBuffers {
             buf
         };
         let palette_buf = make_buffer(256 * 16, 0);
-        let vram_buf = make_buffer(0x2000, 1);
+        // 0x200 tiles × 2 uvec4s per tile × 16 bytes per uvec4 = 0x4000 bytes
+        let vram_buf = make_buffer(0x4000, 1);
         Self::from_buffers(palette_buf, vram_buf)
     }
 

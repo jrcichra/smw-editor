@@ -34,10 +34,10 @@ impl UiLevelEditor {
             rom,
             level_renderer,
             level_num: 0x105,
-            // Start scrolled to the typical SMW floor area (rows ~13-26 of 27).
-            // offset is in canvas units (SNES px); negative Y pans view down into the level.
-            offset: Vec2::new(0.0, -210.0),
-            zoom: 2.0,
+            // offset is in canvas-pixel units at zoom=1; (0,0) puts the level top-left
+            // at the viewport top-left.  load_level() resets this on each level load.
+            offset: Vec2::ZERO,
+            zoom: 1.0,
             always_show_grid: false,
             level_properties: LevelProperties::default(),
             layer1: EditableObjectLayer::default(),
@@ -76,8 +76,7 @@ impl UiLevelEditor {
         let level = &self.rom.levels[level_idx];
         self.level_properties = LevelProperties::from_level(level);
         self.layer1 = EditableObjectLayer::from_level(level);
-        // Reset view to the floor area so tiles are visible immediately
-        self.offset = Vec2::new(0.0, -210.0);
+        self.offset = Vec2::ZERO; // reset pan so level top-left is visible
         self.upload_gfx_palette();
         self.upload_level_tiles();
     }
@@ -108,21 +107,26 @@ impl UiLevelEditor {
         }
 
         // ── VRAM: pack 4 GFX files selected by the level's tileset into 0x200 tile slots
-        // SNES VRAM layout for layer1 objects:
-        //   Slot 0: tile  0x000..0x07F → gfx_file[object_gfx_list[tileset*4 + 0]]
-        //   Slot 1: tile  0x080..0x0FF → gfx_file[object_gfx_list[tileset*4 + 1]]
-        //   Slot 2: tile  0x100..0x17F → gfx_file[object_gfx_list[tileset*4 + 2]]
-        //   Slot 3: tile  0x180..0x1FF → gfx_file[object_gfx_list[tileset*4 + 3]]
-        // Each 8x8 4bpp tile = 32 bytes planar.
-        // Total: 0x200 tiles × 32 bytes = 0x4000 bytes, packed into the 0x10000-byte VRAM buffer.
+        // Slot N → tiles 0x80*N .. 0x80*N+0x7F, using gfx_file[object_gfx_list[tileset*4 + N]]
         let tileset = (level.primary_header.fg_bg_gfx() as usize)
             % smwe_rom::objects::tilesets::TILESETS_COUNT;
-        let mut vram = vec![0u8; 0x10000];
+
+        // VRAM buffer layout (matches tile.fs.glsl):
+        //   layout(std140) uniform Graphics { uvec4 graphics[0x1000]; };
+        //   Tile T occupies graphics[T*2] and graphics[T*2+1]  (32 bytes).
+        //
+        //   Shader unpacking per row Y (0-7):
+        //     lpart1 = graphics[T*2  ][Y/2]   (bitplanes 0+1 for rows 0-7)
+        //     lpart2 = graphics[T*2+1][Y/2]   (bitplanes 2+3 for rows 0-7)
+        //     line   = lpart >> ((Y%2) * 16)  → low 16 bits = p_low | (p_high<<8)
+        //     bit[X] = (line >> (7-X)) & 1    → p_low  for lpart1 → color bit 0
+        //     bit[X] = (line >> (15-X)) & 1   → p_high for lpart1 → color bit 1
+        //   i.e. graphics[T*2][row/2] = row_p0|(row_p1<<8) | (next_row_p0|(next_row_p1<<8)) << 16
+        //
+        //   We upload 4 GFX slots × 0x80 tiles = 0x200 tiles.
+        //   Buffer = 0x200 × 32 bytes = 0x4000 bytes.
+        let mut vram = vec![0u8; 0x4000];
         for slot in 0..4_usize {
-            // Look up which GFX file goes into this slot for the current tileset
-            // object_gfx_list encodes 4 file numbers per tileset: [tileset*4 + slot]
-            // We reconstruct the lookup by creating a dummy Tile8x8 with the right layer.
-            // Layer = slot, tile_within_file = 0 ⇒ tile_number = slot * 0x80
             let dummy_tile = smwe_rom::objects::map16::Tile8x8((slot as u16) << 7);
             let file_num = self.rom.gfx.object_gfx_list
                 .gfx_file_for_object_tile(dummy_tile, tileset);
@@ -130,25 +134,36 @@ impl UiLevelEditor {
                 Some(f) => f,
                 None => continue,
             };
-            let base = slot * 0x80 * 32; // byte offset in vram buffer
             for (tile_idx, tile) in gfx_file.tiles.iter().enumerate().take(0x80) {
-                let tile_base = base + tile_idx * 32;
-                if tile_base + 32 > vram.len() { break; }
-                // Convert color_indices to 4bpp SNES planar: bitplanes 0/1 interleaved then 2/3
+                let vram_tile_id = slot * 0x80 + tile_idx;
+                let base = vram_tile_id * 32;
+                if base + 32 > vram.len() { break; }
+
                 for row in 0..8_usize {
                     let (mut p0, mut p1, mut p2, mut p3) = (0u8, 0u8, 0u8, 0u8);
                     for col in 0..8_usize {
                         let ci = tile.color_indices[row * 8 + col];
                         let bit = 7 - col;
-                        p0 |= ((ci >> 0) & 1) << bit;
+                        p0 |= ((ci     ) & 1) << bit;
                         p1 |= ((ci >> 1) & 1) << bit;
                         p2 |= ((ci >> 2) & 1) << bit;
                         p3 |= ((ci >> 3) & 1) << bit;
                     }
-                    vram[tile_base + row * 2 +  0] = p0;
-                    vram[tile_base + row * 2 +  1] = p1;
-                    vram[tile_base + row * 2 + 16] = p2;
-                    vram[tile_base + row * 2 + 17] = p3;
+                    // Each u32 word packs two rows: low16 = even row, high16 = odd row
+                    // graphics[T*2  ][row/2] = row_p01 → bitplanes 0+1
+                    // graphics[T*2+1][row/2] = row_p23 → bitplanes 2+3
+                    let word_idx = row / 2;
+                    let shift    = (row % 2) * 16;
+                    let val01 = (p0 as u32) | ((p1 as u32) << 8);
+                    let val23 = (p2 as u32) | ((p3 as u32) << 8);
+                    let w_off_01 = base      + word_idx * 4;
+                    let w_off_23 = base + 16 + word_idx * 4;
+                    let cur01 = u32::from_le_bytes(vram[w_off_01..w_off_01+4].try_into().unwrap());
+                    let cur23 = u32::from_le_bytes(vram[w_off_23..w_off_23+4].try_into().unwrap());
+                    let new01 = (cur01 & !(0xFFFFu32 << shift)) | (val01 << shift);
+                    let new23 = (cur23 & !(0xFFFFu32 << shift)) | (val23 << shift);
+                    vram[w_off_01..w_off_01+4].copy_from_slice(&new01.to_le_bytes());
+                    vram[w_off_23..w_off_23+4].copy_from_slice(&new23.to_le_bytes());
                 }
             }
         }
