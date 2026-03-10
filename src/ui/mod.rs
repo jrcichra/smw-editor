@@ -39,6 +39,8 @@ pub struct UiMainWindow {
     rom_path: Option<PathBuf>,
     /// Set when a Save error needs to be shown.
     save_error: Option<String>,
+    /// True when a ROM was pre-loaded at startup and we still need to open the default editor tab.
+    pending_initial_editor: bool,
 }
 
 impl UiMainWindow {
@@ -49,6 +51,7 @@ impl UiMainWindow {
         cc.egui_ctx.set_visuals(Visuals::dark());
 
         let mut rom_path = None;
+        let mut pending_initial_editor = false;
         if let Some(project) = project {
             cc.egui_ctx.data_mut(|data| {
                 let project = project.borrow();
@@ -56,6 +59,7 @@ impl UiMainWindow {
                 data.insert_temp(Project::rom_id(), Arc::clone(&project.rom));
             });
             rom_path = Some(project.borrow().path.clone());
+            pending_initial_editor = true;
         }
 
         let mut dock_style = DockStyle::from_egui(&cc.egui_ctx.style());
@@ -68,6 +72,7 @@ impl UiMainWindow {
             dock_state: DockState::new(vec![]),
             rom_path,
             save_error: None,
+            pending_initial_editor,
         }
     }
 }
@@ -75,6 +80,15 @@ impl UiMainWindow {
 impl eframe::App for UiMainWindow {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
         let rom: Option<Arc<SmwRom>> = ctx.data(|data| data.get_temp(Id::new("rom")));
+
+        // Open the level editor automatically whenever a ROM just became available
+        // and there are no tabs yet (startup pre-load OR direct recent-file click).
+        if self.pending_initial_editor || (rom.is_some() && self.dock_state.iter_all_tabs().count() == 0 && self.project_creator.is_none()) {
+            self.pending_initial_editor = false;
+            if let Some(ref rom) = rom {
+                self.open_tool(UiLevelEditor::new(Arc::clone(&self.gl), Arc::clone(rom)));
+            }
+        }
 
         // Menu bar always on top.
         self.main_menu_bar(ctx, rom.as_ref());
@@ -106,8 +120,8 @@ impl eframe::App for UiMainWindow {
 
         // Project creator dialog.
         if let Some(project_creator) = &mut self.project_creator {
-            // We need a temporary Ui — use a floating window.
-            let still_open = CentralPanel::default().show(ctx, |ui| project_creator.update(ui)).inner;
+            // project_creator.update() already opens a Window internally — no CentralPanel needed.
+            let still_open = project_creator.update_ctx(ctx);
             if !still_open {
                 // If a ROM was just loaded, grab its path and auto-open level editor.
                 let new_rom: Option<Arc<SmwRom>> = ctx.data(|d| d.get_temp(Id::new("rom")));

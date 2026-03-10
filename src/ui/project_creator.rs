@@ -28,70 +28,69 @@ impl Default for UiProjectCreator {
 }
 
 impl UiProjectCreator {
-    /// Returns false when the creator should be closed.
-    pub fn update(&mut self, ui: &Ui) -> bool {
+    /// Returns false when the creator should be closed. Takes a `&Context` directly.
+    pub fn update_ctx(&mut self, ctx: &eframe::egui::Context) -> bool {
         let mut opened = true;
         let mut created_or_cancelled = false;
-
-        Window::new("Open ROM").auto_sized().resizable(false).collapsible(false).open(&mut opened).show(
-            ui.ctx(),
-            |ui| {
-                // Recent files
-                if !self.recent_files.is_empty() {
-                    ui.label(RichText::new("Recent files").strong());
-                    ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
-                        ui.set_min_width(360.0);
-                        let mut chosen = None;
-                        for path in &self.recent_files {
-                            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                            let full = path.to_string_lossy().into_owned();
-                            if ui.selectable_label(false, format!("{name}  —  {full}")).clicked() {
-                                chosen = Some(path.clone());
-                            }
-                        }
-                        if let Some(path) = chosen {
-                            self.open_project_at(path, ui, &mut created_or_cancelled);
-                        }
-                    });
-                    ui.separator();
-                }
-
-                // Manual path entry
-                ui.label(RichText::new("ROM file").strong());
-                ui.horizontal(|ui| {
-                    if ui.text_edit_singleline(&mut self.base_rom_path).changed() {
-                        self.validate_path();
-                    }
-                    if ui.small_button("Browse...").clicked() {
-                        self.pick_file();
-                    }
-                });
-                if !self.err_base_rom_path.is_empty() {
-                    ui.colored_label(ErrorStyle::get_from_egui(ui.ctx(), |s| s.text_color), &self.err_base_rom_path);
-                }
-
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    let can_open = self.err_base_rom_path.is_empty() && !self.base_rom_path.is_empty();
-                    if ui.add_enabled(can_open, Button::new("Open").small()).clicked() {
-                        let path = PathBuf::from(&self.base_rom_path);
-                        self.open_project_at(path, ui, &mut created_or_cancelled);
-                    }
-                    if ui.small_button("Cancel").clicked() {
-                        created_or_cancelled = true;
-                    }
-                });
-                if !self.err_project_creation.is_empty() {
-                    ui.colored_label(ErrorStyle::get_from_egui(ui.ctx(), |s| s.text_color), &self.err_project_creation);
-                }
-            },
-        );
-
+        Window::new("Open ROM").auto_sized().resizable(false).collapsible(false).open(&mut opened).show(ctx, |ui| {
+            self.draw_contents(ui, &mut created_or_cancelled);
+        });
         let running = opened && !created_or_cancelled;
         if !running {
             log::info!("Closed Project Creator");
         }
         running
+    }
+
+    fn draw_contents(&mut self, ui: &mut Ui, created_or_cancelled: &mut bool) {
+        // Recent files
+        if !self.recent_files.is_empty() {
+            ui.label(RichText::new("Recent files").strong());
+            ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
+                ui.set_min_width(360.0);
+                let mut chosen = None;
+                for path in &self.recent_files {
+                    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    let full = path.to_string_lossy().into_owned();
+                    if ui.selectable_label(false, format!("{name}  —  {full}")).clicked() {
+                        chosen = Some(path.clone());
+                    }
+                }
+                if let Some(path) = chosen {
+                    self.open_project_at(path, ui, created_or_cancelled);
+                }
+            });
+            ui.separator();
+        }
+
+        // Manual path entry
+        ui.label(RichText::new("ROM file").strong());
+        ui.horizontal(|ui| {
+            if ui.text_edit_singleline(&mut self.base_rom_path).changed() {
+                self.validate_path();
+            }
+            if ui.small_button("Browse...").clicked() {
+                self.pick_file();
+            }
+        });
+        if !self.err_base_rom_path.is_empty() {
+            ui.colored_label(ErrorStyle::get_from_egui(ui.ctx(), |s| s.text_color), &self.err_base_rom_path);
+        }
+
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            let can_open = self.err_base_rom_path.is_empty() && !self.base_rom_path.is_empty();
+            if ui.add_enabled(can_open, Button::new("Open").small()).clicked() {
+                let path = PathBuf::from(&self.base_rom_path);
+                self.open_project_at(path, ui, created_or_cancelled);
+            }
+            if ui.small_button("Cancel").clicked() {
+                *created_or_cancelled = true;
+            }
+        });
+        if !self.err_project_creation.is_empty() {
+            ui.colored_label(ErrorStyle::get_from_egui(ui.ctx(), |s| s.text_color), &self.err_project_creation);
+        }
     }
 
     fn validate_path(&mut self) {

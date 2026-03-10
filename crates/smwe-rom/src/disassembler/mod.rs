@@ -320,7 +320,12 @@ impl RomDisassembly {
             SplitType::Middle(index) => {
                 let data_end = begin_pc + data_block.slice.size as u32;
                 let next_begin = self.chunks[index + 1].0;
-                assert!(data_end <= next_begin, "data_end = {data_end}, next_begin = {next_begin}, index = {index}");
+                if data_end > next_begin {
+                    log::error!(
+                        "Data block overruns next chunk boundary: data_end={data_end}, next_begin={next_begin}, index={index}"
+                    );
+                    return Err(error_mapper(RomError::DataBlockNotFound(data_block)));
+                }
                 self.chunks.insert(index + 1, (begin_pc, BinaryBlock::Data(data_block)));
                 if data_end < next_begin {
                     self.chunks.insert(index + 2, (data_end, BinaryBlock::Unknown));

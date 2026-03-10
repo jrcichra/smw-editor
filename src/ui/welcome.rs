@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use egui::*;
 
-use crate::ui::project_creator::UiProjectCreator;
+use crate::{project::Project, ui::project_creator::UiProjectCreator};
 
 pub fn draw_welcome(ui: &mut Ui, project_creator: &mut Option<UiProjectCreator>) {
     let total_h = ui.available_height();
@@ -46,9 +48,23 @@ pub fn draw_welcome(ui: &mut Ui, project_creator: &mut Option<UiProjectCreator>)
                 if resp.clicked() { chosen = Some(path.clone()); }
             }
             if let Some(path) = chosen {
-                let mut pc = UiProjectCreator::default();
-                pc.set_path_and_open(path);
-                *project_creator = Some(pc);
+                // Load the ROM directly without showing the Open ROM dialog.
+                match Project::new(&path) {
+                    Ok(project) => {
+                        Project::add_to_recent(&path);
+                        ui.data_mut(|data| {
+                            data.insert_temp(Project::project_title_id(), project.title.clone());
+                            data.insert_temp(Project::rom_id(), Arc::clone(&project.rom));
+                        });
+                    }
+                    Err(e) => {
+                        log::error!("Failed to open recent ROM: {e}");
+                        // Fall back to showing the dialog pre-filled with the path.
+                        let mut pc = UiProjectCreator::default();
+                        pc.set_path_and_open(path);
+                        *project_creator = Some(pc);
+                    }
+                }
             }
         }
 
