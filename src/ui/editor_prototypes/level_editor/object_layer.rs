@@ -11,6 +11,8 @@ pub(super) struct EditableObject {
     pub y: u32,
     pub id: u8,
     pub settings: u8,
+    pub is_extended: bool,
+    pub extended_id: u8,
 }
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
@@ -29,23 +31,47 @@ pub(super) struct EditableObjectLayer {
 
 impl EditableObject {
     pub fn from_raw(object: Object, current_screen: u32, vertical_level: bool) -> Option<Self> {
-        (!object.is_exit() && !object.is_screen_jump()).then(|| EditableObject {
-            x: object.x() as u32 + if vertical_level { 0 } else { current_screen * SCREEN_WIDTH },
-            y: object.y() as u32 + if vertical_level { current_screen * SCREEN_WIDTH } else { 0 },
+        if object.is_exit() || object.is_screen_jump() {
+            return None;
+        }
+
+        let (local_x, local_y) = if vertical_level {
+            (object.y() as u32, object.x() as u32)
+        } else {
+            (object.x() as u32, object.y() as u32)
+        };
+
+        let abs_x = local_x + if vertical_level { 0 } else { current_screen * SCREEN_WIDTH };
+        let abs_y = local_y + if vertical_level { current_screen * SCREEN_WIDTH } else { 0 };
+
+        Some(EditableObject {
+            x: abs_x,
+            y: abs_y,
             id: object.standard_object_number(),
             settings: object.settings(),
+            is_extended: object.is_extended(),
+            extended_id: object.settings(),
         })
     }
 
     pub fn to_raw(self, new_screen: bool) -> Object {
-        Object(
-            ((new_screen as u32) << 31)
-                | ((self.id as u32 & 0x30) << 30)
-                | ((self.id as u32 & 0x0F) << 20)
-                | ((self.y & 0x1F) << 24)
-                | ((self.x & 0x0F) << 16)
-                | (self.settings as u32),
-        )
+        if self.is_extended {
+            Object(
+                ((new_screen as u32) << 31)
+                    | ((self.y & 0x1F) << 24)
+                    | ((self.x & 0x0F) << 16)
+                    | (self.extended_id as u32),
+            )
+        } else {
+            Object(
+                ((new_screen as u32) << 31)
+                    | ((self.id as u32 & 0x30) << 30)
+                    | ((self.id as u32 & 0x0F) << 20)
+                    | ((self.y & 0x1F) << 24)
+                    | ((self.x & 0x0F) << 16)
+                    | (self.settings as u32),
+            )
+        }
     }
 }
 
@@ -73,7 +99,7 @@ impl EditableObjectLayer {
     pub fn from_level(level: &Level) -> Self {
         let is_vertical = level.secondary_header.vertical_level();
         let raw_bytes = level.layer1.as_bytes();
-        let raw_objects = match Object::parse_from_ram(raw_bytes) {
+        let raw_objects = match Object::parse_from_layer(raw_bytes) {
             Some(objs) => objs,
             None => return Self::default(),
         };

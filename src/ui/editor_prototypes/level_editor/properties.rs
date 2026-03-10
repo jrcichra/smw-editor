@@ -51,10 +51,11 @@ impl LevelProperties {
     /// (width, height)
     pub fn level_dimensions_in_tiles(&self) -> (u32, u32) {
         let (screen_width, screen_height) = self.screen_dimensions_in_tiles();
+        let screens = self.num_screens();
         if self.is_vertical {
-            (screen_width, screen_height * self.num_screens())
+            (screen_width, screen_height * screens)
         } else {
-            (screen_width * self.num_screens(), screen_height)
+            (screen_width * screens, screen_height)
         }
     }
 
@@ -68,11 +69,6 @@ impl LevelProperties {
     }
 
     pub fn num_screens(&self) -> u32 {
-        match (self.is_vertical, self.has_layer2) {
-            (false, false) => 0x20,
-            (true, false) => 0x1C,
-            (false, true) => 0x10,
-            (true, true) => 0x0E,
-        }
+        (self.level_length as u32) + 1
     }
 }

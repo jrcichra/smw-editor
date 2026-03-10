@@ -86,6 +86,44 @@ impl Object {
         }
         Some(objects)
     }
+
+    /// Parse an object layer buffer that already excludes the 5-byte level header.
+    pub fn parse_from_layer(buffer: &[u8]) -> Option<Vec<Self>> {
+        if buffer.is_empty() {
+            return None;
+        }
+        let mut objects = Vec::new();
+        let mut it = buffer;
+        loop {
+            if it.is_empty() {
+                return None;
+            }
+            if it[0] == 0xFF {
+                break;
+            }
+            if it.len() >= 4 && it[0] & 0x50 == 0 && it[1] & 0xF0 == 0 && it[2] == 0 {
+                // Exits
+                let [b1, b2, b3, b4] = it[..4] else {
+                    return None;
+                };
+                let object = u32::from_be_bytes([b1, b2, b3, b4]);
+                objects.push(Object(object));
+                it = &it[4..];
+            } else {
+                // Non-exits
+                if it.len() < 3 {
+                    return None;
+                }
+                let [b1, b2, b3] = it[..3] else {
+                    return None;
+                };
+                let object = u32::from_be_bytes([b1, b2, b3, 0]);
+                objects.push(Object(object));
+                it = &it[3..];
+            }
+        }
+        Some(objects)
+    }
 }
 
 impl Object {

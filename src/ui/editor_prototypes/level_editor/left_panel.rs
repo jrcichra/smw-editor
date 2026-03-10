@@ -25,6 +25,8 @@ impl UiLevelEditor {
 
         ui.add(Slider::new(&mut self.zoom, 1.0..=3.0).step_by(0.25).text("Zoom"));
         ui.checkbox(&mut self.always_show_grid, "Always show grid");
+        ui.checkbox(&mut self.show_object_overlay, "Show object overlay");
+        ui.checkbox(&mut self.show_object_labels, "Show object labels");
 
         ui.separator();
         ui.label(format!("Level {:03X}", self.level_num));
@@ -32,5 +34,8 @@ impl UiLevelEditor {
         ui.label(format!("Mode: {:02X}  GFX: {:X}", props.level_mode, props.fg_bg_gfx));
         ui.label(format!("Music: {}  Timer: {}", props.music, props.timer));
         ui.label(if props.is_vertical { "Vertical" } else { "Horizontal" });
+        ui.label(format!("Screens: {}", props.num_screens()));
+        let (w, h) = props.level_dimensions_in_tiles();
+        ui.label(format!("Size: {}x{} tiles", w, h));
     }
 }
