@@ -3,7 +3,7 @@ use std::sync::Arc;
 use egui::*;
 use smwe_render::color::Abgr1555;
 use smwe_rom::{
-    graphics::palette::OverworldState,
+    graphics::palette::{ColorPalette, OverworldState},
     overworld::{BgTile, OwTilemap, OW_SUBMAP_COUNT, OW_TILEMAP_COLS, OW_VISIBLE_ROWS},
     SmwRom,
 };
@@ -12,14 +12,15 @@ use crate::ui::tool::DockableEditorTool;
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 
-const MAP_TILE_COLS: usize = OW_TILEMAP_COLS; // 32
+const MAP_TILE_COLS: usize = OW_TILEMAP_COLS; // 40
 const MAP_TILE_ROWS: usize = OW_VISIBLE_ROWS; // 27
 const TILE_PX: f32 = 8.0;
-const MAP_W_PX: f32 = MAP_TILE_COLS as f32 * TILE_PX; // 256 px
+const MAP_W_PX: f32 = MAP_TILE_COLS as f32 * TILE_PX; // 320 px
 const MAP_H_PX: f32 = MAP_TILE_ROWS as f32 * TILE_PX; // 216 px
 
-/// GFX file indices for overworld - all submaps use the same 4 files.
-/// Data from SMWCentral: GFX1C, GFX1D, GFX08, GFX1E (indices 0x1C, 0x1D, 0x08, 0x1E)
+/// The 4 GFX files the overworld always loads into VRAM pages 0-3:
+///   GFX1C → page 0, GFX1D → page 1, GFX08 → page 2, GFX1E → page 3
+/// CHR index bits 8-7 = VRAM page (0-3), bits 6-0 = tile within page (0-127).
 const OW_GFX_FILES: [usize; 4] = [0x1C, 0x1D, 0x08, 0x1E];
 
 const SUBMAP_NAMES: &[&str] =
@@ -40,7 +41,7 @@ pub struct UiWorldEditor {
 
     /// CHR tile index chosen in the tile-sheet picker for painting.
     paint_tile: Option<u16>,
-    /// Sub-palette used when painting (0-3).
+    /// Sub-palette used when painting (0-7).
     paint_palette: u8,
 
     /// Local editable copy of layer-2 tilemaps (one per submap).
@@ -240,8 +241,6 @@ impl UiWorldEditor {
     fn save_rom_to(&self, path: &std::path::Path) -> anyhow::Result<()> {
         use std::io::Write;
         let bytes = self.rom.disassembly.rom.0.to_vec();
-        // Note: Writing back LC_RLE2 compressed data is not yet implemented
-        // The tilemap would need to be recompressed
         log::warn!("Overworld save not implemented - LC_RLE2 recompression needed");
         let mut f = std::fs::File::create(path)?;
         f.write_all(&bytes)?;
@@ -253,7 +252,14 @@ impl UiWorldEditor {
     fn right_panel(&mut self, ui: &mut Ui) {
         ui.add_space(6.0);
         ui.label(RichText::new("Tile Sheet").strong());
-        ui.label(RichText::new("GFX 00 + 01  (3bpp)").small().color(Color32::GRAY));
+        ui.label(
+            RichText::new(format!(
+                "GFX {:02X},{:02X},{:02X},{:02X}  (3bpp)",
+                OW_GFX_FILES[0], OW_GFX_FILES[1], OW_GFX_FILES[2], OW_GFX_FILES[3]
+            ))
+            .small()
+            .color(Color32::GRAY),
+        );
         ui.separator();
 
         if let Some(tex) = self.sheet_texture.clone() {
@@ -266,7 +272,7 @@ impl UiWorldEditor {
 
             painter.image(tex.id(), resp.rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
 
-            let sheet_cols = (tex_size.x as usize / 8).max(1);
+            let sheet_cols = 16usize;
             let cell_px = display_size.x / sheet_cols as f32;
 
             // Highlight selected tile
@@ -313,9 +319,8 @@ impl UiWorldEditor {
                     let sc = (rel.x / cell_px) as usize;
                     let sr = (rel.y / cell_px) as usize;
                     let idx = sr * sheet_cols + sc;
-                    let total = self.rom.gfx.files.get(0).map(|f| f.tiles.len()).unwrap_or(0)
-                        + self.rom.gfx.files.get(1).map(|f| f.tiles.len()).unwrap_or(0);
-                    if idx < total.min(256) {
+                    let total = sheet_total_tiles(&self.rom);
+                    if idx < total {
                         self.paint_tile = Some(idx as u16);
                     }
                 }
@@ -462,20 +467,45 @@ impl UiWorldEditor {
     }
 }
 
+// ── GFX / CHR helpers ────────────────────────────────────────────────────────
+
+/// Resolve a CHR tile index to (gfx_file_index, tile_offset_within_file).
+/// CHR bits 8-7 = VRAM page (0-3), bits 6-0 = tile within page (0-127).
+fn chr_to_gfx(chr: usize) -> Option<(usize, usize)> {
+    let page = chr >> 7;      // VRAM page 0-3
+    let offset = chr & 0x7F;  // tile index within that GFX file (0-127)
+    let file_idx = *OW_GFX_FILES.get(page)?;
+    Some((file_idx, offset))
+}
+
+/// Count total tiles in the tile sheet (all 4 OW GFX pages).
+fn sheet_total_tiles(rom: &SmwRom) -> usize {
+    OW_GFX_FILES.iter().map(|&fi| rom.gfx.files.get(fi).map(|f| f.tiles.len()).unwrap_or(0)).sum::<usize>().min(512)
+}
+
 // ── Rendering helpers ─────────────────────────────────────────────────────────
 
-/// Build a 256-entry CGRAM for the given OW submap.
-fn build_cgram(rom: &SmwRom, submap: usize) -> Vec<Abgr1555> {
-    use smwe_rom::graphics::palette::ColorPalette;
+/// Build a flat 256-entry CGRAM (16 rows × 16 cols) for the given OW submap.
+/// Layer2 colors sit at CGRAM rows 4-7 (palette field 4-7).
+/// Returns the CGRAM array and the backdrop color (layer3 row 0 col 8 = sky/ocean).
+fn build_cgram(rom: &SmwRom, submap: usize) -> (Vec<Abgr1555>, Color32) {
     let sm = submap.min(5);
     match rom.gfx.color_palettes.get_submap_palette(sm, OverworldState::PreSpecial) {
-        Ok(pal) => (0..256usize).map(|i| pal.get_color_at(i / 16, i % 16).unwrap_or(Abgr1555::TRANSPARENT)).collect(),
-        Err(_) => vec![Abgr1555::TRANSPARENT; 256],
+        Ok(pal) => {
+            let cgram = (0..256usize)
+                .map(|i| pal.get_color_at(i / 16, i % 16).unwrap_or(Abgr1555::TRANSPARENT))
+                .collect();
+            // Sky/ocean backdrop: layer3 palette row 0, col 8
+            let backdrop_abgr = pal.get_color_at(0, 8).unwrap_or(Abgr1555::TRANSPARENT);
+            let backdrop = Color32::from(backdrop_abgr);
+            (cgram, backdrop)
+        }
+        Err(_) => (vec![Abgr1555::TRANSPARENT; 256], Color32::from_rgb(20, 40, 100)),
     }
 }
 
-/// Decode one 8×8 CHR tile with flip and sub-palette into 64 Color32 pixels.
-/// `cgram_row` selects which of the 16 palette rows (×16 colours each) to use.
+/// Decode one 8×8 CHR tile with optional flip into a 64-pixel Color32 array.
+/// `cgram_row` is the CGRAM palette row (0-15); color 0 is always transparent.
 fn decode_tile_into(
     tile: &smwe_rom::graphics::gfx_file::Tile, cgram: &[Abgr1555], cgram_row: usize, flip_x: bool, flip_y: bool,
     out: &mut [Color32; 64],
@@ -496,40 +526,40 @@ fn decode_tile_into(
 }
 
 /// Render the OW map for a submap into a 256×216 RGBA image.
-/// Uses `local_layer2` for layer-2 (to include any edits).
+/// Uses `local_layer2` for tile data (includes in-editor edits).
 fn render_ow_map(rom: &SmwRom, local_layer2: &[OwTilemap], submap: usize) -> Option<ColorImage> {
     let sm = submap.min(6);
     let layer2 = local_layer2.get(sm)?;
-    let cgram = build_cgram(rom, sm);
+    let (cgram, backdrop) = build_cgram(rom, sm);
 
     let img_w = MAP_TILE_COLS * 8;
     let img_h = MAP_TILE_ROWS * 8;
-    let mut pixels = vec![Color32::from_gray(20); img_w * img_h];
+    // Fill with the sky/ocean backdrop color instead of dark gray
+    let mut pixels = vec![backdrop; img_w * img_h];
     let mut buf = [Color32::TRANSPARENT; 64];
 
-    let get_tile = |chr: usize| -> Option<&smwe_rom::graphics::gfx_file::Tile> {
-        let page = chr >> 7; // which of 4 GFX files (0-3)
-        let offset = chr & 0x7F; // tile index within that file
-        let file_idx = *OW_GFX_FILES.get(page)?;
-        rom.gfx.files.get(file_idx)?.tiles.get(offset)
-    };
-
-    // ── Layer 2: terrain background ──────────────────────────────────────────
-    // OW sub-palette 0-3 → CGRAM rows 4-7
     for row in 0..MAP_TILE_ROWS {
         for col in 0..MAP_TILE_COLS {
             let entry = layer2.get(col, row);
             let chr = entry.tile_index() as usize;
-            if let Some(tile) = get_tile(chr) {
-                let cgram_row = 4 + (entry.palette() as usize & 3);
-                decode_tile_into(tile, &cgram, cgram_row, entry.flip_x(), entry.flip_y(), &mut buf);
-                let dx = col * 8;
-                let dy = row * 8;
-                for py in 0..8 {
-                    for px in 0..8 {
-                        let c = buf[py * 8 + px];
-                        if c.a() > 0 {
-                            pixels[(dy + py) * img_w + (dx + px)] = c;
+            if chr == 0 {
+                continue;
+            }
+            if let Some((file_idx, offset)) = chr_to_gfx(chr) {
+                if let Some(tile) = rom.gfx.files.get(file_idx).and_then(|f| f.tiles.get(offset)) {
+                    // OW layer2 palette values are 4-7 in the tile data.
+                    // These map directly to CGRAM rows 4-7 — use directly as cgram_row.
+                    // The `4 + (pal & 3)` formula also yields 4-7 for input 4-7.
+                    let cgram_row = entry.palette() as usize;
+                    decode_tile_into(tile, &cgram, cgram_row, entry.flip_x(), entry.flip_y(), &mut buf);
+                    let dx = col * 8;
+                    let dy = row * 8;
+                    for py in 0..8 {
+                        for px in 0..8 {
+                            let c = buf[py * 8 + px];
+                            if c.a() > 0 {
+                                pixels[(dy + py) * img_w + (dx + px)] = c;
+                            }
                         }
                     }
                 }
@@ -540,22 +570,24 @@ fn render_ow_map(rom: &SmwRom, local_layer2: &[OwTilemap], submap: usize) -> Opt
     Some(ColorImage { size: [img_w, img_h], pixels })
 }
 
-/// Render a 128×128 tile-sheet image (16 cols × 16 rows, 8px each) of GFX 00+01.
+/// Render a tile-sheet image for the 4 OW GFX pages.
+/// Layout: 16 tiles wide × N rows, 8×8 pixels each, up to 512 tiles total.
 fn render_tile_sheet(rom: &SmwRom, submap: usize) -> Option<ColorImage> {
     let sm = submap.min(5);
-    let cgram = build_cgram(rom, sm);
+    let (cgram, _) = build_cgram(rom, sm);
 
-    let mut tiles: Vec<&smwe_rom::graphics::gfx_file::Tile> = Vec::with_capacity(256);
-    for fi in 0..2usize {
+    // Collect all tiles from the 4 fixed OW GFX files
+    let mut tiles: Vec<&smwe_rom::graphics::gfx_file::Tile> = Vec::with_capacity(512);
+    for &fi in OW_GFX_FILES.iter() {
         if let Some(gfx) = rom.gfx.files.get(fi) {
             for t in &gfx.tiles {
                 tiles.push(t);
-                if tiles.len() >= 256 {
+                if tiles.len() >= 512 {
                     break;
                 }
             }
         }
-        if tiles.len() >= 256 {
+        if tiles.len() >= 512 {
             break;
         }
     }
@@ -568,7 +600,8 @@ fn render_tile_sheet(rom: &SmwRom, submap: usize) -> Option<ColorImage> {
     let img_w = sheet_cols * 8;
     let img_h = sheet_rows * 8;
     let mut pixels = vec![Color32::from_gray(28); img_w * img_h];
-    let pal_base = 4 * 16; // use sub-palette 0 = CGRAM row 4 for preview
+    // Use CGRAM row 7 (palette value 7 = sky/water, the most common OW palette) for preview
+    let pal_base = 7 * 16;
 
     for (tidx, tile) in tiles.iter().enumerate() {
         let tc = tidx % sheet_cols;
@@ -577,6 +610,7 @@ fn render_tile_sheet(rom: &SmwRom, submap: usize) -> Option<ColorImage> {
             let px = pi % 8;
             let py = pi / 8;
             let c = if ci == 0 {
+                // Checkerboard for transparent pixels
                 if (tc + px + tr + py) % 2 == 0 {
                     Color32::from_gray(45)
                 } else {
