@@ -239,7 +239,7 @@ impl UiWorldEditor {
     /// Write the ROM with our local layer-2 edits patched in.
     fn save_rom_to(&self, path: &std::path::Path) -> anyhow::Result<()> {
         use std::io::Write;
-        let mut bytes = self.rom.disassembly.rom.0.to_vec();
+        let bytes = self.rom.disassembly.rom.0.to_vec();
         // Note: Writing back LC_RLE2 compressed data is not yet implemented
         // The tilemap would need to be recompressed
         log::warn!("Overworld save not implemented - LC_RLE2 recompression needed");

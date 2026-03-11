@@ -68,6 +68,7 @@ impl LevelRenderer {
         self.load_layer(gl, cpu, true);
     }
 
+    #[allow(dead_code)]
     pub(super) fn upload_sprites(&mut self, gl: &Context, cpu: &mut Cpu) {
         if self.destroyed {
             return;
@@ -84,7 +85,11 @@ impl LevelRenderer {
             let tile = cpu.mem.load_u16(0x302 + spr * 4);
             let size = cpu.mem.load_u8(0x460 + spr);
             if size & 0x01 != 0 {
-                if x > 0x80 { x = x.wrapping_sub(256); } else { x = x.wrapping_add(256); }
+                if x > 0x80 {
+                    x = x.wrapping_sub(256);
+                } else {
+                    x = x.wrapping_add(256);
+                }
             }
             if size & 0x02 != 0 {
                 let (xn, xf) = if tile & 0x4000 == 0 { (0, 8) } else { (8, 0) };
@@ -110,10 +115,8 @@ impl LevelRenderer {
     fn load_layer(&mut self, gl: &Context, cpu: &mut Cpu, bg: bool) {
         let mut tiles = Vec::new();
 
-        let map16_bank =
-            cpu.mem.cart.resolve("Map16Common").expect("Cannot resolve Map16Common") & 0xFF0000;
-        let map16_bg =
-            cpu.mem.cart.resolve("Map16BGTiles").expect("Cannot resolve Map16BGTiles");
+        let map16_bank = cpu.mem.cart.resolve("Map16Common").expect("Cannot resolve Map16Common") & 0xFF0000;
+        let map16_bg = cpu.mem.cart.resolve("Map16BGTiles").expect("Cannot resolve Map16BGTiles");
 
         // 0x5B bit0 = layer1 vertical, bit1 = layer2 vertical
         let vertical = cpu.mem.load_u8(0x5B) & if bg { 2 } else { 1 } != 0;
@@ -123,18 +126,15 @@ impl LevelRenderer {
             let mode = cpu.mem.load_u8(0x1925);
             let renderer_table = cpu.mem.cart.resolve("CODE_058955").unwrap() + 9;
             let renderer = cpu.mem.load_u24(renderer_table + (mode as u32) * 3);
-            let l2_renderers = [
-                cpu.mem.cart.resolve("CODE_058B8D"),
-                cpu.mem.cart.resolve("CODE_058C71"),
-            ];
+            let l2_renderers = [cpu.mem.cart.resolve("CODE_058B8D"), cpu.mem.cart.resolve("CODE_058C71")];
             l2_renderers.contains(&Some(renderer))
         };
 
         let scr_len = match (vertical, has_layer2) {
             (false, false) => 0x20,
-            (true,  false) => 0x1C,
-            (false, true)  => 0x10,
-            (true,  true)  => 0x0E,
+            (true, false) => 0x1C,
+            (false, true) => 0x10,
+            (true, true) => 0x0E,
         };
         let scr_size = if vertical { 16 * 32 } else { 16 * 27 };
 
@@ -145,7 +145,7 @@ impl LevelRenderer {
                 (0x7EC800 + offset, 0x7FC800 + offset)
             }
             (true, false) => (0x7EB900, 0x7EBD00),
-            (false, _)    => (0x7EC800, 0x7FC800),
+            (false, _) => (0x7EC800, 0x7FC800),
         };
 
         let len = if has_layer2 { 256 * 27 } else { 512 * 27 };
@@ -198,6 +198,7 @@ fn bg_tile(x: u32, y: u32, t: u16) -> Tile {
     Tile([x, y, tile, params])
 }
 
+#[allow(dead_code)]
 fn sp_tile(x: u32, y: u32, t: u16) -> Tile {
     let t = t as u32;
     let tile = (t & 0x1FF) + 0x600;

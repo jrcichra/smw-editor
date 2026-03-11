@@ -54,7 +54,7 @@ const ATTR_DATA_PC: u32 = 0x04C02B;
 const SCROLL_X_PC: u32 = 0x04D89A;
 const SCROLL_Y_PC: u32 = 0x04D8A1;
 
-const BUFFER_HEIGHT: usize = 64;
+const BUFFER_HEIGHT: usize = 80;
 
 // ── Error ─────────────────────────────────────────────────────────────────────
 
@@ -207,8 +207,9 @@ impl OverworldMaps {
 
             for row in 0..OW_TILEMAP_ROWS {
                 for col in 0..OW_TILEMAP_COLS {
-                    let buffer_col = (origin_col + 2 + col) % OW_BUFFER_WIDTH;
-                    let buffer_row = origin_row + 1 + row;
+                    // No offset - matches the working example
+                    let buffer_col = (origin_col + col) % OW_BUFFER_WIDTH;
+                    let buffer_row = origin_row + row;
                     let idx = buffer_row * OW_BUFFER_WIDTH + buffer_col;
                     let tile = if idx < tiles.len() { BgTile(tiles[idx]) } else { BgTile::default() };
                     tilemap_tiles.push(tile);
