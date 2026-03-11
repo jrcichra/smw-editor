@@ -40,13 +40,7 @@
 /// Sub-palette 3 → colour-palette row 7  (0x70–0x7F)
 use thiserror::Error;
 
-use crate::{
-    disassembler::{
-        binary_block::{DataBlock, DataKind},
-        RomDisassembly,
-    },
-    snes_utils::{addr::AddrSnes, rom_slice::SnesSlice},
-};
+use crate::disassembler::RomDisassembly;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -202,17 +196,13 @@ pub fn write_layer2_to_rom(rom: &mut Vec<u8>, maps: &[OwTilemap]) {
 fn parse_one(
     disasm: &mut RomDisassembly, base_snes: u32, submap: usize, mk_err: impl Fn(usize) -> OverworldError,
 ) -> Result<OwTilemap, OverworldError> {
-    let snes_addr = AddrSnes(base_snes + (submap * OW_TILEMAP_BYTES) as u32);
-    let slice = SnesSlice::new(snes_addr, OW_TILEMAP_BYTES);
-    let kind = if base_snes == OW_LAYER2_BASE { DataKind::OverworldLayer2 } else { DataKind::OverworldLayer1 };
-    let block = DataBlock { slice, kind };
-
-    let bytes: Vec<u8> = disasm
-        .rom_slice_at_block(block, |_| mk_err(submap))
-        .and_then(|view| view.as_bytes().map(|b| b.to_vec()).map_err(|_| mk_err(submap)))?;
-
+    // Read directly from raw ROM bytes to avoid block-tracking conflicts with
+    // level data that may have already claimed overlapping regions.
+    let snes = base_snes + (submap * OW_TILEMAP_BYTES) as u32;
+    let pc = lorom_pc(snes).ok_or_else(|| mk_err(submap))?;
+    let rom = disasm.rom.0.as_ref();
+    let bytes = rom.get(pc..pc + OW_TILEMAP_BYTES).ok_or_else(|| mk_err(submap))?;
     let tiles = bytes.chunks_exact(2).map(|c| BgTile(u16::from_le_bytes([c[0], c[1]]))).collect();
-
     Ok(OwTilemap { tiles })
 }
 
