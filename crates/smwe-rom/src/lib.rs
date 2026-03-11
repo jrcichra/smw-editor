@@ -95,12 +95,19 @@ impl SmwRom {
 
         log::info!("Parsing overworld tilemaps");
         let overworld = catch_unwind(AssertUnwindSafe(|| OverworldMaps::parse(&mut disassembly)))
-            .unwrap_or_else(|_| {
-                log::warn!("Overworld tilemap parse panicked (falling back to empty)");
+            .unwrap_or_else(|panic_val| {
+                let msg = if let Some(s) = panic_val.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = panic_val.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "(unknown panic payload)".to_string()
+                };
+                log::warn!("Overworld tilemap parse panicked: {msg}");
                 Err(OverworldError::Layer2(0))
             })
             .unwrap_or_else(|e| {
-                log::warn!("Overworld tilemap parse warning (falling back to empty): {e}");
+                log::warn!("Overworld tilemap parse error (falling back to empty): {e}");
                 OverworldMaps::empty()
             });
 
