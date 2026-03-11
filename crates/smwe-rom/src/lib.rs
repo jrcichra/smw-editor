@@ -104,7 +104,7 @@ impl SmwRom {
                     "(unknown panic payload)".to_string()
                 };
                 log::warn!("Overworld tilemap parse panicked: {msg}");
-                Err(OverworldError::Layer2(0))
+                Err(OverworldError::TilemapRead)
             })
             .unwrap_or_else(|e| {
                 log::warn!("Overworld tilemap parse error (falling back to empty): {e}");

@@ -289,12 +289,7 @@ fn parse_lm_map16(disasm: &mut RomDisassembly) -> Result<LmMap16, TilesetParseEr
                         }
                     }
                 }
-                log::warn!(
-                    "Map16 pages {:02X}-{:02X} used alternate base +{:#X}",
-                    r.start,
-                    r.end,
-                    alt_add
-                );
+                log::warn!("Map16 pages {:02X}-{:02X} used alternate base +{:#X}", r.start, r.end, alt_add);
             } else {
                 log::warn!("Map16 pages {:02X}-{:02X} could not be parsed", r.start, r.end);
             }
@@ -372,23 +367,23 @@ fn parse_lm_map16(disasm: &mut RomDisassembly) -> Result<LmMap16, TilesetParseEr
             log::warn!("Tileset-specific page 2 base address invalid; skipping");
             None
         } else {
-        let size = TILESETS_COUNT * 0x100 * 8;
-        let slice = SnesSlice::new(base, size);
-        let bytes = disasm
-            .rom_slice_at_block(DataBlock { slice, kind: DataKind::Tileset }, |_| TilesetParseError::Slice(slice))?
-            .as_bytes()?;
-        let mut out: Vec<[Block; TILESETS_COUNT]> = Vec::with_capacity(0x100);
-        for tile in 0..0x100_usize {
-            let mut per_ts = [blank_block(); TILESETS_COUNT];
-            for ts in 0..TILESETS_COUNT {
-                let offset = (ts << 11) | (tile << 3);
-                if offset + 8 <= bytes.len() {
-                    per_ts[ts] = parse_block_from_bytes(&bytes[offset..offset + 8]);
+            let size = TILESETS_COUNT * 0x100 * 8;
+            let slice = SnesSlice::new(base, size);
+            let bytes = disasm
+                .rom_slice_at_block(DataBlock { slice, kind: DataKind::Tileset }, |_| TilesetParseError::Slice(slice))?
+                .as_bytes()?;
+            let mut out: Vec<[Block; TILESETS_COUNT]> = Vec::with_capacity(0x100);
+            for tile in 0..0x100_usize {
+                let mut per_ts = [blank_block(); TILESETS_COUNT];
+                for ts in 0..TILESETS_COUNT {
+                    let offset = (ts << 11) | (tile << 3);
+                    if offset + 8 <= bytes.len() {
+                        per_ts[ts] = parse_block_from_bytes(&bytes[offset..offset + 8]);
+                    }
                 }
+                out.push(per_ts);
             }
-            out.push(per_ts);
-        }
-        Some(out)
+            Some(out)
         }
     } else {
         None

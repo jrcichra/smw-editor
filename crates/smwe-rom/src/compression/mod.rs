@@ -1,5 +1,6 @@
 pub mod lc_lz2;
 pub mod lc_rle1;
+pub mod lc_rle2;
 
 use duplicate::duplicate_item;
 use paste::paste;

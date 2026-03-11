@@ -454,8 +454,11 @@ impl OverworldColorPaletteSet {
     pub fn get_submap_palette(
         &self, submap: usize, ow_state: OverworldState, palettes: &ColorPalettes,
     ) -> Result<SpecificOverworldColorPalette, ColorPaletteError> {
-        let i_submap_palette = *self.layer2_indices.get(submap).ok_or(ColorPaletteError::OwLayer2)?;
-        self.get_submap_palette_from_indices(i_submap_palette, ow_state, palettes)
+        // Use submap index directly — layer2_pre/post_special are stored in
+        // submap order (0=YI, 1=Donut, ...) matching the tilemap data order.
+        // The layer2_indices indirection reflects the game's internal submap
+        // numbering which differs from the display order.
+        self.get_submap_palette_from_indices(submap, ow_state, palettes)
     }
 
     pub fn get_submap_palette_from_indices(
