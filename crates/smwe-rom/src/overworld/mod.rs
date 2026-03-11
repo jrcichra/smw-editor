@@ -164,6 +164,49 @@ impl OverworldMaps {
         let buffer_bytes = OW_BUFFER_WIDTH * OW_BUFFER_HEIGHT * 2;
         let tiles_u16 = decompress_rle2(&rom[tile_pc..], &rom[attr_pc..], buffer_bytes);
 
+        log::info!("Overworld::parse: sample buffer dump (6x6) starting at (0,0):");
+        for r in 0..6 {
+            let mut line = String::new();
+            for c in 0..6 {
+                let idx = r * OW_BUFFER_WIDTH + c;
+                let w = tiles_u16.get(idx).copied().unwrap_or(0);
+                line.push_str(&format!("{:04X} ", w));
+            }
+            log::info!("  row {:02}: {}", r, line);
+        }
+
+        // also print a 6x6 box starting at the declared submap origin (2,1)
+        let oc = SUBMAP_ORIGIN_COL;
+        let orow = SUBMAP_ORIGIN_ROW;
+        log::info!("Overworld::parse: sample buffer dump (6x6) at SUBMAP_ORIGIN (col={},row={}):", oc, orow);
+        for r in orow..(orow + 6) {
+            let mut line = String::new();
+            for c in oc..(oc + 6) {
+                let idx = r * OW_BUFFER_WIDTH + c;
+                let w = tiles_u16.get(idx).copied().unwrap_or(0);
+                line.push_str(&format!("{:04X} ", w));
+            }
+            log::info!("  raw[{}]: {}", r, line);
+        }
+
+        // Debug: log summary of decompressed buffer
+        log::debug!("Overworld::parse: decompressed tiles_u16.len() = {}", tiles_u16.len());
+
+        // Log first N entries to inspect layout (N small to avoid huge logs)
+        for (i, &v) in tiles_u16.iter().enumerate().take(20) {
+            let t = BgTile(v);
+            log::debug!(
+                "  raw[{}] = {:#06X} -> tile_index={:#05X} page={} pal={} flipX={} flipY={}",
+                i,
+                v,
+                t.tile_index(),
+                t.page(),
+                t.palette(),
+                t.flip_x(),
+                t.flip_y()
+            );
+        }
+
         let raw_buffer: Vec<BgTile> = tiles_u16.iter().map(|&w| BgTile(w)).collect();
 
         let names = [
@@ -181,11 +224,8 @@ impl OverworldMaps {
         for sm in 0..OW_SUBMAP_COUNT {
             // All submaps share the same buffer. Main map starts at (0,0);
             // submaps start at (SUBMAP_ORIGIN_COL, SUBMAP_ORIGIN_ROW) = (2,1).
-            let (origin_col, origin_row) = if sm == 0 {
-                (0usize, 0usize)
-            } else {
-                (SUBMAP_ORIGIN_COL, SUBMAP_ORIGIN_ROW)
-            };
+            let (origin_col, origin_row) =
+                if sm == 0 { (0usize, 0usize) } else { (SUBMAP_ORIGIN_COL, SUBMAP_ORIGIN_ROW) };
 
             let sx_off = scroll_x_pc + sm * 2;
             let sy_off = scroll_y_pc + sm * 2;
@@ -194,6 +234,15 @@ impl OverworldMaps {
             }
             let scroll_x = u16::from_le_bytes([rom[sx_off], rom[sx_off + 1]]);
             let scroll_y = u16::from_le_bytes([rom[sy_off], rom[sy_off + 1]]);
+
+            log::debug!(
+                "Overworld::parse: submap {} origin=({},{}), scroll_x={:#06x}, scroll_y={:#06x}",
+                sm,
+                origin_col,
+                origin_row,
+                scroll_x,
+                scroll_y
+            );
 
             // Extract the visible 40×27 view for this submap from the shared buffer.
             // Columns that would go past the right edge wrap to sky (0).
@@ -207,6 +256,22 @@ impl OverworldMaps {
                     } else {
                         0
                     };
+                    // If this looks suspicious, you'll see it here
+                    if tile != 0 && (row < 2 && col < 5) {
+                        let t = BgTile(tile);
+                        log::debug!(
+                            "  submap {} tile at view({},{}) -> raw_buf[{},{}] = {:#06x} idx={:#05x} page={} pal={}",
+                            sm,
+                            col,
+                            row,
+                            br,
+                            bc,
+                            tile,
+                            t.tile_index(),
+                            t.page(),
+                            t.palette()
+                        );
+                    }
                     tiles.push(BgTile(tile));
                 }
             }

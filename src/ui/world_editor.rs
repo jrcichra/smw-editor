@@ -26,7 +26,7 @@ const OW_GFX_FILES: [usize; 4] = [0x1C, 0x1D, 0x08, 0x1E];
 const SUBMAP_NAMES: &[&str] =
     &["Main Map", "Yoshi's Island", "Vanilla Dome", "Forest of Illusion", "Valley of Bowser", "Special", "Star World"];
 
-// ── Struct ────────────────────────────────────────────────────────────────────
+// ── Struct ───────────────────────────────────────────────────────────────────
 
 pub struct UiWorldEditor {
     rom: Arc<SmwRom>,
@@ -355,7 +355,7 @@ impl UiWorldEditor {
         }
 
         let z = self.zoom;
-        let canvas_tl = resp.rect.min + self.offset * z;
+        let canvas_tl = resp.rect.min + self.offset;
         let map_rect = Rect::from_min_size(canvas_tl, vec2(MAP_W_PX * z, MAP_H_PX * z));
 
         // Canvas background
@@ -467,14 +467,20 @@ impl UiWorldEditor {
     }
 }
 
-// ── GFX / CHR helpers ────────────────────────────────────────────────────────
+// ── GFX / CHR helpers ───────────────────────────────────────────────────────
 
 /// Resolve a CHR tile index to (gfx_file_index, tile_offset_within_file).
-/// CHR bits 8-7 = VRAM page (0-3), bits 6-0 = tile within page (0-127).
+/// CHR index bits 8-7 = VRAM page (0-3), bits 6-0 = tile within page (0-127).
 fn chr_to_gfx(chr: usize) -> Option<(usize, usize)> {
-    let page = chr >> 7;      // VRAM page 0-3
-    let offset = chr & 0x7F;  // tile index within that GFX file (0-127)
-    let file_idx = *OW_GFX_FILES.get(page)?;
+    // page = bits 8-7
+    let page = (chr >> 7) & 0x3; // ensure 0..3
+    let offset = chr & 0x7F; // tile index within page (0..127)
+                             // safe check vs OW_GFX_FILES length:
+    if page >= OW_GFX_FILES.len() {
+        return None;
+    }
+    let file_idx = OW_GFX_FILES[page];
+    log::debug!("chr_to_gfx: chr={:#05x} -> page={} offset={} file_id={:#04x}", chr, page, offset, file_idx);
     Some((file_idx, offset))
 }
 
@@ -483,7 +489,7 @@ fn sheet_total_tiles(rom: &SmwRom) -> usize {
     OW_GFX_FILES.iter().map(|&fi| rom.gfx.files.get(fi).map(|f| f.tiles.len()).unwrap_or(0)).sum::<usize>().min(512)
 }
 
-// ── Rendering helpers ─────────────────────────────────────────────────────────
+// ── Rendering helpers ─────────────────────────────────────────────────--------
 
 /// Build a flat 256-entry CGRAM (16 rows × 16 cols) for the given OW submap.
 /// Layer2 colors sit at CGRAM rows 4-7 (palette field 4-7).
@@ -492,9 +498,8 @@ fn build_cgram(rom: &SmwRom, submap: usize) -> (Vec<Abgr1555>, Color32) {
     let sm = submap.min(5);
     match rom.gfx.color_palettes.get_submap_palette(sm, OverworldState::PreSpecial) {
         Ok(pal) => {
-            let cgram = (0..256usize)
-                .map(|i| pal.get_color_at(i / 16, i % 16).unwrap_or(Abgr1555::TRANSPARENT))
-                .collect();
+            let cgram =
+                (0..256usize).map(|i| pal.get_color_at(i / 16, i % 16).unwrap_or(Abgr1555::TRANSPARENT)).collect();
             // Sky/ocean backdrop: layer3 palette row 0, col 8
             let backdrop_abgr = pal.get_color_at(0, 8).unwrap_or(Abgr1555::TRANSPARENT);
             let backdrop = Color32::from(backdrop_abgr);
@@ -538,6 +543,11 @@ fn render_ow_map(rom: &SmwRom, local_layer2: &[OwTilemap], submap: usize) -> Opt
     let mut pixels = vec![backdrop; img_w * img_h];
     let mut buf = [Color32::TRANSPARENT; 64];
 
+    log::info!("render_ow_map: submap={} img={}x{} rom.gfx.files.len()={}", sm, img_w, img_h, rom.gfx.files.len());
+
+    // Collect tile mismatch reports
+    let mut mismatches: Vec<String> = Vec::new();
+    let mut rendered_tiles = 0usize;
     for row in 0..MAP_TILE_ROWS {
         for col in 0..MAP_TILE_COLS {
             let entry = layer2.get(col, row);
@@ -545,15 +555,37 @@ fn render_ow_map(rom: &SmwRom, local_layer2: &[OwTilemap], submap: usize) -> Opt
             if chr == 0 {
                 continue;
             }
-            if let Some((file_idx, offset)) = chr_to_gfx(chr) {
-                if let Some(tile) = rom.gfx.files.get(file_idx).and_then(|f| f.tiles.get(offset)) {
-                    // OW layer2 palette values are 4-7 in the tile data.
-                    // These map directly to CGRAM rows 4-7 — use directly as cgram_row.
-                    // The `4 + (pal & 3)` formula also yields 4-7 for input 4-7.
-                    let cgram_row = entry.palette() as usize;
+            if let Some((file_id, offset)) = chr_to_gfx(chr) {
+                // Try to find the actual gfx file by ID or index.
+                if rom.gfx.files.get(file_id).is_none() {
+                    log::warn!(
+                        "render_ow_map: rom.gfx.files.get({:#04x}) returned None. rom.gfx.files.len() = {}",
+                        file_id,
+                        rom.gfx.files.len()
+                    );
+                }
+
+                if let Some(tile) = rom.gfx.files.get(file_id).and_then(|f| f.tiles.get(offset)) {
+                    let cgram_row = 4 + ((entry.palette() as usize) & 3);
+                    log::debug!(
+                        "render_ow_map: at ({},{}) chr={:#05x} -> file_id={:#04x} offset={} cgram_row={} flipX={} flipY={}",
+                        col,
+                        row,
+                        chr,
+                        file_id,
+                        offset,
+                        cgram_row,
+                        entry.flip_x(),
+                        entry.flip_y()
+                    );
+
+                    // decode into local 8x8 buffer
                     decode_tile_into(tile, &cgram, cgram_row, entry.flip_x(), entry.flip_y(), &mut buf);
+
                     let dx = col * 8;
                     let dy = row * 8;
+
+                    // Write decoded pixels into the big image buffer
                     for py in 0..8 {
                         for px in 0..8 {
                             let c = buf[py * 8 + px];
@@ -562,9 +594,61 @@ fn render_ow_map(rom: &SmwRom, local_layer2: &[OwTilemap], submap: usize) -> Opt
                             }
                         }
                     }
+
+                    // --- Pixel-compare check: verify that the pixels we just wrote match `buf` for non-transparent pixels.
+                    // If the final pixels at the tile area differ from the decoded bytes, record a mismatch.
+                    let mut found_mismatch = false;
+                    let mut first_bad: Option<(usize, usize, Color32, Color32)> = None;
+                    'tilecheck: for py in 0..8 {
+                        for px in 0..8 {
+                            let expected = buf[py * 8 + px];
+                            if expected.a() == 0 {
+                                // We only compare non-transparent pixels (transparent pixels are overlay/backdrop-dependent)
+                                continue;
+                            }
+                            let idx = (dy + py) * img_w + (dx + px);
+                            let actual = pixels[idx];
+                            if actual != expected {
+                                found_mismatch = true;
+                                first_bad = Some((px, py, expected, actual));
+                                break 'tilecheck;
+                            }
+                        }
+                    }
+
+                    if found_mismatch {
+                        let (bx, by, expected, actual) = first_bad.unwrap();
+                        let s = format!(
+                            "TILE_MISMATCH at view({},{}) chr={:#05x} -> file_id={:#04x} offset={} first_bad_pixel=({},{}): expected={:?} actual={:?}",
+                            col, row, chr, file_id, offset, bx, by, expected, actual
+                        );
+                        log::warn!("{}", s);
+                        mismatches.push(s);
+                    }
+
+                    rendered_tiles += 1;
+                } else {
+                    log::warn!(
+                        "render_ow_map: MISSING TILE: chr={:#05x} -> file_id={:#04x} offset={}  rom.gfx.files.get returned None or tile missing",
+                        chr,
+                        file_id,
+                        offset
+                    );
                 }
+            } else {
+                log::warn!("render_ow_map: chr_to_gfx returned None for chr={:#05x}", chr);
             }
         }
+    }
+
+    log::info!("render_ow_map: rendered_tiles = {}, mismatches = {}", rendered_tiles, mismatches.len());
+    if !mismatches.is_empty() {
+        // print first few mismatches for copy/paste
+        for m in mismatches.iter().take(20) {
+            log::info!("  {}", m);
+        }
+    } else {
+        log::info!("render_ow_map: no tile pixel mismatches found (decoded tiles match texture pixels).");
     }
 
     Some(ColorImage { size: [img_w, img_h], pixels })
@@ -580,21 +664,27 @@ fn render_tile_sheet(rom: &SmwRom, submap: usize) -> Option<ColorImage> {
     let mut tiles: Vec<&smwe_rom::graphics::gfx_file::Tile> = Vec::with_capacity(512);
     for &fi in OW_GFX_FILES.iter() {
         if let Some(gfx) = rom.gfx.files.get(fi) {
+            log::debug!("render_tile_sheet: using rom.gfx.files[{}] with {} tiles", fi, gfx.tiles.len());
             for t in &gfx.tiles {
                 tiles.push(t);
                 if tiles.len() >= 512 {
                     break;
                 }
             }
+        } else {
+            log::debug!("render_tile_sheet: rom.gfx.files.get({}) returned None", fi);
         }
         if tiles.len() >= 512 {
             break;
         }
     }
+    log::debug!("render_tile_sheet: total tiles collected = {}", tiles.len());
+
     if tiles.is_empty() {
         return None;
     }
 
+    // ... rest unchanged ...
     let sheet_cols = 16usize;
     let sheet_rows = (tiles.len() + sheet_cols - 1) / sheet_cols;
     let img_w = sheet_cols * 8;
