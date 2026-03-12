@@ -6,14 +6,9 @@ pub mod graphics;
 pub mod internal_header;
 pub mod level;
 pub mod objects;
-pub mod overworld;
 pub mod snes_utils;
 
-use std::{
-    fs,
-    panic::{catch_unwind, AssertUnwindSafe},
-    path::Path,
-};
+use std::{fs, path::Path};
 
 use crate::{
     disassembler::{
@@ -27,7 +22,6 @@ use crate::{
         Level, LEVEL_COUNT,
     },
     objects::tilesets::Tilesets,
-    overworld::{OverworldError, OverworldMaps},
     snes_utils::{
         addr::AddrSnes,
         rom::{Rom, RomError},
@@ -45,7 +39,6 @@ pub struct SmwRom {
     pub secondary_entrances: Vec<SecondaryEntrance>,
     pub gfx: Gfx,
     pub map16_tilesets: Tilesets,
-    pub overworld: OverworldMaps,
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -93,25 +86,7 @@ impl SmwRom {
         log::info!("Parsing Map16 tilesets");
         let map16_tilesets = Tilesets::parse(&mut disassembly)?;
 
-        log::info!("Parsing overworld tilemaps");
-        let overworld = catch_unwind(AssertUnwindSafe(|| OverworldMaps::parse(&mut disassembly)))
-            .unwrap_or_else(|panic_val| {
-                let msg = if let Some(s) = panic_val.downcast_ref::<&str>() {
-                    s.to_string()
-                } else if let Some(s) = panic_val.downcast_ref::<String>() {
-                    s.clone()
-                } else {
-                    "(unknown panic payload)".to_string()
-                };
-                log::warn!("Overworld tilemap parse panicked: {msg}");
-                Err(OverworldError::TilemapRead)
-            })
-            .unwrap_or_else(|e| {
-                log::warn!("Overworld tilemap parse error (falling back to empty): {e}");
-                OverworldMaps::empty()
-            });
-
-        Ok(Self { disassembly, internal_header, levels, secondary_entrances, gfx, map16_tilesets, overworld })
+        Ok(Self { disassembly, internal_header, levels, secondary_entrances, gfx, map16_tilesets })
     }
 
     fn parse_levels(disasm: &mut RomDisassembly) -> anyhow::Result<Vec<Level>> {
@@ -135,9 +110,7 @@ impl SmwRom {
     /// Write a modified ROM back to disk.
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> anyhow::Result<()> {
         use std::io::Write;
-        let mut bytes = self.disassembly.rom.0.to_vec();
-        // Patch overworld tilemaps back into the ROM bytes.
-        self.overworld.write_to_rom_bytes(&mut bytes);
+        let bytes = self.disassembly.rom.0.to_vec();
         let mut f = std::fs::File::create(path)?;
         f.write_all(&bytes)?;
         Ok(())
