@@ -26,7 +26,7 @@ use crate::{
         project_creator::UiProjectCreator,
         tab_viewer::EditorToolTabViewer,
         tool::DockableEditorTool,
-        world_editor::WorldEditor,
+        world_editor::UiWorldEditor,
     },
 };
 
@@ -231,7 +231,12 @@ impl UiMainWindow {
                             ui.close_menu();
                         }
                         if ui.button("World Map Editor").clicked() {
-                            self.open_tool(WorldEditor::new(Arc::clone(rom.unwrap())));
+                            let Some(path) = self.rom_path.clone() else {
+                                self.save_error = Some("No ROM path available for emulator-backed overworld view.".into());
+                                ui.close_menu();
+                                return;
+                            };
+                            self.open_tool(UiWorldEditor::new(Arc::clone(&self.gl), Arc::clone(rom.unwrap()), path));
                             ui.close_menu();
                         }
                         if ui.button("Sprite Tile Editor").clicked() {
