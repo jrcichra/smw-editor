@@ -480,21 +480,27 @@ impl UiWorldEditor {
 ///   slot 2 → OW_GFX_FILES[2] = GFX08  (chr 0x200-0x2FF)
 ///   slot 3 → OW_GFX_FILES[3] = GFX1E  (chr 0x300-0x3FF)
 fn chr_to_gfx(chr: usize) -> Option<(usize, usize)> {
-    let slot = (chr >> 8) & 0x3;   // bits 9-8
-    let tile_offset = chr & 0xFF;   // bits 7-0 (0-127 used in practice)
+    // SMW OW VRAM layout — 4 GFX files of 128 tiles each, contiguous:
+    //   GFX1C → chr 0x000–0x07F  (slot 0)
+    //   GFX1D → chr 0x080–0x0FF  (slot 1)
+    //   GFX08 → chr 0x100–0x17F  (slot 2)
+    //   GFX1E → chr 0x180–0x1FF  (slot 3)
+    // The full tile index range is 0x000–0x1FF (9 bits used, not 10).
+    let slot = chr >> 7;          // 0-3
+    let tile_offset = chr & 0x7F; // 0-127 within each file
     if slot >= OW_GFX_FILES.len() {
         return None;
     }
     let file_idx = OW_GFX_FILES[slot];
-    log::debug!("chr_to_gfx: chr={:#05x} -> slot={} file_id={:#04x} tile_offset={}", chr, slot, file_idx, tile_offset);
+    log::debug!("chr_to_gfx: chr={:#05x} slot={} file={:#04x} offset={}", chr, slot, file_idx, tile_offset);
     Some((file_idx, tile_offset))
 }
 
 /// Count total tiles in the tile sheet (all 4 OW GFX slots).
 /// Each slot covers 256 tile-number entries (bits 9-8 of CHR), so total = 4 * 256 = 1024.
 /// Capped by the actual tiles present in each GFX file.
-fn sheet_total_tiles(rom: &SmwRom) -> usize {
-    OW_GFX_FILES.len() * 256
+fn sheet_total_tiles(_rom: &SmwRom) -> usize {
+    OW_GFX_FILES.len() * 128 // 4 slots × 128 tiles = 512
 }
 
 // ── Rendering helpers ─────────────────────────────────────────────────--------
@@ -552,6 +558,27 @@ fn render_ow_map(rom: &SmwRom, local_layer2: &[OwTilemap], submap: usize) -> Opt
     let mut buf = [Color32::TRANSPARENT; 64];
 
     log::info!("render_ow_map: submap={} img={}x{} rom.gfx.files.len()={}", sm, img_w, img_h, rom.gfx.files.len());
+
+    // Diagnostic: log unique chr values to verify chr_to_gfx mapping
+    {
+        let mut seen = std::collections::BTreeSet::new();
+        for row in 0..MAP_TILE_ROWS {
+            for col in 0..MAP_TILE_COLS {
+                let entry = layer2.get(col, row);
+                let chr = entry.tile_index() as usize;
+                if chr == 0 { continue; }
+                if seen.insert(chr) {
+                    if let Some((file_id, offset)) = chr_to_gfx(chr) {
+                        let tile_count = rom.gfx.files.get(file_id).map(|f| f.tiles.len()).unwrap_or(0);
+                        log::info!("  DIAG chr={:#05x} raw={:#06x} pal={} flip={}{} -> file={:#04x} offset={}/{}",
+                            chr, entry.0, entry.palette(), entry.flip_x() as u8, entry.flip_y() as u8,
+                            file_id, offset, tile_count);
+                    }
+                }
+            }
+        }
+        log::info!("  DIAG: {} unique chr values", seen.len());
+    }
 
     // Collect tile mismatch reports
     let mut mismatches: Vec<String> = Vec::new();
@@ -668,12 +695,9 @@ fn render_tile_sheet(rom: &SmwRom, submap: usize) -> Option<ColorImage> {
     let sm = submap.min(5);
     let (cgram, _) = build_cgram(rom, sm);
 
-    // Build a 4-slot × 256-tile sheet where each CHR index maps directly:
-    //   CHR bits 9-8 = slot (row of 256), bits 7-0 = tile within slot.
-    // Sheet layout: 16 columns × N rows (each row of 16 = 16 tiles).
-    // Total 4 * 256 = 1024 entries; only entries 0..127 per slot have real GFX.
+    // 4 slots × 128 tiles = 512 total CHR indices. slot = chr >> 7.
     let sheet_cols = 16usize;
-    let total_entries = OW_GFX_FILES.len() * 256; // 1024
+    let total_entries = OW_GFX_FILES.len() * 128; // 512
     let sheet_rows = (total_entries + sheet_cols - 1) / sheet_cols;
     let img_w = sheet_cols * 8;
     let img_h = sheet_rows * 8;
@@ -681,8 +705,8 @@ fn render_tile_sheet(rom: &SmwRom, submap: usize) -> Option<ColorImage> {
     let pal_base = 7 * 16;
 
     for chr in 0..total_entries {
-        let slot = (chr >> 8) & 0x3;
-        let tile_offset = chr & 0xFF;
+        let slot = chr >> 7;
+        let tile_offset = chr & 0x7F;
         let tc = chr % sheet_cols;
         let tr = chr / sheet_cols;
         let gfx_file_idx = OW_GFX_FILES[slot];
