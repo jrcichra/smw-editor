@@ -470,23 +470,31 @@ impl UiWorldEditor {
 // ── GFX / CHR helpers ───────────────────────────────────────────────────────
 
 /// Resolve a CHR tile index to (gfx_file_index, tile_offset_within_file).
-/// CHR index bits 8-7 = VRAM page (0-3), bits 6-0 = tile within page (0-127).
+/// The overworld layer 2 uses 4 GFX slots, each occupying one full VRAM page
+/// (256 tile-numbers wide). The 10-bit CHR tile index maps as:
+///   bits 9-8 = slot (0-3)  → which GFX file
+///   bits 7-0 = tile offset within that file (0-127 for 3bpp files)
+///
+///   slot 0 → OW_GFX_FILES[0] = GFX1C  (chr 0x000-0x0FF)
+///   slot 1 → OW_GFX_FILES[1] = GFX1D  (chr 0x100-0x1FF)
+///   slot 2 → OW_GFX_FILES[2] = GFX08  (chr 0x200-0x2FF)
+///   slot 3 → OW_GFX_FILES[3] = GFX1E  (chr 0x300-0x3FF)
 fn chr_to_gfx(chr: usize) -> Option<(usize, usize)> {
-    // page = bits 8-7
-    let page = (chr >> 7) & 0x3; // ensure 0..3
-    let offset = chr & 0x7F; // tile index within page (0..127)
-                             // safe check vs OW_GFX_FILES length:
-    if page >= OW_GFX_FILES.len() {
+    let slot = (chr >> 8) & 0x3;   // bits 9-8
+    let tile_offset = chr & 0xFF;   // bits 7-0 (0-127 used in practice)
+    if slot >= OW_GFX_FILES.len() {
         return None;
     }
-    let file_idx = OW_GFX_FILES[page];
-    log::debug!("chr_to_gfx: chr={:#05x} -> page={} offset={} file_id={:#04x}", chr, page, offset, file_idx);
-    Some((file_idx, offset))
+    let file_idx = OW_GFX_FILES[slot];
+    log::debug!("chr_to_gfx: chr={:#05x} -> slot={} file_id={:#04x} tile_offset={}", chr, slot, file_idx, tile_offset);
+    Some((file_idx, tile_offset))
 }
 
-/// Count total tiles in the tile sheet (all 4 OW GFX pages).
+/// Count total tiles in the tile sheet (all 4 OW GFX slots).
+/// Each slot covers 256 tile-number entries (bits 9-8 of CHR), so total = 4 * 256 = 1024.
+/// Capped by the actual tiles present in each GFX file.
 fn sheet_total_tiles(rom: &SmwRom) -> usize {
-    OW_GFX_FILES.iter().map(|&fi| rom.gfx.files.get(fi).map(|f| f.tiles.len()).unwrap_or(0)).sum::<usize>().min(512)
+    OW_GFX_FILES.len() * 256
 }
 
 // ── Rendering helpers ─────────────────────────────────────────────────--------
@@ -660,57 +668,50 @@ fn render_tile_sheet(rom: &SmwRom, submap: usize) -> Option<ColorImage> {
     let sm = submap.min(5);
     let (cgram, _) = build_cgram(rom, sm);
 
-    // Collect all tiles from the 4 fixed OW GFX files
-    let mut tiles: Vec<&smwe_rom::graphics::gfx_file::Tile> = Vec::with_capacity(512);
-    for &fi in OW_GFX_FILES.iter() {
-        if let Some(gfx) = rom.gfx.files.get(fi) {
-            log::debug!("render_tile_sheet: using rom.gfx.files[{}] with {} tiles", fi, gfx.tiles.len());
-            for t in &gfx.tiles {
-                tiles.push(t);
-                if tiles.len() >= 512 {
-                    break;
-                }
-            }
-        } else {
-            log::debug!("render_tile_sheet: rom.gfx.files.get({}) returned None", fi);
-        }
-        if tiles.len() >= 512 {
-            break;
-        }
-    }
-    log::debug!("render_tile_sheet: total tiles collected = {}", tiles.len());
-
-    if tiles.is_empty() {
-        return None;
-    }
-
-    // ... rest unchanged ...
+    // Build a 4-slot × 256-tile sheet where each CHR index maps directly:
+    //   CHR bits 9-8 = slot (row of 256), bits 7-0 = tile within slot.
+    // Sheet layout: 16 columns × N rows (each row of 16 = 16 tiles).
+    // Total 4 * 256 = 1024 entries; only entries 0..127 per slot have real GFX.
     let sheet_cols = 16usize;
-    let sheet_rows = (tiles.len() + sheet_cols - 1) / sheet_cols;
+    let total_entries = OW_GFX_FILES.len() * 256; // 1024
+    let sheet_rows = (total_entries + sheet_cols - 1) / sheet_cols;
     let img_w = sheet_cols * 8;
     let img_h = sheet_rows * 8;
     let mut pixels = vec![Color32::from_gray(28); img_w * img_h];
-    // Use CGRAM row 7 (palette value 7 = sky/water, the most common OW palette) for preview
     let pal_base = 7 * 16;
 
-    for (tidx, tile) in tiles.iter().enumerate() {
-        let tc = tidx % sheet_cols;
-        let tr = tidx / sheet_cols;
-        for (pi, &ci) in tile.color_indices.iter().enumerate() {
-            let px = pi % 8;
-            let py = pi / 8;
-            let c = if ci == 0 {
-                // Checkerboard for transparent pixels
-                if (tc + px + tr + py) % 2 == 0 {
-                    Color32::from_gray(45)
+    for chr in 0..total_entries {
+        let slot = (chr >> 8) & 0x3;
+        let tile_offset = chr & 0xFF;
+        let tc = chr % sheet_cols;
+        let tr = chr / sheet_cols;
+        let gfx_file_idx = OW_GFX_FILES[slot];
+        let maybe_tile = rom.gfx.files.get(gfx_file_idx).and_then(|f| f.tiles.get(tile_offset));
+        if let Some(tile) = maybe_tile {
+            for (pi, &ci) in tile.color_indices.iter().enumerate() {
+                let px = pi % 8;
+                let py = pi / 8;
+                let c = if ci == 0 {
+                    if (tc + px + tr + py) % 2 == 0 { Color32::from_gray(45) } else { Color32::from_gray(35) }
                 } else {
-                    Color32::from_gray(35)
-                }
-            } else {
-                Color32::from(cgram.get(pal_base + ci as usize).copied().unwrap_or(Abgr1555::MAGENTA))
-            };
-            pixels[(tr * 8 + py) * img_w + (tc * 8 + px)] = c;
+                    Color32::from(cgram.get(pal_base + ci as usize).copied().unwrap_or(Abgr1555::MAGENTA))
+                };
+                pixels[(tr * 8 + py) * img_w + (tc * 8 + px)] = c;
+            }
+        } else {
+            // Empty slot entry — draw an X pattern so it's clearly empty
+            let tc_px = tc * 8;
+            let tr_px = tr * 8;
+            for i in 0..8usize {
+                let c = Color32::from_gray(50);
+                pixels[(tr_px + i) * img_w + tc_px + i] = c;
+                pixels[(tr_px + i) * img_w + tc_px + (7 - i)] = c;
+            }
         }
+    }
+
+    if pixels.iter().all(|&p| p == Color32::from_gray(28)) {
+        return None;
     }
 
     Some(ColorImage { size: [img_w, img_h], pixels })
