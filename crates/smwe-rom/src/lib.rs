@@ -6,6 +6,7 @@ pub mod graphics;
 pub mod internal_header;
 pub mod level;
 pub mod objects;
+pub mod overworld;
 pub mod snes_utils;
 
 use std::{fs, path::Path};
@@ -22,6 +23,7 @@ use crate::{
         Level, LEVEL_COUNT,
     },
     objects::tilesets::Tilesets,
+    overworld::OverworldData,
     snes_utils::{
         addr::AddrSnes,
         rom::{Rom, RomError},
@@ -39,6 +41,7 @@ pub struct SmwRom {
     pub secondary_entrances: Vec<SecondaryEntrance>,
     pub gfx: Gfx,
     pub map16_tilesets: Tilesets,
+    pub overworld: OverworldData,
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -46,15 +49,12 @@ pub struct SmwRom {
 impl SmwRom {
     pub fn from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Self> {
         log::info!("Reading ROM from file: {}", path.as_ref().display());
-
         let bytes = fs::read(path)?;
         let rom = Rom::new(bytes)?;
         let smw_rom = Self::from_rom(rom);
-
         if smw_rom.is_ok() {
             log::info!("Success parsing ROM");
         }
-
         smw_rom
     }
 
@@ -65,7 +65,6 @@ impl SmwRom {
         log::info!("Creating disassembly map");
         let mut disassembly = RomDisassembly::new(rom, &internal_header);
 
-        // Mark IRH
         disassembly.rom_slice_at_block(
             DataBlock {
                 slice: SnesSlice::new(AddrSnes(0x00FFC0), internal_header::sizes::INTERNAL_HEADER),
@@ -86,7 +85,14 @@ impl SmwRom {
         log::info!("Parsing Map16 tilesets");
         let map16_tilesets = Tilesets::parse(&mut disassembly)?;
 
-        Ok(Self { disassembly, internal_header, levels, secondary_entrances, gfx, map16_tilesets })
+        log::info!("Parsing overworld data");
+        let overworld = OverworldData::parse(&disassembly.rom)
+            .unwrap_or_else(|e| {
+                log::warn!("Could not parse overworld data: {e}");
+                OverworldData { layer1_tiles: vec![0u8; overworld::OWL1_TILE_DATA_SIZE] }
+            });
+
+        Ok(Self { disassembly, internal_header, levels, secondary_entrances, gfx, map16_tilesets, overworld })
     }
 
     fn parse_levels(disasm: &mut RomDisassembly) -> anyhow::Result<Vec<Level>> {
@@ -107,7 +113,6 @@ impl SmwRom {
         Ok(secondary_entrances)
     }
 
-    /// Write a modified ROM back to disk.
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> anyhow::Result<()> {
         use std::io::Write;
         let bytes = self.disassembly.rom.0.to_vec();

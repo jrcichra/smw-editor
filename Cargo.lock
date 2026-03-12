@@ -3624,6 +3624,7 @@ dependencies = [
 name = "smwe-emu"
 version = "0.1.0"
 dependencies = [
+ "log",
  "wdc65816",
 ]
 
