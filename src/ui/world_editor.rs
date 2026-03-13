@@ -1,19 +1,17 @@
 //! World Map (Overworld) Editor UI.
 //!
 //! The overworld tilemap is stored in WRAM at $7EC800 (Map16TilesLow) after the
-//! game's init routines run.  The index formula from `OW_TilePos_Calc` is:
+//! game's init routines run.  The index bit layout is `%-----YYX yyyyxxxx`
+//! (SMW overworld data format spec):
 //!
-//!   idx = (x & 0xF) | ((x & 0x10) << 4) | ((y & 0xF) << 4) | (y >= 16 ? 0x200 : 0)
-//!         | (submap != 0 ? 0x400 : 0)
+//!   idx = (x & 0x1F) | ((y_actual & 0x3F) << 5)
 //!
-//! giving a packed 4-quadrant layout (top-left, top-right, bottom-left, bottom-right
-//! each 16×16 tiles) in SNES VRAM-tilemap order.
+//! where y_actual = display_row for the main map (rows 0–31)
+//! and   y_actual = display_row + 32 for submaps (rows 32–63).
+//! Combined tilemap: 32 cols × 64 rows = 2048 u16 entries at $7EC800.
 //!
-//! Main map  : 32 cols × 32 rows, indices 0x000–0x3FF, each u16 at $7EC800+idx*2
-//! Submaps   : same size,          indices 0x400–0x7FF, same base address
-//!
-//! Layer 2 ($7F4000 / OWLayer2Tilemap): 64×64 16-bit entries in simple
-//! row-major order:  row*64+col  (40 cols × some rows, from the decompressor).
+//! Layer 2 ($7F4000 / OWLayer2Tilemap): row-major 40 cols wide,
+//! indexed as ((Y * 40) + X) * 2.
 
 use std::{
     path::PathBuf,
@@ -39,8 +37,9 @@ use crate::ui::tool::DockableEditorTool;
 /// 8×8 pixels per overworld tile.
 const TILE_PX: f32 = 8.0;
 
-/// Main map / each submap: 32 tile-columns × 32 tile-rows.
-/// (The full screen shown by the game scrolls within this 256×256-pixel area.)
+/// Each submap (including main map) is 32 tile-columns × 32 tile-rows of 16×16 blocks.
+/// The combined packed tilemap in WRAM is 32 cols × 64 rows (main map rows 0–31,
+/// submaps rows 32–63).
 const OW_COLS: u32 = 32;
 const OW_ROWS: u32 = 32;
 
@@ -59,14 +58,13 @@ const OW_L2_ROWS: u32 = 28;
 
 /// Convert (col, row, submap) → word-index into Map16TilesLow ($7EC800).
 ///
-/// Formula taken verbatim from `OW_TilePos_Calc` in bank_04.asm:
-///   idx = (x & 0xF) | ((x & 0x10) << 4) | ((y & 0xF) << 4)
-///         | (y >= 16 ? 0x200 : 0) | (submap ? 0x400 : 0)
+/// The WRAM layout uses a `%-----YYX yyyyxxxx` bit packing (SMW overworld spec):
+///   idx = (x & 0x1F) | ((y_actual & 0x3F) << 5)
+/// where y_actual = row for the main map and row + 32 for submaps.
 fn ow_l1_idx(col: u32, row: u32, submap: u8) -> u32 {
     let x = col;
-    let y = row;
-    (x & 0xF) | ((x & 0x10) << 4) | ((y & 0xF) << 4) | (if y >= 16 { 0x200 } else { 0 })
-        | (if submap != 0 { 0x400 } else { 0 })
+    let y_actual = row + if submap != 0 { 32 } else { 0 };
+    (x & 0x1F) | ((y_actual & 0x3F) << 5)
 }
 
 fn ow_l1_addr(col: u32, row: u32, submap: u8) -> u32 {
@@ -436,20 +434,25 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
             // game built into WRAM.  We read the four sub-tiles directly from
             // the OWL1CharData via the Map16Pointers table the emulator set up.
             let block_id = (t & 0x1FF) as u32;
-            let map16_ptr_base = cpu.mem.cart.resolve("Map16Pointers")
-                .unwrap_or(0x7E0000 + 0x0FBE); // fallback
-            // Map16Pointers[block_id] = word-pointer into OWL1CharData (bank $05)
+            // Map16Pointers is in WRAM (bank $7E), address $7E0FBE.
+            // The symbol resolves as a LoROM 24-bit address $00:0FBE which maps
+            // to WRAM $0FBE.  We add $7E0000 so the emulator routes it to WRAM.
+            let map16_ptr_base = {
+                let raw = cpu.mem.cart.resolve("Map16Pointers").unwrap_or(0x000FBE);
+                // If already a 24-bit WRAM addr keep it; otherwise force bank $7E.
+                if raw & 0xFF0000 == 0 { 0x7E0000 | raw } else { raw }
+            };
+            // Map16Pointers[block_id] = 16-bit offset into OWL1CharData (bank $05).
             let char_ptr = cpu.mem.load_u16(map16_ptr_base + block_id * 2) as u32;
-            // OWL1CharData lives in ROM bank $05; the pointer is a 16-bit offset
-            // within that bank.
-            let char_base: u32 = cpu.mem.cart.resolve("OWL1CharData").unwrap_or(0x050000);
+            // OWL1CharData lives in ROM bank $05 at $05D000.
+            let char_base: u32 = cpu.mem.cart.resolve("OWL1CharData").unwrap_or(0x05D000);
             let char_bank = char_base & 0xFF0000;
-            let gfx_addr  = char_bank | char_ptr;
+            let gfx_addr  = char_bank | (char_ptr & 0xFFFF);
 
             let px = col * 16;
             let py = row * 16;
-            // 4 sub-tiles: UL, LL, UR, LR (same layout as regular Map16)
-            for (si, (ox, oy)) in [(0u32, 0u32), (0, 8), (8, 0), (8, 8)].iter().enumerate() {
+            // Map16 sub-tile order per SMW spec: top-left, bottom-left, top-right, bottom-right.
+            for (si, (ox, oy)) in [(0u32, 0u32), (0u32, 8u32), (8u32, 0u32), (8u32, 8u32)].iter().enumerate() {
                 let sub_tile = cpu.mem.load_u16(gfx_addr + si as u32 * 2);
                 tiles.push(ow_tile(px + ox, py + oy, sub_tile));
             }
