@@ -8,7 +8,7 @@
 //!
 //! where y_actual = display_row for the main map (rows 0–31)
 //! and   y_actual = display_row + 32 for submaps (rows 32–63).
-//! Combined tilemap: 64 cols × 32 rows = 2048 u8 entries at $7EC800.
+//! Combined tilemap: 32 cols × 64 rows = 2048 u8 entries at $7EC800.
 //! Each byte is the Map16 tile-type ID (0–190).  The game copies the raw
 //! OWL1TileData bytes directly via MVN with no stride expansion.
 //!
@@ -42,10 +42,10 @@ const MAP16_PX: f32 = 16.0;
 /// Game pixels per 8×8 BG tile (L2 tiles).
 const TILE_PX: f32 = 8.0;
 
-/// Layer-1: 64 Map16 columns × 32 Map16 rows (each block is 16×16 game px).
-/// Canvas = 64*16=1024 wide, 32*16=512 tall.
-const OW_COLS: u32 = 64;
-const OW_ROWS: u32 = 32;
+/// Layer-1: 32 Map16 columns × 64 Map16 rows (each block is 16×16 game px).
+/// Canvas = 32*16=512 wide, 64*16=1024 tall.
+const OW_COLS: u32 = 32;
+const OW_ROWS: u32 = 64;
 
 /// WRAM base for the OW Layer-1 tile-type bytes (u8 each, 0x800 total).
 /// Populated by CODE_04DC09 via `MVN $7E,$0C` from OWL1TileData at $0CF7DF.
@@ -63,11 +63,11 @@ const OW_L2_ROWS: u32 = 64;
 
 /// Convert (col, row, submap) → word-index into Map16TilesLow ($7EC800).
 ///
-/// The WRAM layout is linear: idx = col + row * 64.
-/// col: 0-63, row: 0-31 (main map) or 32-63 (submaps).
+/// The WRAM layout is linear: idx = col + row * 32.
+/// col: 0-31, row: 0-31 (main map) or 32-63 (submaps).
 fn ow_l1_idx(col: u32, row: u32, submap: u8) -> u32 {
     let y_actual = row + if submap != 0 { 32 } else { 0 };
-    col + (y_actual * 64)
+    col + (y_actual * 32)
 }
 
 /// Byte address of the tile-type byte in WRAM (u8, not u16).
