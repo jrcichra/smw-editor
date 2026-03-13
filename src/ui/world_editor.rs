@@ -54,10 +54,10 @@ const MAP16_TILES_LOW: u32 = 0x7EC800;
 /// WRAM base for the layer-2 tilemap (u16 each, row-major 64 cols × 64 rows).
 const OW_L2_BASE: u32 = 0x7F4000;
 
-/// Layer-2 dimensions: 64 tile-cols × 64 tile-rows (SNES BG tilemap standard).
-/// Each tile is 8×8 game pixels.
-const OW_L2_COLS: u32 = 64;
-const OW_L2_ROWS: u32 = 64;
+/// Layer-2 dimensions: 32 tile-cols × 28 tile-rows (visible SNES overworld).
+/// Each tile is 8×8 game pixels. The rest of the 64×64 VRAM space is unused.
+const OW_L2_COLS: u32 = 32;
+const OW_L2_ROWS: u32 = 28;
 
 // ── SNES overworld tile-index helpers ─────────────────────────────────────────
 
