@@ -8,12 +8,12 @@
 //!
 //! where y_actual = display_row for the main map (rows 0–31)
 //! and   y_actual = display_row + 32 for submaps (rows 32–63).
-//! Combined tilemap: 32 cols × 64 rows = 2048 u8 entries at $7EC800.
+//! Combined tilemap: 64 cols × 32 rows = 2048 u8 entries at $7EC800.
 //! Each byte is the Map16 tile-type ID (0–190).  The game copies the raw
 //! OWL1TileData bytes directly via MVN with no stride expansion.
 //!
-//! Layer 2 ($7F4000 / OWLayer2Tilemap): row-major 40 cols wide, 70 rows tall,
-//! indexed as ((Y * 40) + X) * 2.  Each entry is [tile_num_u8, YXPCCCTT_u8]
+//! Layer 2 ($7F4000 / OWLayer2Tilemap): row-major 64 cols × 64 rows,
+//! indexed as ((Y * 64) + X) * 2.  Each entry is [tile_num_u8, YXPCCCTT_u8]
 //! stored interleaved by LC_RLE2 (two-pass decompressor).  Reading as LE u16
 //! gives the correct 10-bit tile number and flip/palette attributes.
 
@@ -23,8 +23,7 @@ use std::{
 };
 
 use egui::{
-    vec2, CentralPanel, Color32, Frame, PaintCallback, Rect, Rounding, Sense, SidePanel, Stroke,
-    Ui, Vec2, WidgetText,
+    vec2, CentralPanel, Color32, Frame, PaintCallback, Rect, Rounding, Sense, SidePanel, Stroke, Ui, Vec2, WidgetText,
 };
 use egui_glow::CallbackFn;
 use smwe_emu::{emu::CheckedMem, rom::Rom as EmuRom, Cpu};
@@ -43,34 +42,32 @@ const MAP16_PX: f32 = 16.0;
 /// Game pixels per 8×8 BG tile (L2 tiles).
 const TILE_PX: f32 = 8.0;
 
-/// Layer-1: 32 Map16 columns × 32 Map16 rows (each block is 16×16 game px).
-/// Canvas = 32×16 = 512 game pixels wide/tall.
-const OW_COLS: u32 = 32;
+/// Layer-1: 64 Map16 columns × 32 Map16 rows (each block is 16×16 game px).
+/// Canvas = 64*16=1024 wide, 32*16=512 tall.
+const OW_COLS: u32 = 64;
 const OW_ROWS: u32 = 32;
 
 /// WRAM base for the OW Layer-1 tile-type bytes (u8 each, 0x800 total).
 /// Populated by CODE_04DC09 via `MVN $7E,$0C` from OWL1TileData at $0CF7DF.
 const MAP16_TILES_LOW: u32 = 0x7EC800;
 
-/// WRAM base for the layer-2 tilemap (u16 each, row-major 40 cols × variable rows).
+/// WRAM base for the layer-2 tilemap (u16 each, row-major 64 cols × 64 rows).
 const OW_L2_BASE: u32 = 0x7F4000;
 
-/// Layer-2 dimensions: 40 tile-cols × 70 tile-rows (actual LC_RLE2 output).
-/// Covers main map + all submaps stacked.  Each tile is 8×8 game pixels.
-const OW_L2_COLS: u32 = 40;
-const OW_L2_ROWS: u32 = 70;
+/// Layer-2 dimensions: 64 tile-cols × 64 tile-rows (SNES BG tilemap standard).
+/// Each tile is 8×8 game pixels.
+const OW_L2_COLS: u32 = 64;
+const OW_L2_ROWS: u32 = 64;
 
 // ── SNES overworld tile-index helpers ─────────────────────────────────────────
 
 /// Convert (col, row, submap) → word-index into Map16TilesLow ($7EC800).
 ///
-/// The WRAM layout uses a `%-----YYX yyyyxxxx` bit packing (SMW overworld spec):
-///   idx = (x & 0x1F) | ((y_actual & 0x3F) << 5)
-/// where y_actual = row for the main map and row + 32 for submaps.
+/// The WRAM layout is linear: idx = col + row * 64.
+/// col: 0-63, row: 0-31 (main map) or 32-63 (submaps).
 fn ow_l1_idx(col: u32, row: u32, submap: u8) -> u32 {
-    let x = col;
     let y_actual = row + if submap != 0 { 32 } else { 0 };
-    (x & 0x1F) | ((y_actual & 0x3F) << 5)
+    col + (y_actual * 64)
 }
 
 /// Byte address of the tile-type byte in WRAM (u8, not u16).
@@ -78,7 +75,7 @@ fn ow_l1_addr(col: u32, row: u32, submap: u8) -> u32 {
     MAP16_TILES_LOW + ow_l1_idx(col, row, submap)
 }
 
-/// Layer-2 tilemap: simple row-major, 40 columns wide.
+/// Layer-2 tilemap: simple row-major, 64 columns wide.
 fn ow_l2_addr(col: u32, row: u32) -> u32 {
     OW_L2_BASE + (row * OW_L2_COLS + col) * 2
 }
@@ -87,20 +84,20 @@ fn ow_l2_addr(col: u32, row: u32) -> u32 {
 
 #[derive(Debug)]
 struct OverworldRenderer {
-    layer1:    TileRenderer,
-    layer2:    TileRenderer,
-    gfx_bufs:  GfxBuffers,
-    offset:    Vec2,
+    layer1: TileRenderer,
+    layer2: TileRenderer,
+    gfx_bufs: GfxBuffers,
+    offset: Vec2,
     destroyed: bool,
 }
 
 impl OverworldRenderer {
     fn new(gl: &glow::Context) -> Self {
         Self {
-            layer1:    TileRenderer::new(gl),
-            layer2:    TileRenderer::new(gl),
-            gfx_bufs:  GfxBuffers::new(gl),
-            offset:    Vec2::ZERO,
+            layer1: TileRenderer::new(gl),
+            layer2: TileRenderer::new(gl),
+            gfx_bufs: GfxBuffers::new(gl),
+            offset: Vec2::ZERO,
             destroyed: false,
         }
     }
@@ -134,15 +131,7 @@ impl OverworldRenderer {
         }
     }
 
-    fn paint(
-        &self,
-        gl: &glow::Context,
-        screen_size: Vec2,
-        zoom: f32,
-        offset: Vec2,
-        draw_l1: bool,
-        draw_l2: bool,
-    ) {
+    fn paint(&self, gl: &glow::Context, screen_size: Vec2, zoom: f32, offset: Vec2, draw_l1: bool, draw_l2: bool) {
         if self.destroyed {
             return;
         }
@@ -159,19 +148,19 @@ impl OverworldRenderer {
 // ── Editor ────────────────────────────────────────────────────────────────────
 
 pub struct UiWorldEditor {
-    gl:       Arc<glow::Context>,
+    gl: Arc<glow::Context>,
     #[allow(dead_code)]
-    rom:      Arc<SmwRom>,
-    cpu:      Cpu,
+    rom: Arc<SmwRom>,
+    cpu: Cpu,
     renderer: Arc<Mutex<OverworldRenderer>>,
 
     submap: u8,
 
-    offset:       Vec2,
-    zoom:         f32,
-    show_grid:    bool,
-    show_layer1:  bool,
-    show_layer2:  bool,
+    offset: Vec2,
+    zoom: f32,
+    show_grid: bool,
+    show_layer1: bool,
+    show_layer2: bool,
     selected_tile: Option<(u32, u32)>,
 }
 
@@ -224,12 +213,8 @@ impl DockableEditorTool for UiWorldEditor {
     }
 
     fn update(&mut self, ui: &mut Ui) {
-        SidePanel::left("world_editor.left_panel")
-            .resizable(false)
-            .show_inside(ui, |ui| self.left_panel(ui));
-        CentralPanel::default()
-            .frame(Frame::none().inner_margin(0.))
-            .show_inside(ui, |ui| self.central_panel(ui));
+        SidePanel::left("world_editor.left_panel").resizable(false).show_inside(ui, |ui| self.left_panel(ui));
+        CentralPanel::default().frame(Frame::none().inner_margin(0.)).show_inside(ui, |ui| self.central_panel(ui));
     }
 
     fn on_closed(&mut self) {
@@ -292,9 +277,9 @@ impl UiWorldEditor {
             let char_addr = 0x05_0000_u32 | char_ptr;
             let sub0 = self.cpu.mem.load_u16(char_addr);
             let tile_num = (sub0 & 0x3FF) as u32;
-            let pal      = ((sub0 >> 10) & 0x7) as u32;
-            let flip_x   = (sub0 & 0x4000) != 0;
-            let flip_y   = (sub0 & 0x8000) != 0;
+            let pal = ((sub0 >> 10) & 0x7) as u32;
+            let flip_x = (sub0 & 0x4000) != 0;
+            let flip_y = (sub0 & 0x8000) != 0;
             ui.monospace(format!("  TL vram #{tile_num:03X}  pal {pal}"));
             if flip_x || flip_y {
                 ui.monospace(format!("  flip x={flip_x} y={flip_y}"));
@@ -320,8 +305,7 @@ impl UiWorldEditor {
         let painter = ui.painter_at(view_rect);
 
         // ── Input ────────────────────────────────────────────────────────────
-        let is_pan = resp.dragged_by(egui::PointerButton::Middle)
-            || resp.dragged_by(egui::PointerButton::Primary);
+        let is_pan = resp.dragged_by(egui::PointerButton::Middle) || resp.dragged_by(egui::PointerButton::Primary);
         if is_pan {
             self.offset += resp.drag_delta() / self.zoom;
         }
@@ -335,26 +319,26 @@ impl UiWorldEditor {
         // ── Background ───────────────────────────────────────────────────────
         painter.rect_filled(view_rect, Rounding::ZERO, Color32::from_rgb(16, 16, 20));
 
-        let z         = self.zoom;
+        let z = self.zoom;
         // L1 Map16 blocks are 16×16 game pixels.  The canvas border and all
         // hover/grid/selection overlays use map16_sz so they align with L1.
-        let map16_sz  = MAP16_PX * z;
-        let canvas_w  = OW_COLS as f32 * map16_sz;  // 32 * 16 = 512 game px
-        let canvas_h  = OW_ROWS as f32 * map16_sz;
-        let origin    = view_rect.min + self.offset * z;
-        let ow_rect   = Rect::from_min_size(origin, vec2(canvas_w, canvas_h));
+        let map16_sz = MAP16_PX * z;
+        let canvas_w = OW_COLS as f32 * map16_sz; // 32 * 16 = 512 game px
+        let canvas_h = OW_ROWS as f32 * map16_sz;
+        let origin = view_rect.min + self.offset * z;
+        let ow_rect = Rect::from_min_size(origin, vec2(canvas_w, canvas_h));
 
         // ── GL render ────────────────────────────────────────────────────────
         {
-            let renderer   = Arc::clone(&self.renderer);
-            let draw_l1    = self.show_layer1;
-            let draw_l2    = self.show_layer2;
-            let ppp        = ui.ctx().pixels_per_point();
-            let screen_sz  = view_rect.size() * ppp;
+            let renderer = Arc::clone(&self.renderer);
+            let draw_l1 = self.show_layer1;
+            let draw_l2 = self.show_layer2;
+            let ppp = ui.ctx().pixels_per_point();
+            let screen_sz = view_rect.size() * ppp;
             // gl_offset: how many game pixels the top-left of the viewport is
             // offset from the canvas origin (passed directly to the shader).
-            let gl_offset  = -(self.offset + view_rect.min.to_vec2() / z);
-            let gl_zoom    = z * ppp;
+            let gl_offset = -(self.offset + view_rect.min.to_vec2() / z);
+            let gl_zoom = z * ppp;
 
             ui.painter().add(PaintCallback {
                 rect: view_rect,
@@ -366,23 +350,19 @@ impl UiWorldEditor {
         }
 
         // ── Border around canvas ──────────────────────────────────────────────
-        painter.rect_stroke(
-            ow_rect,
-            Rounding::ZERO,
-            Stroke::new(2.0, Color32::from_white_alpha(140)),
-        );
+        painter.rect_stroke(ow_rect, Rounding::ZERO, Stroke::new(2.0, Color32::from_white_alpha(140)));
 
         // ── Grid (Map16 block grid, aligned to L1) ───────────────────────────
         if self.show_grid || ui.input(|i| i.modifiers.shift_only()) {
             let stroke = Stroke::new(0.5, Color32::from_white_alpha(25));
             let start_col = ((view_rect.min.x - origin.x) / map16_sz).floor() as i32;
-            let end_col   = ((view_rect.max.x - origin.x) / map16_sz).ceil()  as i32;
+            let end_col = ((view_rect.max.x - origin.x) / map16_sz).ceil() as i32;
             for c in start_col..=end_col {
                 let px = origin.x + c as f32 * map16_sz;
                 painter.vline(px, view_rect.y_range(), stroke);
             }
             let start_row = ((view_rect.min.y - origin.y) / map16_sz).floor() as i32;
-            let end_row   = ((view_rect.max.y - origin.y) / map16_sz).ceil()  as i32;
+            let end_row = ((view_rect.max.y - origin.y) / map16_sz).ceil() as i32;
             for r in start_row..=end_row {
                 let py = origin.y + r as f32 * map16_sz;
                 painter.hline(view_rect.x_range(), py, stroke);
@@ -392,16 +372,14 @@ impl UiWorldEditor {
         // ── Hover / click (Map16 block granularity) ───────────────────────────
         if let Some(cursor) = resp.hover_pos() {
             let rel = (cursor - origin) / map16_sz;
-            let tx  = rel.x.floor() as i32;
-            let ty  = rel.y.floor() as i32;
+            let tx = rel.x.floor() as i32;
+            let ty = rel.y.floor() as i32;
             if (0..OW_COLS as i32).contains(&tx) && (0..OW_ROWS as i32).contains(&ty) {
                 let x = tx as u32;
                 let y = ty as u32;
                 let tile_id = self.cpu.mem.load_u8(ow_l1_addr(x, y, self.submap));
-                let tile_rect = Rect::from_min_size(
-                    origin + vec2(x as f32 * map16_sz, y as f32 * map16_sz),
-                    Vec2::splat(map16_sz),
-                );
+                let tile_rect =
+                    Rect::from_min_size(origin + vec2(x as f32 * map16_sz, y as f32 * map16_sz), Vec2::splat(map16_sz));
                 painter.rect_stroke(tile_rect, Rounding::ZERO, Stroke::new(1.0, Color32::WHITE));
 
                 if resp.clicked_by(egui::PointerButton::Primary) {
@@ -420,10 +398,7 @@ impl UiWorldEditor {
 
         // ── Selected tile highlight ───────────────────────────────────────────
         if let Some((x, y)) = self.selected_tile {
-            let r = Rect::from_min_size(
-                origin + vec2(x as f32 * map16_sz, y as f32 * map16_sz),
-                Vec2::splat(map16_sz),
-            );
+            let r = Rect::from_min_size(origin + vec2(x as f32 * map16_sz, y as f32 * map16_sz), Vec2::splat(map16_sz));
             painter.rect_stroke(r, Rounding::ZERO, Stroke::new(2.0, Color32::from_rgb(255, 220, 0)));
         }
     }
@@ -475,7 +450,7 @@ fn build_l2_tiles(cpu: &mut Cpu) -> Vec<Tile> {
     for row in 0..OW_L2_ROWS {
         for col in 0..OW_L2_COLS {
             let addr = ow_l2_addr(col, row);
-            let t    = cpu.mem.load_u16(addr);
+            let t = cpu.mem.load_u16(addr);
             // L2 is BG mode 1 — each tile is a single 8×8 VRAM tile entry.
             tiles.push(ow_tile(col * 8, row * 8, t));
         }
@@ -485,9 +460,9 @@ fn build_l2_tiles(cpu: &mut Cpu) -> Vec<Tile> {
 
 /// Convert a raw u16 SNES tile attribute word into a renderer Tile.
 fn ow_tile(x: u32, y: u32, t: u16) -> Tile {
-    let t32   = t as u32;
-    let tile  = t32 & 0x3FF;
-    let pal   = (t32 >> 10) & 0x7;
+    let t32 = t as u32;
+    let tile = t32 & 0x3FF;
+    let pal = (t32 >> 10) & 0x7;
     let scale = 8u32;
     let params = scale | (pal << 8) | (t32 & 0xC000);
     Tile([x, y, tile, params])
