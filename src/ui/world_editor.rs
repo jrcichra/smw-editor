@@ -12,8 +12,10 @@
 //! Each byte is the Map16 tile-type ID (0–190).  The game copies the raw
 //! OWL1TileData bytes directly via MVN with no stride expansion.
 //!
-//! Layer 2 ($7F4000 / OWLayer2Tilemap): row-major 40 cols wide,
-//! indexed as ((Y * 40) + X) * 2.
+//! Layer 2 ($7F4000 / OWLayer2Tilemap): row-major 40 cols wide, 70 rows tall,
+//! indexed as ((Y * 40) + X) * 2.  Each entry is [tile_num_u8, YXPCCCTT_u8]
+//! stored interleaved by LC_RLE2 (two-pass decompressor).  Reading as LE u16
+//! gives the correct 10-bit tile number and flip/palette attributes.
 
 use std::{
     path::PathBuf,
@@ -36,12 +38,13 @@ use crate::ui::tool::DockableEditorTool;
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 
-/// 8×8 pixels per overworld tile.
+/// Game pixels per Map16 block (L1 tiles are 16×16 game pixels each).
+const MAP16_PX: f32 = 16.0;
+/// Game pixels per 8×8 BG tile (L2 tiles).
 const TILE_PX: f32 = 8.0;
 
-/// Each submap (including main map) is 32 tile-columns × 32 tile-rows of 16×16 blocks.
-/// The combined packed tilemap in WRAM is 32 cols × 64 rows (main map rows 0–31,
-/// submaps rows 32–63).
+/// Layer-1: 32 Map16 columns × 32 Map16 rows (each block is 16×16 game px).
+/// Canvas = 32×16 = 512 game pixels wide/tall.
 const OW_COLS: u32 = 32;
 const OW_ROWS: u32 = 32;
 
@@ -52,10 +55,10 @@ const MAP16_TILES_LOW: u32 = 0x7EC800;
 /// WRAM base for the layer-2 tilemap (u16 each, row-major 40 cols × variable rows).
 const OW_L2_BASE: u32 = 0x7F4000;
 
-/// Layer-2 logical dimensions (40 tile-cols × variable rows; the game decompresses
-/// up to 64 rows but only 28 are visible).  We read 40×28 = 1120 entries.
+/// Layer-2 dimensions: 40 tile-cols × 70 tile-rows (actual LC_RLE2 output).
+/// Covers main map + all submaps stacked.  Each tile is 8×8 game pixels.
 const OW_L2_COLS: u32 = 40;
-const OW_L2_ROWS: u32 = 28;
+const OW_L2_ROWS: u32 = 70;
 
 // ── SNES overworld tile-index helpers ─────────────────────────────────────────
 
