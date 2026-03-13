@@ -278,10 +278,16 @@ pub fn load_overworld(cpu: &mut Cpu<CheckedMem>, submap: u8) -> u64 {
     let now = std::time::Instant::now();
     cpu.emulation = false;
 
-    // Set player submap & prerequisites
-    cpu.mem.store(0x1F11, submap);
-    cpu.mem.store_u16(0x1F0F, 0x0000); // PlayerTurnLvl = 0
-    cpu.mem.store(0x1F2E, 0x01);       // ExitsCompleted != 0 so we don't bail
+    // CODE_04DC09 reads $0DD6 (PlayerTurnOW) and right-shifts by 2 to get the
+    // submap index, then looks up OWPlayerSubmap[$0DD6>>2].  So store submap*4.
+    cpu.mem.store(0x0DD6, submap.wrapping_mul(4));
+    // OWPlayerSubmap table at $1F11: each byte is the submap palette/gfx bank.
+    // Pre-fill with identity mapping so index N -> value N.
+    for i in 0u8..7 { cpu.mem.store(0x1F11 + i as u32, i); }
+    // CODE_05DBF2 reads $0DB3 (PlayerTurnLvl): 0 = main map, nonzero = submap.
+    cpu.mem.store(0x0DB3, if submap == 0 { 0x00 } else { 0x01 });
+    // Also store submap index where other routines expect it.
+    cpu.mem.store(0x0DB4, submap); // OWPlayerSubmap table offset
     cpu.mem.store(0x141A, 1);
 
     let routines: &[&str] = &[

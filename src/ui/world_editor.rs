@@ -335,12 +335,14 @@ impl UiWorldEditor {
         // ── Background ───────────────────────────────────────────────────────
         painter.rect_filled(view_rect, Rounding::ZERO, Color32::from_rgb(16, 16, 20));
 
-        let z        = self.zoom;
-        let tile_sz  = TILE_PX * z;
-        let canvas_w = OW_COLS as f32 * tile_sz;
-        let canvas_h = OW_ROWS as f32 * tile_sz;
-        let origin   = view_rect.min + self.offset * z;
-        let ow_rect  = Rect::from_min_size(origin, vec2(canvas_w, canvas_h));
+        let z         = self.zoom;
+        // L1 Map16 blocks are 16×16 game pixels.  The canvas border and all
+        // hover/grid/selection overlays use map16_sz so they align with L1.
+        let map16_sz  = MAP16_PX * z;
+        let canvas_w  = OW_COLS as f32 * map16_sz;  // 32 * 16 = 512 game px
+        let canvas_h  = OW_ROWS as f32 * map16_sz;
+        let origin    = view_rect.min + self.offset * z;
+        let ow_rect   = Rect::from_min_size(origin, vec2(canvas_w, canvas_h));
 
         // ── GL render ────────────────────────────────────────────────────────
         {
@@ -370,28 +372,26 @@ impl UiWorldEditor {
             Stroke::new(2.0, Color32::from_white_alpha(140)),
         );
 
-        // ── Grid ─────────────────────────────────────────────────────────────
+        // ── Grid (Map16 block grid, aligned to L1) ───────────────────────────
         if self.show_grid || ui.input(|i| i.modifiers.shift_only()) {
             let stroke = Stroke::new(0.5, Color32::from_white_alpha(25));
-            // vertical lines
-            let start_col = ((view_rect.min.x - origin.x) / tile_sz).floor() as i32;
-            let end_col   = ((view_rect.max.x - origin.x) / tile_sz).ceil()  as i32;
+            let start_col = ((view_rect.min.x - origin.x) / map16_sz).floor() as i32;
+            let end_col   = ((view_rect.max.x - origin.x) / map16_sz).ceil()  as i32;
             for c in start_col..=end_col {
-                let px = origin.x + c as f32 * tile_sz;
+                let px = origin.x + c as f32 * map16_sz;
                 painter.vline(px, view_rect.y_range(), stroke);
             }
-            // horizontal lines
-            let start_row = ((view_rect.min.y - origin.y) / tile_sz).floor() as i32;
-            let end_row   = ((view_rect.max.y - origin.y) / tile_sz).ceil()  as i32;
+            let start_row = ((view_rect.min.y - origin.y) / map16_sz).floor() as i32;
+            let end_row   = ((view_rect.max.y - origin.y) / map16_sz).ceil()  as i32;
             for r in start_row..=end_row {
-                let py = origin.y + r as f32 * tile_sz;
+                let py = origin.y + r as f32 * map16_sz;
                 painter.hline(view_rect.x_range(), py, stroke);
             }
         }
 
-        // ── Hover / click ─────────────────────────────────────────────────────
+        // ── Hover / click (Map16 block granularity) ───────────────────────────
         if let Some(cursor) = resp.hover_pos() {
-            let rel = (cursor - origin) / tile_sz;
+            let rel = (cursor - origin) / map16_sz;
             let tx  = rel.x.floor() as i32;
             let ty  = rel.y.floor() as i32;
             if (0..OW_COLS as i32).contains(&tx) && (0..OW_ROWS as i32).contains(&ty) {
@@ -399,8 +399,8 @@ impl UiWorldEditor {
                 let y = ty as u32;
                 let tile_id = self.cpu.mem.load_u8(ow_l1_addr(x, y, self.submap));
                 let tile_rect = Rect::from_min_size(
-                    origin + vec2(x as f32 * tile_sz, y as f32 * tile_sz),
-                    Vec2::splat(tile_sz),
+                    origin + vec2(x as f32 * map16_sz, y as f32 * map16_sz),
+                    Vec2::splat(map16_sz),
                 );
                 painter.rect_stroke(tile_rect, Rounding::ZERO, Stroke::new(1.0, Color32::WHITE));
 
@@ -408,7 +408,6 @@ impl UiWorldEditor {
                     self.selected_tile = Some((x, y));
                 }
 
-                // Status bar
                 painter.text(
                     view_rect.right_bottom() - vec2(6.0, 6.0),
                     egui::Align2::RIGHT_BOTTOM,
@@ -422,8 +421,8 @@ impl UiWorldEditor {
         // ── Selected tile highlight ───────────────────────────────────────────
         if let Some((x, y)) = self.selected_tile {
             let r = Rect::from_min_size(
-                origin + vec2(x as f32 * tile_sz, y as f32 * tile_sz),
-                Vec2::splat(tile_sz),
+                origin + vec2(x as f32 * map16_sz, y as f32 * map16_sz),
+                Vec2::splat(map16_sz),
             );
             painter.rect_stroke(r, Rounding::ZERO, Stroke::new(2.0, Color32::from_rgb(255, 220, 0)));
         }
