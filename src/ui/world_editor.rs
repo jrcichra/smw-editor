@@ -62,18 +62,14 @@ const OW_L2_ROWS: u32 = 64;
 
 // ── SNES overworld tile-index helpers ─────────────────────────────────────────
 
-/// Convert (col, row, submap) → word-index into Map16TilesLow ($7EC800).
+/// Convert (col, row, submap) → byte address into Map16Tiles at $7EC800.
 ///
-/// The overworld Layer 1 uses a 32×64 tile grid (32 columns, 64 rows total across all submaps).
-/// Per SMW docs: $7EC800-$7ECFFF = 2048 bytes = 1024 tiles × 2 bytes each = 32×32 tiles per submap.
-fn ow_l1_idx(col: u32, row: u32, submap: u8) -> u32 {
+/// The overworld Layer 1 uses 2 bytes per tile (Map16 format).
+/// $7EC800-$7ECFFF = 2048 bytes = 1024 tiles = 32×32 tiles per submap.
+/// Each submap loads its own data - main map at rows 0-31, submaps at rows 32-63.
+fn ow_l1_addr_u16(col: u32, row: u32, submap: u8) -> u32 {
     let y_actual = row + if submap != 0 { 32 } else { 0 };
-    col + (y_actual * 32)
-}
-
-/// Byte address of the tile-type byte in WRAM (u8, not u16).
-fn ow_l1_addr(col: u32, row: u32, submap: u8) -> u32 {
-    MAP16_TILES_LOW + ow_l1_idx(col, row, submap)
+    MAP16_TILES_LOW + ((col + (y_actual * 32)) * 2)
 }
 
 /// Layer-2 tilemap: simple row-major, 64 columns wide.
@@ -269,8 +265,9 @@ impl UiWorldEditor {
         // Selected tile info
         if let Some((x, y)) = self.selected_tile {
             ui.label(format!("Selected: ({x}, {y})"));
-            // L1 tilemap stores u8 tile-type IDs (MVN copy from OWL1TileData)
-            let tile_id = self.cpu.mem.load_u8(ow_l1_addr(x, y, self.submap)) as u32;
+            // L1 tilemap stores u16 tile-type IDs (2 bytes per tile)
+            let tile_word = self.cpu.mem.load_u16(ow_l1_addr_u16(x, y, self.submap));
+            let tile_id = (tile_word & 0x1FF) as u32;
             ui.monospace(format!("Tile type: {tile_id} (0x{tile_id:02X})"));
             // Look up sub-tiles in OWL1CharData via Map16Pointers
             let ptr_base = 0x7E0FBE_u32;
@@ -285,8 +282,8 @@ impl UiWorldEditor {
             if flip_x || flip_y {
                 ui.monospace(format!("  flip x={flip_x} y={flip_y}"));
             }
-            // OWLayer1Translevel: level number stored at $7ED000 (u8 indexed)
-            let xlevel_addr = 0x7ED000_u32 + ow_l1_idx(x, y, self.submap);
+            // OWLayer1Translevel: level number stored at $7ED000 (u8 indexed, same layout as tilemap)
+            let xlevel_addr = 0x7ED000_u32 + ((x + (y * 32)) as u32);
             let xlevel = self.cpu.mem.load_u8(xlevel_addr) as u32;
             if xlevel != 0 {
                 ui.monospace(format!("  level 0x{xlevel:03X}"));
@@ -378,7 +375,8 @@ impl UiWorldEditor {
             if (0..OW_COLS as i32).contains(&tx) && (0..OW_ROWS_PER_SUBMAP as i32).contains(&ty) {
                 let x = tx as u32;
                 let y = ty as u32;
-                let tile_id = self.cpu.mem.load_u8(ow_l1_addr(x, y, self.submap));
+                let tile_word = self.cpu.mem.load_u16(ow_l1_addr_u16(x, y, self.submap));
+                let tile_id = tile_word & 0x1FF;
                 let tile_rect =
                     Rect::from_min_size(origin + vec2(x as f32 * map16_sz, y as f32 * map16_sz), Vec2::splat(map16_sz));
                 painter.rect_stroke(tile_rect, Rounding::ZERO, Stroke::new(1.0, Color32::WHITE));
@@ -427,8 +425,10 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
     // Only render 32 rows per submap (main map uses rows 0-31, submaps use rows 32-63 in buffer)
     for row in 0..OW_ROWS_PER_SUBMAP {
         for col in 0..OW_COLS {
-            // Read tile-type ID: one byte from the u8 tile array at $7EC800.
-            let tile_id = cpu.mem.load_u8(ow_l1_addr(col, row, submap)) as u32;
+            // Read tile-type ID: u16 from the tile array at $7EC800 (2 bytes per tile).
+            // Lower 9 bits = tile number (0-511), upper bits = attributes (YXPCCCTT).
+            let tile_word = cpu.mem.load_u16(ow_l1_addr_u16(col, row, submap));
+            let tile_id = (tile_word & 0x1FF) as u32;
 
             // Map16Pointers[tile_id] = 16-bit bank-relative offset into OWL1CharData.
             let char_ptr = cpu.mem.load_u16(ptr_base + tile_id * 2) as u32;
