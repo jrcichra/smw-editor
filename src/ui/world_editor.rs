@@ -65,11 +65,10 @@ const OW_L2_ROWS: u32 = 64;
 /// Convert (col, row, submap) → byte address into Map16Tiles at $7EC800.
 ///
 /// The overworld Layer 1 uses 2 bytes per tile (Map16 format).
-/// $7EC800-$7ECFFF = 2048 bytes = 1024 tiles = 32×32 tiles per submap.
-/// Each submap loads its own data - main map at rows 0-31, submaps at rows 32-63.
-fn ow_l1_addr_u16(col: u32, row: u32, submap: u8) -> u32 {
-    let y_actual = row + if submap != 0 { 32 } else { 0 };
-    MAP16_TILES_LOW + ((col + (y_actual * 32)) * 2)
+/// $7EC800-$7ECFFF = 2048 bytes = 1024 tiles = 32×32 tiles.
+/// The game reloads this buffer when switching submaps, so we always use rows 0-31.
+fn ow_l1_addr_u16(col: u32, row: u32, _submap: u8) -> u32 {
+    MAP16_TILES_LOW + ((col + (row * 32)) * 2)
 }
 
 /// Layer-2 tilemap: simple row-major, 64 columns wide.
