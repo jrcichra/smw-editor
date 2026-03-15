@@ -425,10 +425,10 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
     for row in 0..OW_ROWS_PER_SUBMAP {
         for col in 0..OW_COLS {
             // Read tile-type ID: u16 from the tile array at $7EC800 (2 bytes per tile).
-            // Lower 9 bits = tile number (0-511), upper bits = attributes (YXPCCCTT).
+            // Lower 8 bits = tile number (0-255), upper bits = attributes (YXPCCCTT).
             let tile_word = cpu.mem.load_u16(ow_l1_addr_u16(col, row, submap));
-            let tile_id = (tile_word & 0x1FF) as u32;
-            let tile_attrs = (tile_word & 0xFE00) as u32; // YXPCCCTT bits to apply to all sub-tiles
+            let tile_id = (tile_word & 0xFF) as u32;
+            let tile_attrs = (tile_word & 0xFF00) as u32; // YXPCCCTT bits to apply to all sub-tiles
 
             // Map16Pointers[tile_id] = 16-bit bank-relative offset into OWL1CharData.
             let char_ptr = cpu.mem.load_u16(ptr_base + tile_id * 2) as u32;
