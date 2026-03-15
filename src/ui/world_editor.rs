@@ -42,10 +42,11 @@ const MAP16_PX: f32 = 16.0;
 /// Game pixels per 8×8 BG tile (L2 tiles).
 const TILE_PX: f32 = 8.0;
 
-/// Layer-1: 32 Map16 columns × 64 Map16 rows (each block is 16×16 game px).
-/// Canvas = 32*16=512 wide, 64*16=1024 tall.
+/// Layer-1: 32 Map16 columns × 64 Map16 rows total buffer (each block is 16×16 game px).
+/// Canvas = 32*16=512 wide, 32*16=512 tall per submap.
 const OW_COLS: u32 = 32;
 const OW_ROWS: u32 = 64;
+const OW_ROWS_PER_SUBMAP: u32 = 32;
 
 /// WRAM base for the OW Layer-1 tile-type bytes (u8 each, 0x800 total).
 /// Populated by CODE_04DC09 via `MVN $7E,$0C` from OWL1TileData at $0CF7DF.
@@ -327,7 +328,7 @@ impl UiWorldEditor {
         // hover/grid/selection overlays use map16_sz so they align with L1.
         let map16_sz = MAP16_PX * z;
         let canvas_w = OW_COLS as f32 * map16_sz; // 32 * 16 = 512 game px
-        let canvas_h = OW_ROWS as f32 * map16_sz;
+        let canvas_h = OW_ROWS_PER_SUBMAP as f32 * map16_sz; // 32 * 16 = 512 game px
         let origin = view_rect.min + self.offset * z;
         let ow_rect = Rect::from_min_size(origin, vec2(canvas_w, canvas_h));
 
@@ -377,7 +378,7 @@ impl UiWorldEditor {
             let rel = (cursor - origin) / map16_sz;
             let tx = rel.x.floor() as i32;
             let ty = rel.y.floor() as i32;
-            if (0..OW_COLS as i32).contains(&tx) && (0..OW_ROWS as i32).contains(&ty) {
+            if (0..OW_COLS as i32).contains(&tx) && (0..OW_ROWS_PER_SUBMAP as i32).contains(&ty) {
                 let x = tx as u32;
                 let y = ty as u32;
                 let tile_id = self.cpu.mem.load_u8(ow_l1_addr(x, y, self.submap));
@@ -417,7 +418,7 @@ impl UiWorldEditor {
 /// Each OWL1CharData block is 8 bytes = 4 u16 sub-tile attribute words for the
 /// four 8×8 pixels that make up a 16×16 Map16 block.
 fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
-    let mut tiles = Vec::with_capacity((OW_COLS * OW_ROWS) as usize * 4);
+    let mut tiles = Vec::with_capacity((OW_COLS * OW_ROWS_PER_SUBMAP) as usize * 4);
 
     // Map16Pointers table in WRAM: 0x7E0FBE.
     // CODE_04DC09 sets Map16Pointers[tid] = 0xD000 + tid*8  (for 0x200 entries).
@@ -426,7 +427,8 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
     // OWL1CharData bank: $05.  Bank-relative pointers stored in Map16Pointers.
     let char_bank: u32 = 0x05_0000;
 
-    for row in 0..OW_ROWS {
+    // Only render 32 rows per submap (main map uses rows 0-31, submaps use rows 32-63 in buffer)
+    for row in 0..OW_ROWS_PER_SUBMAP {
         for col in 0..OW_COLS {
             // Read tile-type ID: one byte from the u8 tile array at $7EC800.
             let tile_id = cpu.mem.load_u8(ow_l1_addr(col, row, submap)) as u32;
@@ -437,8 +439,8 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
 
             let px = col * 16;
             let py = row * 16;
-            // 4 sub-tiles in order: top-left, bottom-left, top-right, bottom-right.
-            for (si, (ox, oy)) in [(0u32, 0u32), (0u32, 8u32), (8u32, 0u32), (8u32, 8u32)].iter().enumerate() {
+            // 4 sub-tiles in order: top-left, top-right, bottom-left, bottom-right.
+            for (si, (ox, oy)) in [(0u32, 0u32), (8u32, 0u32), (0u32, 8u32), (8u32, 8u32)].iter().enumerate() {
                 let sub_tile = cpu.mem.load_u16(gfx_addr + si as u32 * 2);
                 tiles.push(ow_tile(px + ox, py + oy, sub_tile));
             }
