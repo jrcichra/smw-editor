@@ -415,24 +415,23 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
     let mut tiles = Vec::with_capacity((OW_COLS * OW_ROWS_PER_SUBMAP) as usize * 4);
 
     // Map16Pointers table in WRAM: 0x7E0FBE.
-    // CODE_04DC09 sets Map16Pointers[tid] = 0xD000 + tid*8  (for 0x200 entries).
+    // CODE_04DC09 sets Map16Pointers[tid] = offset from $05:0000 into OWL1CharData.
+    // Full address = $05:0000 + pointer_value (where pointer_value = $D000 + tid*8)
     let ptr_base: u32 = 0x7E_0FBE;
-
-    // OWL1CharData bank: $05.  Bank-relative pointers stored in Map16Pointers.
     let char_bank: u32 = 0x05_0000;
 
     // Only render 32 rows per submap (main map uses rows 0-31, submaps use rows 32-63 in buffer)
     for row in 0..OW_ROWS_PER_SUBMAP {
         for col in 0..OW_COLS {
             // Read tile-type ID: u16 from the tile array at $7EC800 (2 bytes per tile).
-            // Lower 8 bits = tile number (0-255), upper bits = attributes (YXPCCCTT).
+            // Lower 9 bits = tile number (0-511), upper bits = attributes (YXPCCCTT).
             let tile_word = cpu.mem.load_u16(ow_l1_addr_u16(col, row, submap));
-            let tile_id = (tile_word & 0xFF) as u32;
-            let tile_attrs = (tile_word & 0xFF00) as u32; // YXPCCCTT bits to apply to all sub-tiles
+            let tile_id = (tile_word & 0x1FF) as u32;
+            let tile_attrs = (tile_word & 0xFE00) as u32; // YXPCCCTT bits to apply to all sub-tiles
 
-            // Map16Pointers[tile_id] = 16-bit bank-relative offset into OWL1CharData.
+            // Map16Pointers[tile_id] = 16-bit offset, full address = $05:0000 + offset
             let char_ptr = cpu.mem.load_u16(ptr_base + tile_id * 2) as u32;
-            let gfx_addr = char_bank | (char_ptr & 0xFFFF);
+            let gfx_addr = char_bank + char_ptr;
 
             let px = col * 16;
             let py = row * 16;
@@ -448,7 +447,7 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
     tiles
 }
 
-/// Build draw list for Layer 2 (row-major 40-wide decompressed tilemap).
+/// Build draw list for Layer 2 (row-major 64-wide decompressed tilemap).
 fn build_l2_tiles(cpu: &mut Cpu) -> Vec<Tile> {
     let mut tiles = Vec::with_capacity((OW_L2_COLS * OW_L2_ROWS) as usize);
     for row in 0..OW_L2_ROWS {
