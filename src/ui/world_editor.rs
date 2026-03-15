@@ -65,11 +65,14 @@ const OW_L2_ROWS: u32 = 64;
 /// Convert (col, row, submap) → byte address into Map16Tiles at $7EC800.
 ///
 /// The overworld Layer 1 uses 1 byte per tile (u8 format, not u16!).
-/// Index formula from SMW disassembly (OW_TilePos_Calc at $04980B):
-///   idx = (X & 0x0F) | ((Y & 0x0F) << 4) | ((X & 0x10) << 4) | ((Y & 0x10) << 5)
-/// This packs X[0:3], Y[0:3], X[4], Y[4] into a 10-bit index.
-fn ow_l1_addr(col: u32, row: u32, _submap: u8) -> u32 {
-    let idx = (col & 0x0F) | ((row & 0x0F) << 4) | ((col & 0x10) << 4) | ((row & 0x10) << 5);
+/// The buffer is 32 columns × 64 rows = 2048 bytes total.
+/// Main map uses rows 0-31, submaps use rows 32-63.
+fn ow_l1_addr(col: u32, row: u32, submap: u8) -> u32 {
+    // row is 0..31 (visible rows per submap); submap selects top(0)/bottom(1) half etc.
+    let row_actual = row + (submap as u32) * OW_ROWS_PER_SUBMAP;
+    // Simple row-major: idx = col + (row_actual * 32)
+    // col uses 5 bits (0-31), row_actual uses 6 bits (0-63), total 11 bits (0-2047)
+    let idx = (col & 0x1F) | ((row_actual & 0x3F) << 5);
     MAP16_TILES_LOW + idx
 }
 
@@ -282,9 +285,8 @@ impl UiWorldEditor {
             if flip_x || flip_y {
                 ui.monospace(format!("  flip x={flip_x} y={flip_y}"));
             }
-            // OWLayer1Translevel: level number stored at $7ED000 (u8 indexed, same bit-packed layout)
-            let xlevel_idx = (x & 0x0F) | ((y & 0x0F) << 4) | ((x & 0x10) << 4) | ((y & 0x10) << 5);
-            let xlevel_addr = 0x7ED000_u32 + xlevel_idx;
+            // OWLayer1Translevel: level number stored at $7ED000 (u8 indexed, same layout as tilemap)
+            let xlevel_addr = 0x7ED000_u32 + (ow_l1_addr(x, y, self.submap) - MAP16_TILES_LOW);
             let xlevel = self.cpu.mem.load_u8(xlevel_addr) as u32;
             if xlevel != 0 {
                 ui.monospace(format!("  level 0x{xlevel:03X}"));
