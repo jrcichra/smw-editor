@@ -429,6 +429,7 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
             // Lower 9 bits = tile number (0-511), upper bits = attributes (YXPCCCTT).
             let tile_word = cpu.mem.load_u16(ow_l1_addr_u16(col, row, submap));
             let tile_id = (tile_word & 0x1FF) as u32;
+            let tile_attrs = (tile_word & 0xFE00) as u32; // YXPCCCTT bits to apply to all sub-tiles
 
             // Map16Pointers[tile_id] = 16-bit bank-relative offset into OWL1CharData.
             let char_ptr = cpu.mem.load_u16(ptr_base + tile_id * 2) as u32;
@@ -438,8 +439,10 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
             let py = row * 16;
             // 4 sub-tiles in order: top-left, top-right, bottom-left, bottom-right.
             for (si, (ox, oy)) in [(0u32, 0u32), (8u32, 0u32), (0u32, 8u32), (8u32, 8u32)].iter().enumerate() {
-                let sub_tile = cpu.mem.load_u16(gfx_addr + si as u32 * 2);
-                tiles.push(ow_tile(px + ox, py + oy, sub_tile));
+                let sub_tile_raw = cpu.mem.load_u16(gfx_addr + si as u32 * 2) as u32;
+                // Combine sub-tile attributes with the Map16 tile's YX flip bits
+                let sub_tile = (sub_tile_raw & 0x3FFF) | tile_attrs;
+                tiles.push(ow_tile(px + ox, py + oy, sub_tile as u16));
             }
         }
     }
