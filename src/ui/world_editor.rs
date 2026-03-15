@@ -12,8 +12,8 @@
 //! Each byte is the Map16 tile-type ID (0–190).  The game copies the raw
 //! OWL1TileData bytes directly via MVN with no stride expansion.
 //!
-//! Layer 2 ($7F4000 / OWLayer2Tilemap): row-major 64 cols × 64 rows,
-//! indexed as ((Y * 64) + X) * 2.  Each entry is [tile_num_u8, YXPCCCTT_u8]
+//! Layer 2 ($7F4000 / OWLayer2Tilemap): row-major 40 cols × 28 rows,
+//! indexed as ((Y * 40) + X) * 2.  Each entry is [tile_num_u8, YXPCCCTT_u8]
 //! stored interleaved by LC_RLE2 (two-pass decompressor).  Reading as LE u16
 //! gives the correct 10-bit tile number and flip/palette attributes.
 
@@ -54,20 +54,23 @@ const MAP16_TILES_LOW: u32 = 0x7EC800;
 /// WRAM base for the layer-2 tilemap (u16 each, row-major 64 cols × 64 rows).
 const OW_L2_BASE: u32 = 0x7F4000;
 
-/// Layer-2 dimensions: 32 tile-cols × 28 tile-rows (visible SNES overworld).
-/// Each tile is 8×8 game pixels. The rest of the 64×64 VRAM space is unused.
-const OW_L2_COLS: u32 = 32;
-const OW_L2_ROWS: u32 = 28;
+/// Layer-2 dimensions: 64 tile-cols × 64 tile-rows (full decompressed tilemap).
+/// Each tile is 8×8 game pixels. Formula: ((Y * 64) + X) * 2
+const OW_L2_COLS: u32 = 64;
+const OW_L2_ROWS: u32 = 64;
 
 // ── SNES overworld tile-index helpers ─────────────────────────────────────────
 
 /// Convert (col, row, submap) → word-index into Map16TilesLow ($7EC800).
 ///
-/// The WRAM layout is linear: idx = col + row * 32.
-/// col: 0-31, row: 0-31 (main map) or 32-63 (submaps).
+/// Convert (col, row, submap) → word-index into Map16TilesLow ($7EC800).
+///
+/// The WRAM layout uses a `%-----YYX yyyyxxxx` bit packing (SMW overworld spec):
+///   idx = (x & 0x1F) | ((y_actual & 0x3F) << 5)
+/// where y_actual = row for the main map and row + 32 for submaps.
 fn ow_l1_idx(col: u32, row: u32, submap: u8) -> u32 {
     let y_actual = row + if submap != 0 { 32 } else { 0 };
-    col + (y_actual * 32)
+    (col & 0x1F) | ((y_actual & 0x3F) << 5)
 }
 
 /// Byte address of the tile-type byte in WRAM (u8, not u16).
