@@ -69,11 +69,13 @@ const OW_L2_ROWS: u32 = 64;
 /// Index formula from SMW disassembly (OW_TilePos_Calc at $04980B):
 ///   idx = (X & 0x0F) | ((Y & 0x0F) << 4) | ((X & 0x10) << 4) | ((Y & 0x10) << 5)
 /// This creates four 16×16 quadrants: TL(0-255), TR(256-511), BL(512-767), BR(768-1023)
+/// ASM shows: if submap != 0, add $400 (1024) to final index
 fn ow_l1_addr(col: u32, row: u32, submap: u8) -> u32 {
-    let row_actual = row + (submap as u32) * OW_ROWS_PER_SUBMAP;
-    // Bit-packed swizzle formula matching SMW exactly
-    let idx = (col & 0x0F) | ((row_actual & 0x0F) << 4) | ((col & 0x10) << 4) | ((row_actual & 0x10) << 5);
-    MAP16_TILES_LOW + idx
+    // Swizzle row 0-31 always (main map portion)
+    let idx = (col & 0x0F) | ((row & 0x0F) << 4) | ((col & 0x10) << 4) | ((row & 0x10) << 5);
+    // Submap adds 1024 ($400) to index, NOT to row before swizzling
+    let idx_with_submap = idx + if submap != 0 { 0x400 } else { 0 };
+    MAP16_TILES_LOW + idx_with_submap
 }
 
 /// Layer-2 tilemap: simple row-major, 64 columns wide.
@@ -287,7 +289,8 @@ impl UiWorldEditor {
             }
             // OWLayer1Translevel: level number stored at $7ED000 (u8 indexed, same swizzled layout)
             let xlevel_idx = (x & 0x0F) | ((y & 0x0F) << 4) | ((x & 0x10) << 4) | ((y & 0x10) << 5);
-            let xlevel_addr = 0x7ED000_u32 + xlevel_idx;
+            let xlevel_idx_with_submap = xlevel_idx + if self.submap != 0 { 0x400 } else { 0 };
+            let xlevel_addr = 0x7ED000_u32 + xlevel_idx_with_submap;
             let xlevel = self.cpu.mem.load_u8(xlevel_addr) as u32;
             if xlevel != 0 {
                 ui.monospace(format!("  level 0x{xlevel:03X}"));
