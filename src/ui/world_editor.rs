@@ -65,17 +65,37 @@ const OW_L2_ROWS: u32 = 64;
 /// Convert (col, row, submap) → byte address into Map16Tiles at $7EC800.
 ///
 /// The overworld Layer 1 uses 1 byte per tile (u8 format, not u16!).
-/// The buffer is 32 columns × 64 rows = 2048 bytes total.
-/// Index formula from SMW disassembly (OW_TilePos_Calc at $04980B):
-///   idx = (X & 0x0F) | ((Y & 0x0F) << 4) | ((X & 0x10) << 4) | ((Y & 0x10) << 5)
-/// This creates four 16×16 quadrants: TL(0-255), TR(256-511), BL(512-767), BR(768-1023)
-/// ASM shows: if submap != 0, add $400 (1024) to final index
+/// Modified formula with interleaved rows within each quadrant.
 fn ow_l1_addr(col: u32, row: u32, submap: u8) -> u32 {
-    // Swizzle row 0-31 always (main map portion)
-    let idx = (col & 0x0F) | ((row & 0x0F) << 4) | ((col & 0x10) << 4) | ((row & 0x10) << 5);
-    // Submap adds 1024 ($400) to index, NOT to row before swizzling
-    let idx_with_submap = idx + if submap != 0 { 0x400 } else { 0 };
-    MAP16_TILES_LOW + idx_with_submap
+    // Get row within the current 16-row quadrant
+    let quadrant_row = row & 0x0F;
+
+    // Interleave: even rows first (0,2,4...14), then odd rows (1,3,5...15)
+    let interleaved_row = if quadrant_row & 1 == 0 {
+        quadrant_row >> 1 // Even rows: 0->0, 2->1, 4->2, etc.
+    } else {
+        8 + (quadrant_row >> 1) // Odd rows: 1->8, 3->9, 5->10, etc.
+    };
+
+    // Use interleaved row in the formula
+    let x_low = col & 0x0F;
+    let x_high = (col & 0x10) << 4;
+    let mut idx = x_low | x_high;
+
+    // Use interleaved row instead of actual row
+    let y_shifted = (interleaved_row << 4) & 0xFF;
+    idx += y_shifted;
+
+    // Add quadrant offset for high bits
+    if row & 0x10 != 0 {
+        idx += 0x200;
+    }
+
+    if submap != 0 {
+        idx += 0x400;
+    }
+
+    MAP16_TILES_LOW + idx
 }
 
 /// Layer-2 tilemap: simple row-major, 64 columns wide.
@@ -287,10 +307,8 @@ impl UiWorldEditor {
             if flip_x || flip_y {
                 ui.monospace(format!("  flip x={flip_x} y={flip_y}"));
             }
-            // OWLayer1Translevel: level number stored at $7ED000 (u8 indexed, same swizzled layout)
-            let xlevel_idx = (x & 0x0F) | ((y & 0x0F) << 4) | ((x & 0x10) << 4) | ((y & 0x10) << 5);
-            let xlevel_idx_with_submap = xlevel_idx + if self.submap != 0 { 0x400 } else { 0 };
-            let xlevel_addr = 0x7ED000_u32 + xlevel_idx_with_submap;
+            // OWLayer1Translevel: level number stored at $7ED000 (u8 indexed, same layout as tilemap)
+            let xlevel_addr = 0x7ED000_u32 + (ow_l1_addr(x, y, self.submap) - MAP16_TILES_LOW);
             let xlevel = self.cpu.mem.load_u8(xlevel_addr) as u32;
             if xlevel != 0 {
                 ui.monospace(format!("  level 0x{xlevel:03X}"));
