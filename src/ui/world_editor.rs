@@ -1,20 +1,17 @@
 //! World Map (Overworld) Editor UI.
 //!
 //! The overworld tilemap is stored in WRAM at $7EC800 (Map16TilesLow) after the
-//! game's init routines run.  The index bit layout is `%-----YYX yyyyxxxx`
-//! (SMW overworld data format spec):
+//! game's init routines run. The data is copied directly from ROM via MVN with
+//! no transformation, stored in row-major order:
+//!   idx = y * 32 + x
 //!
-//!   idx = (x & 0x1F) | ((y_actual & 0x3F) << 5)
+//! Main map uses indices 0x000-0x3FF (32 rows × 32 cols)
+//! Submaps use indices 0x400-0x7FF (also 32×32, accessed via +0x400 offset)
+//! Each byte is the Map16 tile-type ID (0–190).
 //!
-//! where y_actual = display_row for the main map (rows 0–31)
-//! and   y_actual = display_row + 32 for submaps (rows 32–63).
-//! Combined tilemap: 32 cols × 64 rows = 2048 u8 entries at $7EC800.
-//! Each byte is the Map16 tile-type ID (0–190).  The game copies the raw
-//! OWL1TileData bytes directly via MVN with no stride expansion.
-//!
-//! Layer 2 ($7F4000 / OWLayer2Tilemap): row-major 40 cols × 28 rows,
-//! indexed as ((Y * 40) + X) * 2.  Each entry is [tile_num_u8, YXPCCCTT_u8]
-//! stored interleaved by LC_RLE2 (two-pass decompressor).  Reading as LE u16
+//! Layer 2 ($7F4000 / OWLayer2Tilemap): row-major 64 cols × 64 rows,
+//! indexed as ((Y * 64) + X) * 2. Each entry is [tile_num_u8, YXPCCCTT_u8]
+//! stored interleaved by LC_RLE2 (two-pass decompressor). Reading as LE u16
 //! gives the correct 10-bit tile number and flip/palette attributes.
 
 use std::{
@@ -64,27 +61,15 @@ const OW_L2_ROWS: u32 = 64;
 
 /// Convert screen (col, row) → memory address in Map16Tiles at $7EC800.
 ///
-/// The overworld uses an interleaved memory layout (from OW_TilePos_Calc at $049866):
-/// - Bits 0-3: X & 0x0F (tile column within 16-tile group)
-/// - Bits 4-7: Y & 0x0F (tile row within 16-tile group)
-/// - Bit 8: X & 0x10 (selects between left/right halves of the 32-tile screen)
-/// - Bit 9: Y & 0x10 (selects between top/bottom halves)
-///
-/// This creates a layout where rows are interleaved: for each Y row,
-/// the left half (X=0-15) is stored at index N, and the right half (X=16-31)
-/// is stored at index N+256 (not adjacent like in quadrant layout).
+/// The overworld tilemap uses row-major order in WRAM (after MVN copy from ROM).
+/// Index formula: idx = (x & 0x1F) | ((y & 0x3F) << 5) per the SMW spec.
+/// For the 32x32 main map: index = y * 32 + x
+/// Submaps use the second half of the buffer at +0x400.
 fn ow_l1_addr(col: u32, row: u32, submap: u8) -> u32 {
-    // X contribution: (X & 0x0F) | ((X & 0x10) << 4)
-    // This places X bits 0-3 at index bits 0-3, and X bit 4 at index bit 8
-    let x_part = (col & 0x0F) | ((col & 0x10) << 4);
+    // Row-major indexing: each row has 32 tiles
+    let idx = (row * 32 + col) & 0x3FF; // Mask to 10 bits (0-1023)
 
-    // Y contribution: ((Y & 0x0F) << 4) | ((Y & 0x10) << 5)
-    // This places Y bits 0-3 at index bits 4-7, and Y bit 4 at index bit 9
-    let y_part = ((row & 0x0F) << 4) | ((row & 0x10) << 5);
-
-    let idx = x_part + y_part;
-
-    // Submap offset: submap 1-6 use rows 32-63, stored at +0x400
+    // Submap offset: submap 1-6 use the second half of the buffer
     let final_idx = if submap != 0 { idx + 0x400 } else { idx };
 
     MAP16_TILES_LOW + final_idx
@@ -450,11 +435,7 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
 
             let px = col * 16;
             let py = row * 16;
-            // 4 sub-tiles in OWL1CharData order (from ASM CODE_04DCE8):
-            // word 0 -> TL, word 2 -> BL (at +$40 in VRAM), word 4 -> TR (at +2), word 6 -> BR (at +$42)
-            // But we read 4 consecutive u16 words: 0, 1, 2, 3
-            // Wait, the ASM loads: Y=0 (word 0), Y=2 (word 1), Y=4 (word 2), Y=6 (word 3)
-            // So we read words 0, 1, 2, 3 from OWL1CharData
+            // 4 sub-tiles: word 0->TL, word 1->BL, word 2->TR, word 3->BR
             for (si, (ox, oy)) in [(0u32, 0u32), (0u32, 8u32), (8u32, 0u32), (8u32, 8u32)].iter().enumerate() {
                 let sub_tile = cpu.mem.load_u16(gfx_addr + si as u32 * 2);
                 tiles.push(ow_tile(px + ox, py + oy, sub_tile));
