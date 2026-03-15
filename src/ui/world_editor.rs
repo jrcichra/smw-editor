@@ -84,9 +84,26 @@ fn ow_l1_addr(col: u32, row: u32, submap: u8) -> u32 {
     MAP16_TILES_LOW + final_idx
 }
 
-/// Layer-2 tilemap: simple row-major, 64 columns wide.
+/// Layer-2 tilemap: quadrant-based addressing like Layer 1.
+///
+/// Layer 2 is 64×64 tiles at 8×8 pixels each (512×512 pixels).
+/// Tiles are stored as [tile_num][YXPCCCTT] pairs (2 bytes per tile).
+/// The data uses quadrant-based addressing:
+/// - TL quadrant: cols 0-31, rows 0-31   -> base + 0x0000
+/// - TR quadrant: cols 32-63, rows 0-31  -> base + 0x0800
+/// - BL quadrant: cols 0-31, rows 32-63  -> base + 0x1000
+/// - BR quadrant: cols 32-63, rows 32-63 -> base + 0x1800
 fn ow_l2_addr(col: u32, row: u32) -> u32 {
-    OW_L2_BASE + (row * VRAM_TILE_COLS + col) * 2
+    // Within-quadrant X: col * 2 (2 bytes per tile)
+    let x_base = (col & 0x1F) * 2;
+    // X quadrant selector: col 32-63 adds 0x800
+    let x_quad = (col & 0x20) << 6;
+    // Within-quadrant Y: row * 0x80 (128 bytes per row)
+    let y_base = (row & 0x1F) * 0x80;
+    // Y quadrant selector: row 32-63 adds 0x1000
+    let y_quad = (row & 0x20) << 7;
+
+    OW_L2_BASE + x_base + x_quad + y_base + y_quad
 }
 
 // ── OpenGL renderer ───────────────────────────────────────────────────────────
