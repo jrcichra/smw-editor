@@ -61,18 +61,18 @@ const OW_L2_ROWS: u32 = 64;
 
 /// Convert screen (col, row) → memory address in Map16Tiles at $7EC800.
 ///
-/// The overworld tilemap uses row-major order in WRAM (after MVN copy from ROM).
-/// Index formula: idx = (x & 0x1F) | ((y & 0x3F) << 5) per the SMW spec.
-/// For the 32x32 main map: index = y * 32 + x
-/// Submaps use the second half of the buffer at +0x400.
+/// The overworld tilemap in ROM is stored as 64×32 row-major (0x800 bytes).
+/// The MVN copies it directly to WRAM at $7EC800.
+/// - Main map (submap 0): uses columns 0-31 of the 64-column buffer
+/// - Submaps (1-6): use columns 32-63 of the 64-column buffer
+/// Index formula: idx = y * 64 + x + (submap != 0 ? 32 : 0)
 fn ow_l1_addr(col: u32, row: u32, submap: u8) -> u32 {
-    // Row-major indexing: each row has 32 tiles
-    let idx = (row * 32 + col) & 0x3FF; // Mask to 10 bits (0-1023)
+    // The buffer is 64 columns wide, but each submap uses a different half
+    let x_offset = if submap != 0 { col + 32 } else { col };
+    // Row-major indexing with 64-column stride
+    let idx = row * 64 + x_offset;
 
-    // Submap offset: submap 1-6 use the second half of the buffer
-    let final_idx = if submap != 0 { idx + 0x400 } else { idx };
-
-    MAP16_TILES_LOW + final_idx
+    MAP16_TILES_LOW + idx
 }
 
 /// Layer-2 tilemap: simple row-major, 64 columns wide.
@@ -422,11 +422,15 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
     let ptr_base: u32 = 0x7E_0FBE;
     let char_bank: u32 = 0x05_0000;
 
+    // Debug: print first few tiles to verify addressing
+    let mut debug_count = 0;
+
     // Only render 32 rows per submap (main map uses rows 0-31, submaps use rows 32-63 in buffer)
     for row in 0..OW_ROWS_PER_SUBMAP {
         for col in 0..OW_COLS {
             // Read tile-type ID: u8 from the tile array at $7EC800 (1 byte per tile).
-            let tile_id = cpu.mem.load_u8(ow_l1_addr(col, row, submap)) as u32;
+            let addr = ow_l1_addr(col, row, submap);
+            let tile_id = cpu.mem.load_u8(addr) as u32;
 
             // Map16Pointers[tile_id] = 16-bit offset from $05:0000 into OWL1CharData.
             // Full SNES address = $05:0000 | pointer_value
