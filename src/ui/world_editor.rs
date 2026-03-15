@@ -64,14 +64,11 @@ const OW_L2_ROWS: u32 = 64;
 
 /// Convert (col, row, submap) → word-index into Map16TilesLow ($7EC800).
 ///
-/// Convert (col, row, submap) → word-index into Map16TilesLow ($7EC800).
-///
-/// The WRAM layout uses a `%-----YYX yyyyxxxx` bit packing (SMW overworld spec):
-///   idx = (x & 0x1F) | ((y_actual & 0x3F) << 5)
-/// where y_actual = row for the main map and row + 32 for submaps.
+/// The overworld Layer 1 uses a 32×64 tile grid (32 columns, 64 rows total across all submaps).
+/// Per SMW docs: $7EC800-$7ECFFF = 2048 bytes = 1024 tiles × 2 bytes each = 32×32 tiles per submap.
 fn ow_l1_idx(col: u32, row: u32, submap: u8) -> u32 {
     let y_actual = row + if submap != 0 { 32 } else { 0 };
-    (col & 0x1F) | ((y_actual & 0x3F) << 5)
+    col + (y_actual * 32)
 }
 
 /// Byte address of the tile-type byte in WRAM (u8, not u16).
