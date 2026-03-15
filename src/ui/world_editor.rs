@@ -439,8 +439,8 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
 
             let px = col * 16;
             let py = row * 16;
-            // 4 sub-tiles in order: top-left, top-right, bottom-left, bottom-right.
-            for (si, (ox, oy)) in [(0u32, 0u32), (8u32, 0u32), (0u32, 8u32), (8u32, 8u32)].iter().enumerate() {
+            // 4 sub-tiles in order: top-left, bottom-left, top-right, bottom-right.
+            for (si, (ox, oy)) in [(0u32, 0u32), (0u32, 8u32), (8u32, 0u32), (8u32, 8u32)].iter().enumerate() {
                 let sub_tile = cpu.mem.load_u16(gfx_addr + si as u32 * 2);
                 tiles.push(ow_tile(px + ox, py + oy, sub_tile));
             }
