@@ -62,40 +62,32 @@ const OW_L2_ROWS: u32 = 64;
 
 // ── SNES overworld tile-index helpers ─────────────────────────────────────────
 
-/// Convert (col, row, submap) → byte address into Map16Tiles at $7EC800.
+/// Convert screen (col, row) → memory address in Map16Tiles at $7EC800.
 ///
-/// The overworld Layer 1 uses 1 byte per tile (u8 format, not u16!).
-/// Modified formula with interleaved rows within each quadrant.
+/// The overworld uses an interleaved memory layout (from OW_TilePos_Calc at $049866):
+/// - Bits 0-3: X & 0x0F (tile column within 16-tile group)
+/// - Bits 4-7: Y & 0x0F (tile row within 16-tile group)
+/// - Bit 8: X & 0x10 (selects between left/right halves of the 32-tile screen)
+/// - Bit 9: Y & 0x10 (selects between top/bottom halves)
+///
+/// This creates a layout where rows are interleaved: for each Y row,
+/// the left half (X=0-15) is stored at index N, and the right half (X=16-31)
+/// is stored at index N+256 (not adjacent like in quadrant layout).
 fn ow_l1_addr(col: u32, row: u32, submap: u8) -> u32 {
-    // Get row within the current 16-row quadrant
-    let quadrant_row = row & 0x0F;
+    // X contribution: (X & 0x0F) | ((X & 0x10) << 4)
+    // This places X bits 0-3 at index bits 0-3, and X bit 4 at index bit 8
+    let x_part = (col & 0x0F) | ((col & 0x10) << 4);
 
-    // Interleave: even rows first (0,2,4...14), then odd rows (1,3,5...15)
-    let interleaved_row = if quadrant_row & 1 == 0 {
-        quadrant_row >> 1 // Even rows: 0->0, 2->1, 4->2, etc.
-    } else {
-        8 + (quadrant_row >> 1) // Odd rows: 1->8, 3->9, 5->10, etc.
-    };
+    // Y contribution: ((Y & 0x0F) << 4) | ((Y & 0x10) << 5)
+    // This places Y bits 0-3 at index bits 4-7, and Y bit 4 at index bit 9
+    let y_part = ((row & 0x0F) << 4) | ((row & 0x10) << 5);
 
-    // Use interleaved row in the formula
-    let x_low = col & 0x0F;
-    let x_high = (col & 0x10) << 4;
-    let mut idx = x_low | x_high;
+    let idx = x_part + y_part;
 
-    // Use interleaved row instead of actual row
-    let y_shifted = (interleaved_row << 4) & 0xFF;
-    idx += y_shifted;
+    // Submap offset: submap 1-6 use rows 32-63, stored at +0x400
+    let final_idx = if submap != 0 { idx + 0x400 } else { idx };
 
-    // Add quadrant offset for high bits
-    if row & 0x10 != 0 {
-        idx += 0x200;
-    }
-
-    if submap != 0 {
-        idx += 0x400;
-    }
-
-    MAP16_TILES_LOW + idx
+    MAP16_TILES_LOW + final_idx
 }
 
 /// Layer-2 tilemap: simple row-major, 64 columns wide.
@@ -449,7 +441,6 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
     for row in 0..OW_ROWS_PER_SUBMAP {
         for col in 0..OW_COLS {
             // Read tile-type ID: u8 from the tile array at $7EC800 (1 byte per tile).
-            // ASM shows: LDA.L Map16TilesLow,X followed by AND.W #$00FF
             let tile_id = cpu.mem.load_u8(ow_l1_addr(col, row, submap)) as u32;
 
             // Map16Pointers[tile_id] = 16-bit offset from $05:0000 into OWL1CharData.
@@ -459,11 +450,13 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
 
             let px = col * 16;
             let py = row * 16;
-            // 4 sub-tiles in column-major order: top-left, bottom-left, top-right, bottom-right.
-            // VRAM layout: TL(word 2), BL(word 6), TR(word 3), BR(word 7)
+            // 4 sub-tiles in OWL1CharData order (from ASM CODE_04DCE8):
+            // word 0 -> TL, word 2 -> BL (at +$40 in VRAM), word 4 -> TR (at +2), word 6 -> BR (at +$42)
+            // But we read 4 consecutive u16 words: 0, 1, 2, 3
+            // Wait, the ASM loads: Y=0 (word 0), Y=2 (word 1), Y=4 (word 2), Y=6 (word 3)
+            // So we read words 0, 1, 2, 3 from OWL1CharData
             for (si, (ox, oy)) in [(0u32, 0u32), (0u32, 8u32), (8u32, 0u32), (8u32, 8u32)].iter().enumerate() {
                 let sub_tile = cpu.mem.load_u16(gfx_addr + si as u32 * 2);
-                // Use sub-tile attributes as-is from OWL1CharData
                 tiles.push(ow_tile(px + ox, py + oy, sub_tile));
             }
         }
