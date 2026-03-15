@@ -64,13 +64,13 @@ const OW_L2_ROWS: u32 = 64;
 
 /// Convert (col, row, submap) → byte address into Map16Tiles at $7EC800.
 ///
-/// The overworld Layer 1 uses 2 bytes per tile (Map16 format).
+/// The overworld Layer 1 uses 1 byte per tile (u8 format, not u16!).
 /// Index formula from SMW disassembly (OW_TilePos_Calc at $04980B):
 ///   idx = (X & 0x0F) | ((Y & 0x0F) << 4) | ((X & 0x10) << 4) | ((Y & 0x10) << 5)
 /// This packs X[0:3], Y[0:3], X[4], Y[4] into a 10-bit index.
-fn ow_l1_addr_u16(col: u32, row: u32, _submap: u8) -> u32 {
+fn ow_l1_addr(col: u32, row: u32, _submap: u8) -> u32 {
     let idx = (col & 0x0F) | ((row & 0x0F) << 4) | ((col & 0x10) << 4) | ((row & 0x10) << 5);
-    MAP16_TILES_LOW + (idx * 2)
+    MAP16_TILES_LOW + idx
 }
 
 /// Layer-2 tilemap: simple row-major, 64 columns wide.
@@ -266,9 +266,8 @@ impl UiWorldEditor {
         // Selected tile info
         if let Some((x, y)) = self.selected_tile {
             ui.label(format!("Selected: ({x}, {y})"));
-            // L1 tilemap stores u16 tile-type IDs (2 bytes per tile)
-            let tile_word = self.cpu.mem.load_u16(ow_l1_addr_u16(x, y, self.submap));
-            let tile_id = (tile_word & 0x1FF) as u32;
+            // L1 tilemap stores u8 tile-type IDs (1 byte per tile)
+            let tile_id = self.cpu.mem.load_u8(ow_l1_addr(x, y, self.submap)) as u32;
             ui.monospace(format!("Tile type: {tile_id} (0x{tile_id:02X})"));
             // Look up sub-tiles in OWL1CharData via Map16Pointers
             let ptr_base = 0x7E0FBE_u32;
@@ -285,7 +284,7 @@ impl UiWorldEditor {
             }
             // OWLayer1Translevel: level number stored at $7ED000 (u8 indexed, same bit-packed layout)
             let xlevel_idx = (x & 0x0F) | ((y & 0x0F) << 4) | ((x & 0x10) << 4) | ((y & 0x10) << 5);
-            let xlevel_addr = 0x7ED000_u32 + (xlevel_idx as u32);
+            let xlevel_addr = 0x7ED000_u32 + xlevel_idx;
             let xlevel = self.cpu.mem.load_u8(xlevel_addr) as u32;
             if xlevel != 0 {
                 ui.monospace(format!("  level 0x{xlevel:03X}"));
@@ -377,8 +376,7 @@ impl UiWorldEditor {
             if (0..OW_COLS as i32).contains(&tx) && (0..OW_ROWS_PER_SUBMAP as i32).contains(&ty) {
                 let x = tx as u32;
                 let y = ty as u32;
-                let tile_word = self.cpu.mem.load_u16(ow_l1_addr_u16(x, y, self.submap));
-                let tile_id = tile_word & 0x1FF;
+                let tile_id = self.cpu.mem.load_u8(ow_l1_addr(x, y, self.submap));
                 let tile_rect =
                     Rect::from_min_size(origin + vec2(x as f32 * map16_sz, y as f32 * map16_sz), Vec2::splat(map16_sz));
                 painter.rect_stroke(tile_rect, Rounding::ZERO, Stroke::new(1.0, Color32::WHITE));
@@ -426,25 +424,23 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
     // Only render 32 rows per submap (main map uses rows 0-31, submaps use rows 32-63 in buffer)
     for row in 0..OW_ROWS_PER_SUBMAP {
         for col in 0..OW_COLS {
-            // Read tile-type ID: u16 from the tile array at $7EC800 (2 bytes per tile).
-            // Lower 9 bits = tile number (0-511), upper bits = attributes (YXPCCCTT).
-            let tile_word = cpu.mem.load_u16(ow_l1_addr_u16(col, row, submap));
-            let tile_id = (tile_word & 0x1FF) as u32;
-            let tile_attrs = (tile_word & 0xFE00) as u32; // YXPCCCTT bits to apply to all sub-tiles
+            // Read tile-type ID: u8 from the tile array at $7EC800 (1 byte per tile).
+            // ASM shows: LDA.L Map16TilesLow,X followed by AND.W #$00FF
+            let tile_id = cpu.mem.load_u8(ow_l1_addr(col, row, submap)) as u32;
 
-            // Map16Pointers[tile_id] = 16-bit offset, full address = $05:0000 + offset
+            // Map16Pointers[tile_id] = 16-bit offset from $05:0000 into OWL1CharData.
+            // Full SNES address = $05:0000 | pointer_value
             let char_ptr = cpu.mem.load_u16(ptr_base + tile_id * 2) as u32;
-            let gfx_addr = char_bank + char_ptr;
+            let gfx_addr = char_bank | char_ptr;
 
             let px = col * 16;
             let py = row * 16;
-            // 4 sub-tiles in order: top-left, top-right, bottom-left, bottom-right.
-            // SMW stores as TL, BL, TR, BR in OWL1CharData but VRAM layout is TL, TR, BL, BR
-            for (si, (ox, oy)) in [(0u32, 0u32), (8u32, 0u32), (0u32, 8u32), (8u32, 8u32)].iter().enumerate() {
-                let sub_tile_raw = cpu.mem.load_u16(gfx_addr + si as u32 * 2) as u32;
-                // Combine sub-tile attributes with the Map16 tile's YX flip bits
-                let sub_tile = (sub_tile_raw & 0x3FFF) | tile_attrs;
-                tiles.push(ow_tile(px + ox, py + oy, sub_tile as u16));
+            // 4 sub-tiles in column-major order: top-left, bottom-left, top-right, bottom-right.
+            // VRAM layout: TL(word 2), BL(word 6), TR(word 3), BR(word 7)
+            for (si, (ox, oy)) in [(0u32, 0u32), (0u32, 8u32), (8u32, 0u32), (8u32, 8u32)].iter().enumerate() {
+                let sub_tile = cpu.mem.load_u16(gfx_addr + si as u32 * 2);
+                // Use sub-tile attributes as-is from OWL1CharData
+                tiles.push(ow_tile(px + ox, py + oy, sub_tile));
             }
         }
     }
