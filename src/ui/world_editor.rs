@@ -436,8 +436,8 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
 
             let px = col * 16;
             let py = row * 16;
-            // 4 sub-tiles in order: top-left, top-right, bottom-left, bottom-right.
-            for (si, (ox, oy)) in [(0u32, 0u32), (8u32, 0u32), (0u32, 8u32), (8u32, 8u32)].iter().enumerate() {
+            // 4 sub-tiles in order: top-left, bottom-left, top-right, bottom-right.
+            for (si, (ox, oy)) in [(0u32, 0u32), (0u32, 8u32), (8u32, 0u32), (8u32, 8u32)].iter().enumerate() {
                 let sub_tile_raw = cpu.mem.load_u16(gfx_addr + si as u32 * 2) as u32;
                 // Combine sub-tile attributes with the Map16 tile's YX flip bits
                 let sub_tile = (sub_tile_raw & 0x3FFF) | tile_attrs;
