@@ -84,26 +84,14 @@ fn ow_l1_addr(col: u32, row: u32, submap: u8) -> u32 {
     MAP16_TILES_LOW + final_idx
 }
 
-/// Layer-2 tilemap: quadrant-based addressing like Layer 1.
-///
-/// Layer 2 is 64×64 tiles at 8×8 pixels each (512×512 pixels).
-/// Tiles are stored as [tile_num][YXPCCCTT] pairs (2 bytes per tile).
-/// The data uses quadrant-based addressing:
-/// - TL quadrant: cols 0-31, rows 0-31   -> base + 0x0000
-/// - TR quadrant: cols 32-63, rows 0-31  -> base + 0x0800
-/// - BL quadrant: cols 0-31, rows 32-63  -> base + 0x1000
-/// - BR quadrant: cols 32-63, rows 32-63 -> base + 0x1800
-fn ow_l2_addr(col: u32, row: u32) -> u32 {
-    // Within-quadrant X: col * 2 (2 bytes per tile)
-    let x_base = (col & 0x1F) * 2;
-    // X quadrant selector: col 32-63 adds 0x800
-    let x_quad = (col & 0x20) << 6;
-    // Within-quadrant Y: row * 0x80 (128 bytes per row)
-    let y_base = (row & 0x1F) * 0x80;
-    // Y quadrant selector: row 32-63 adds 0x1000
-    let y_quad = (row & 0x20) << 7;
+/// Layer 2 dimensions: 64 columns × 64 rows (full tilemap).
+/// Tiles stored in interleaved [tile_num][YXPCCCTT] format at $7F4000.
+/// Index formula: ((Y * 64) + X) * 2 (row-major, 64 columns wide).
+/// The full tilemap is 64×64 tiles = 512×512 pixels to match L1's 512×512.
+const OW_L2_COLS: u32 = 64;
 
-    OW_L2_BASE + x_base + x_quad + y_base + y_quad
+fn ow_l2_addr(col: u32, row: u32) -> u32 {
+    OW_L2_BASE + ((row * OW_L2_COLS + col) * 2) as u32
 }
 
 // ── OpenGL renderer ───────────────────────────────────────────────────────────
@@ -226,6 +214,10 @@ impl UiWorldEditor {
 
         let l1 = build_l1_tiles(&mut self.cpu, self.submap);
         let l2 = build_l2_tiles(&mut self.cpu);
+
+        // Debug: Log tile counts
+        log::info!("Loaded submap {}: L1={} tiles, L2={} tiles", self.submap, l1.len(), l2.len());
+
         r.set_tiles(&self.gl, l1, l2);
 
         self.offset = Vec2::ZERO;
@@ -448,12 +440,19 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
     let ptr_base: u32 = 0x7E_0FBE;
     let char_bank: u32 = 0x05_0000;
 
+    // Debug: Track unique tile types
+    let mut unique_tiles = std::collections::HashSet::new();
+
     // Only render 32 rows per submap
     for row in 0..MAP16_ROWS {
         for col in 0..MAP16_COLS {
             // Read tile-type ID: u8 from the tile array at $7EC800 (1 byte per tile).
             let addr = ow_l1_addr(col, row, submap);
             let tile_id = cpu.mem.load_u8(addr) as u32;
+
+            if tile_id != 0 {
+                unique_tiles.insert(tile_id);
+            }
 
             // Map16Pointers[tile_id] = 16-bit offset from $05:0000 into OWL1CharData.
             // Full SNES address = $05:0000 | pointer_value
@@ -469,19 +468,33 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
             }
         }
     }
+
+    log::info!("build_l1_tiles: {} unique non-zero tile types used", unique_tiles.len());
     tiles
 }
 
-/// Build draw list for Layer 2 (render 64×64 tiles to cover 512×512 pixels).
+/// Build draw list for Layer 2 (render 64×64 tiles for the overworld background).
+/// L2 uses row-major addressing: ((Y * 64) + X) * 2 at $7F4000.
+/// The full tilemap is 64×64 tiles = 512×512 pixels to match L1's dimensions.
 fn build_l2_tiles(cpu: &mut Cpu) -> Vec<Tile> {
-    // Layer 2 needs 64×64 tiles (8×8 pixels each) to cover 512×512 pixel area
-    let mut tiles = Vec::with_capacity((VRAM_TILE_COLS * VRAM_TILE_ROWS) as usize);
+    // L2 is 64×64 tiles = 512×512 pixels to match L1's 512×512 pixel area
+    let l2_rows = VRAM_TILE_ROWS; // 64 rows
 
-    for row in 0..VRAM_TILE_ROWS {
-        for col in 0..VRAM_TILE_COLS {
+    let mut tiles = Vec::with_capacity((OW_L2_COLS * l2_rows) as usize);
+
+    for row in 0..l2_rows {
+        for col in 0..OW_L2_COLS {
             let addr = ow_l2_addr(col, row);
-            let t = cpu.mem.load_u16(addr);
-            // L2 is BG mode 1 — each tile is a single 8×8 VRAM tile entry.
+            // L2 format: [tile_num_low][YXPCCCTT] interleaved
+            let t0 = cpu.mem.load_u8(addr) as u16;
+            let t1 = cpu.mem.load_u8(addr + 1) as u16;
+            let tile_num = t0 | ((t1 & 3) << 8);
+            let palette = (t1 >> 2) & 7;
+            let flip_x = (t1 & 0x40) != 0;
+            let flip_y = (t1 & 0x80) != 0;
+            // Pack into format expected by ow_tile: [tile(10bits)|pal(3bits)|flip(2bits)|scale(8bits)]
+            let t = tile_num | (palette << 10) | ((flip_x as u16) << 14) | ((flip_y as u16) << 15);
+            // L2 tiles are 8×8 pixels, render at (col*8, row*8)
             tiles.push(ow_tile(col * 8, row * 8, t));
         }
     }
