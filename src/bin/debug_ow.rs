@@ -1,6 +1,6 @@
 //! Debug binary to render overworld L1/L2 tiles to PPM for comparison.
 //!
-//! Usage: cargo run --bin debug_ow [-- --submap N] [--wireframe]
+//! Usage: cargo run --bin debug_ow [-- --submap N] [--wireframe] [--l1-y-offset=8]
 
 use std::{env, sync::Arc};
 
@@ -8,6 +8,8 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     let submap = args.iter().find_map(|a| a.strip_prefix("--submap=")).and_then(|s| s.parse::<u8>().ok()).unwrap_or(0);
     let wireframe = args.iter().any(|a| a == "--wireframe");
+    let l1_y_offset =
+        args.iter().find_map(|a| a.strip_prefix("--l1-y-offset=")).and_then(|s| s.parse::<u8>().ok()).unwrap_or(0);
 
     let rom_path = std::path::Path::new("smw.smc");
     if !rom_path.exists() {
@@ -17,10 +19,10 @@ fn main() {
 
     log4rs::init_file("log4rs.yaml", Default::default()).ok();
 
-    run_debug(rom_path, submap, wireframe);
+    run_debug(rom_path, submap, wireframe, l1_y_offset);
 }
 
-fn run_debug(rom_path: &std::path::Path, submap: u8, wireframe: bool) {
+fn run_debug(rom_path: &std::path::Path, submap: u8, wireframe: bool, l1_y_offset: u8) {
     let raw = std::fs::read(rom_path).expect("Cannot read ROM");
     let rom_bytes = if raw.len() % 0x400 == 0x200 { raw[0x200..].to_vec() } else { raw };
     let mut emu_rom = smwe_emu::rom::Rom::new(rom_bytes);
@@ -64,12 +66,13 @@ fn run_debug(rom_path: &std::path::Path, submap: u8, wireframe: bool) {
         let tile_base = tile_id * 32;
         // Check if tile has non-zero data
         let has_data = vram[tile_base..tile_base + 32].iter().any(|&b| b != 0);
+        let first_bytes = &vram[tile_base..tile_base + 8];
         if has_data {
-            println!("Tile ${:03X}: has graphics data", tile_id);
+            println!("Tile ${:03X}: {:02X?}", tile_id, first_bytes);
         }
     }
 
-    // L2 is always 64×64 tiles (512×512 pixels) to match L1's 512×512 pixel area
+    // L2 is 64×64 tiles total, arranged as 4 quadrants of 32×32
     let l2_cols = 64u32;
     let l2_rows = 64u32;
 
@@ -113,6 +116,7 @@ fn run_debug(rom_path: &std::path::Path, submap: u8, wireframe: bool) {
         ptr_base,
         char_bank,
         wireframe,
+        l1_y_offset,
     );
 
     // Write individual layers as PNG
@@ -125,7 +129,8 @@ fn run_debug(rom_path: &std::path::Path, submap: u8, wireframe: bool) {
     if wireframe {
         println!("  (with yellow wireframe borders around Map16 blocks)");
     }
-    println!("\nUsage: cargo run --bin debug_ow [-- --submap=N] [--wireframe]");
+    println!("\nUsage: cargo run --bin debug_ow [-- --submap=N] [--wireframe] [--l1-y-offset=N]");
+    println!("  --l1-y-offset=8 : Apply 8px Y offset to Layer 1 (for testing alignment)");
     println!("Reference: SMW_Final_Overworld.png (from TCRF)");
 }
 
@@ -134,9 +139,20 @@ fn render_l2(wram: &[u8], cols: u32, rows: u32, vram: &[u8], cgram: &[u8]) -> Ve
     let height_px = rows * 8;
     let mut pixels = vec![0u8; (width_px * height_px * 3) as usize];
 
+    // L2 tilemap is stored as 4 quadrants of 32x32 tiles
+    // Quadrant layout: TL=0, TR=1, BL=2, BR=3
+    // Each quadrant is 32*32*2 = 2048 bytes
     for row in 0..rows {
         for col in 0..cols {
-            let idx = ((row * cols + col) * 2) as usize;
+            // Determine which quadrant we're in
+            let quadrant = ((row / 32) * 2) + (col / 32); // 0=TL, 1=TR, 2=BL, 3=BR
+            let sub_row = row % 32;
+            let sub_col = col % 32;
+
+            // Index within quadrant: (row * 32 + col) * 2
+            let quadrant_offset = (quadrant * 32 * 32 * 2) as usize;
+            let idx = quadrant_offset + (((sub_row * 32 + sub_col) * 2) as usize);
+
             if idx + 1 >= wram.len() {
                 continue;
             }
@@ -158,7 +174,7 @@ fn render_l2(wram: &[u8], cols: u32, rows: u32, vram: &[u8], cgram: &[u8]) -> Ve
 
 fn render_l1_proper(
     l1_data: &[u8], m16ptr_data: &[u8], submap: u8, vram: &[u8], cgram: &[u8], pixels: &mut [u8], l2_cols: u32,
-    l2_rows: u32, _ptr_base: u32, char_bank: u32, wireframe: bool,
+    l2_rows: u32, _ptr_base: u32, char_bank: u32, wireframe: bool, l1_y_offset: u8,
 ) {
     // L1 is 32x32 Map16 blocks, each 16x16 pixels
     // But we're rendering at 8x8 sub-tile resolution
@@ -197,7 +213,7 @@ fn render_l1_proper(
 
             // Position in output
             let px = col * 16;
-            let py = row * 16;
+            let py = row * 16 + l1_y_offset as u32;
 
             if px + 16 > l2_cols * 8 || py + 16 > l2_rows * 8 {
                 continue;
@@ -245,6 +261,7 @@ fn render_tile(
     vram: &[u8], cgram: &[u8], tile_id: usize, palette: usize, flip_x: bool, flip_y: bool, x0: u32, y0: u32,
     width: u32, pixels: &mut [u8],
 ) {
+    // VRAM stores tiles as 4BPP = 32 bytes per tile (even if source is 3BPP)
     let tile_base = tile_id * 32;
 
     for ty in 0..8u32 {
@@ -252,6 +269,7 @@ fn render_tile(
             let px = if flip_x { 7 - tx } else { tx };
             let py = if flip_y { 7 - ty } else { ty };
 
+            // 4BPP format: bitplanes stored in VRAM
             let row_off = tile_base + (py as usize) * 2;
             if row_off + 17 >= vram.len() {
                 continue;
