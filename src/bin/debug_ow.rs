@@ -1,12 +1,13 @@
 //! Debug binary to render overworld L1/L2 tiles to PPM for comparison.
 //!
-//! Usage: cargo run --bin debug_ow [-- --submap N]
+//! Usage: cargo run --bin debug_ow [-- --submap N] [--wireframe]
 
 use std::{env, sync::Arc};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
     let submap = args.iter().find_map(|a| a.strip_prefix("--submap=")).and_then(|s| s.parse::<u8>().ok()).unwrap_or(0);
+    let wireframe = args.iter().any(|a| a == "--wireframe");
 
     let rom_path = std::path::Path::new("smw.smc");
     if !rom_path.exists() {
@@ -16,10 +17,10 @@ fn main() {
 
     log4rs::init_file("log4rs.yaml", Default::default()).ok();
 
-    run_debug(rom_path, submap);
+    run_debug(rom_path, submap, wireframe);
 }
 
-fn run_debug(rom_path: &std::path::Path, submap: u8) {
+fn run_debug(rom_path: &std::path::Path, submap: u8, wireframe: bool) {
     let raw = std::fs::read(rom_path).expect("Cannot read ROM");
     let rom_bytes = if raw.len() % 0x400 == 0x200 { raw[0x200..].to_vec() } else { raw };
     let mut emu_rom = smwe_emu::rom::Rom::new(rom_bytes);
@@ -43,11 +44,12 @@ fn run_debug(rom_path: &std::path::Path, submap: u8) {
         println!("  GFX Address:  ${:06X}", gfx_addr);
         println!("  Sub-tiles:");
 
+        // OWL1CharData order: word 0->TL, word 1->TR, word 2->BL, word 3->BR
         for i in 0..4 {
             let sub_tile = cpu.mem.load_u16(gfx_addr + i as u32 * 2);
             let tile_num = sub_tile & 0x3FF;
             let pal = (sub_tile >> 10) & 7;
-            let names = ["TL", "BL", "TR", "BR"];
+            let names = ["TL", "TR", "BL", "BR"];
             println!("    {}: ${:04X} (tile=${:03X} pal={})", names[i as usize], sub_tile, tile_num, pal);
         }
     }
@@ -55,6 +57,17 @@ fn run_debug(rom_path: &std::path::Path, submap: u8) {
     let vram = &cpu.mem.vram;
     let cgram = &cpu.mem.cgram;
     let wram = &cpu.mem.wram;
+
+    // Debug: Check VRAM contents for bridge tiles (around $1D8-$1DF range)
+    println!("\n=== VRAM Debug (tiles $1D0-$1DF) ===");
+    for tile_id in 0x1D0..=0x1DF {
+        let tile_base = tile_id * 32;
+        // Check if tile has non-zero data
+        let has_data = vram[tile_base..tile_base + 32].iter().any(|&b| b != 0);
+        if has_data {
+            println!("Tile ${:03X}: has graphics data", tile_id);
+        }
+    }
 
     // L2 is always 64×64 tiles (512×512 pixels) to match L1's 512×512 pixel area
     let l2_cols = 64u32;
@@ -99,15 +112,20 @@ fn run_debug(rom_path: &std::path::Path, submap: u8) {
         l2_rows,
         ptr_base,
         char_bank,
+        wireframe,
     );
 
-    // Write individual layers
-    write_ppm("debug_l2.ppm", l2_cols * 8, l2_rows * 8, &l2_pixels);
-    write_ppm("debug_composite.ppm", l2_cols * 8, l2_rows * 8, &final_pixels);
+    // Write individual layers as PNG
+    write_png("debug_l2.png", l2_cols * 8, l2_rows * 8, &l2_pixels);
+    write_png("debug_composite.png", l2_cols * 8, l2_rows * 8, &final_pixels);
 
     println!("\nWrote:");
-    println!("  - debug_l2.ppm (L2 background only)");
-    println!("  - debug_composite.ppm (L1+L2 combined)");
+    println!("  - debug_l2.png (L2 background only)");
+    println!("  - debug_composite.png (L1+L2 combined)");
+    if wireframe {
+        println!("  (with yellow wireframe borders around Map16 blocks)");
+    }
+    println!("\nUsage: cargo run --bin debug_ow [-- --submap=N] [--wireframe]");
     println!("Reference: SMW_Final_Overworld.png (from TCRF)");
 }
 
@@ -140,7 +158,7 @@ fn render_l2(wram: &[u8], cols: u32, rows: u32, vram: &[u8], cgram: &[u8]) -> Ve
 
 fn render_l1_proper(
     l1_data: &[u8], m16ptr_data: &[u8], submap: u8, vram: &[u8], cgram: &[u8], pixels: &mut [u8], l2_cols: u32,
-    l2_rows: u32, _ptr_base: u32, char_bank: u32,
+    l2_rows: u32, _ptr_base: u32, char_bank: u32, wireframe: bool,
 ) {
     // L1 is 32x32 Map16 blocks, each 16x16 pixels
     // But we're rendering at 8x8 sub-tile resolution
@@ -185,22 +203,33 @@ fn render_l1_proper(
                 continue;
             }
 
-            // Render 4 sub-tiles
-            let offsets = [(0u32, 0u32), (0u32, 8u32), (8u32, 0u32), (8u32, 8u32)];
-            for (si, (ox, oy)) in offsets.iter().enumerate() {
-                if rom_offset + si * 2 + 1 < rom_bytes.len() {
-                    let st_lo = rom_bytes[rom_offset + si * 2];
-                    let st_hi = rom_bytes[rom_offset + si * 2 + 1];
-                    let sub_tile = (st_lo as u16) | ((st_hi as u16) << 8);
+            // Render 4 sub-tiles from OWL1CharData: word 0->TL, word 1->TR, word 2->BL, word 3->BR
+            // Layout in ROM: [TL][TR][BL][BR] = 8 bytes total
+            let sub_tiles = [
+                (rom_bytes.get(rom_offset + 0).copied().unwrap_or(0) as u16)
+                    | ((rom_bytes.get(rom_offset + 1).copied().unwrap_or(0) as u16) << 8),
+                (rom_bytes.get(rom_offset + 2).copied().unwrap_or(0) as u16)
+                    | ((rom_bytes.get(rom_offset + 3).copied().unwrap_or(0) as u16) << 8),
+                (rom_bytes.get(rom_offset + 4).copied().unwrap_or(0) as u16)
+                    | ((rom_bytes.get(rom_offset + 5).copied().unwrap_or(0) as u16) << 8),
+                (rom_bytes.get(rom_offset + 6).copied().unwrap_or(0) as u16)
+                    | ((rom_bytes.get(rom_offset + 7).copied().unwrap_or(0) as u16) << 8),
+            ];
+            let offsets = [(0u32, 0u32), (8u32, 0u32), (0u32, 8u32), (8u32, 8u32)];
+            for (i, (ox, oy)) in offsets.iter().enumerate() {
+                let sub_tile = sub_tiles[i];
+                let tile_num = (sub_tile & 0x3FF) as usize;
+                let palette = ((sub_tile >> 10) & 7) as usize;
+                let flip_x = (sub_tile & 0x4000) != 0;
+                let flip_y = (sub_tile & 0x8000) != 0;
 
-                    let tile_num = (sub_tile & 0x3FF) as usize;
-                    let palette = ((sub_tile >> 10) & 7) as usize;
-                    let flip_x = (sub_tile & 0x4000) != 0;
-                    let flip_y = (sub_tile & 0x8000) != 0;
+                // Only render non-transparent tiles
+                render_tile(vram, cgram, tile_num, palette, flip_x, flip_y, px + ox, py + oy, width_px, pixels);
+            }
 
-                    // Only render non-transparent tiles
-                    render_tile(vram, cgram, tile_num, palette, flip_x, flip_y, px + ox, py + oy, width_px, pixels);
-                }
+            // Draw wireframe border around Map16 block if enabled
+            if wireframe && tile_id != 0 {
+                draw_map16_border(pixels, px, py, width_px, [255, 255, 0]); // Yellow border
             }
         }
     }
@@ -271,9 +300,43 @@ fn read_color(cgram: &[u8], idx: usize) -> [u8; 3] {
     [r as u8, g as u8, b as u8]
 }
 
-fn write_ppm(filename: &str, width: u32, height: u32, pixels: &[u8]) {
-    use std::io::Write;
-    let mut f = std::fs::File::create(filename).expect("Cannot create PPM");
-    write!(f, "P6\n{} {}\n255\n", width, height).expect("Write failed");
-    f.write_all(pixels).expect("Write failed");
+fn draw_map16_border(pixels: &mut [u8], x: u32, y: u32, width: u32, color: [u8; 3]) {
+    // Draw 1-pixel border around 16x16 Map16 block
+    for i in 0..16 {
+        // Top edge
+        let off = ((y * width + x + i) * 3) as usize;
+        if off + 2 < pixels.len() {
+            pixels[off] = color[0];
+            pixels[off + 1] = color[1];
+            pixels[off + 2] = color[2];
+        }
+        // Bottom edge
+        let off = (((y + 15) * width + x + i) * 3) as usize;
+        if off + 2 < pixels.len() {
+            pixels[off] = color[0];
+            pixels[off + 1] = color[1];
+            pixels[off + 2] = color[2];
+        }
+        // Left edge
+        let off = (((y + i) * width + x) * 3) as usize;
+        if off + 2 < pixels.len() {
+            pixels[off] = color[0];
+            pixels[off + 1] = color[1];
+            pixels[off + 2] = color[2];
+        }
+        // Right edge
+        let off = (((y + i) * width + x + 15) * 3) as usize;
+        if off + 2 < pixels.len() {
+            pixels[off] = color[0];
+            pixels[off + 1] = color[1];
+            pixels[off + 2] = color[2];
+        }
+    }
+}
+
+fn write_png(filename: &str, width: u32, height: u32, pixels: &[u8]) {
+    use image::{ImageBuffer, Rgb};
+    let img =
+        ImageBuffer::<Rgb<u8>, _>::from_raw(width, height, pixels.to_vec()).expect("Failed to create image buffer");
+    img.save(filename).expect("Failed to save PNG");
 }

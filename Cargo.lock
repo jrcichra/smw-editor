@@ -3600,6 +3600,7 @@ dependencies = [
  "egui_extras",
  "egui_glow",
  "glow",
+ "image 0.25.10",
  "inline_tweak",
  "itertools 0.12.1",
  "log",
