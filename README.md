@@ -1,22 +1,38 @@
 # SMW Editor
 
-SMW Editor aims to become an open-source, multi-platform, modern alternative to
-Lunar Magic, providing all the necessary tools for SMW romhacking.
+> [!NOTE]
+> This is an AI-generated community fork of the [original SMW Editor](https://github.com/SMW-Editor/smw-editor).
 
-This project is still in very early in development, currently far from anything
-usable. None of the planned features are completed or worked on yet since we are
-currently focusing on reverse-engineering the vanilla Super Mario World ROM.
+SMW Editor is an open-source, multi-platform, modern alternative to Lunar Magic,
+providing all the necessary tools for SMW romhacking. It uses a built-in emulator
+to decompress and render graphics directly from the ROM, ensuring accurate
+visualization of vanilla SMW content.
 
-For more information on what's currently being worked on, take a look at the pull requests.
+## Features
 
-## Planned features:
+### Currently Functional
 
-- Level editor
-- Overworld editor
-- Block editor
-- Sprite editor
+- **Level Editor** — View and navigate levels rendered via the emulator's
+  decompression routines. Supports zoom, grid overlay, layer toggles, and
+  object layer visualization with exit markers.
+- **Overworld Editor** — Browse all 7 submaps rendered from composed VRAM
+  tilemaps. Toggle layer 1/2, pan and zoom, and inspect individual tiles.
+- **Address Converter** — Convert between PC and SNES address spaces with
+  LoROM/HiROM and header options.
+- **ROM Loading** — Parses standard SMW ROMs with internal header detection.
+  Persists recent files between sessions.
+
+### In Development
+
+- Sprite tile editor with VRAM browser and palette viewer
+- Block editor UI (viewing and editing not yet implemented)
+
+### Planned
+
+- Level editing (object placement, tile modification)
+- Overworld editing (tile placement, event editing)
+- Block editor (custom block creation)
 - Graphics editor
-- Background editor
 - ASM code editor
 - Music editor
 - Custom plugins and extensions
@@ -26,30 +42,45 @@ For more information on what's currently being worked on, take a look at the pul
 
 Make sure you have [rustup](https://rustup.rs/) installed.
 
-Clone this repository, and execute this command in the root directory:
-
 ```bash
-$ cargo run --release 
+cargo run --release
 ```
 
-You can run the editor with the `ROM_PATH` environment variable set to the file path
-of your SMW ROM – it will then be loaded on start-up. This was set up to make testing
-more convenient and will be removed later.
+Set the `ROM_PATH` environment variable to load a ROM on startup:
 
-# Contribution
+```bash
+ROM_PATH=/path/to/smw.smc cargo run --release
+```
 
-We are a team of two working on this project in our free time. Due to the scale of
-this project and the amount of time available to us, the development is pretty slow.
+## Technical Overview
 
-For this reason we encourage you to contribute: simply clone the repository, create
-a branch, push your changes, and open a pull request.
+The editor is structured around a workspace of crates:
 
-We also think expanding our development team would speed things up and help us deliver
-a better product. If you want to join us and are experienced in at least one of these
-(but the more the better):
+- **smwe-emu** — 65816 CPU emulator with accurate WRAM, VRAM, CGRAM, and DMA
+  emulation
+- **smwe-rom** — ROM parsing for levels, graphics, Map16, and overworld data
+- **smwe-render** — OpenGL tile and palette rendering with geometry shaders for
+  efficient batching
+- **smwe-widgets** — Reusable UI components (VRAM viewer, palette grid)
+- **smwe-math** — Coordinate type wrappers for consistent math across renderers
+
+Rendering is backed by the emulator where possible — levels are decompressed
+using the actual game code rather than ad hoc reconstruction, which keeps
+visuals synchronized with vanilla SMW behavior.
+
+## Contribution
+
+This is a community fork of the [original SMW Editor](https://github.com/SMW-Editor/smw-editor).
+Contributions are welcome — open an issue or pull request to discuss changes.
+
+If you're looking to contribute, experience in any of the following is helpful:
 - [Rust](https://www.rust-lang.org/)
-- ASM programming for the SNES
-- SMW romhacking
-- UI design
+- ASM programming for the 65816/SNES
+- SMW romhacking and disassembly
+- UI design with egui
 
-Then please contact me via Discord (`anghosh`) or email (adanos020@gmail.com).
+## License
+
+This project is licensed under the MIT License.
+
+
