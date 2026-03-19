@@ -212,6 +212,7 @@ impl UiWorldEditor {
     }
 
     fn load_submap(&mut self) {
+        activate_all_overworld_events(&mut self.cpu);
         smwe_emu::emu::load_overworld(&mut self.cpu, self.submap);
 
         let mut r = self.renderer.lock().expect("Cannot lock overworld renderer");
@@ -522,4 +523,10 @@ fn ow_tile(x: u32, y: u32, t: u16) -> Tile {
     let scale = 8u32;
     let params = scale | (pal << 8) | (t32 & 0xC000);
     Tile([x, y, tile, params])
+}
+
+fn activate_all_overworld_events(cpu: &mut Cpu) {
+    for addr in 0x1F02u32..=0x1F60 {
+        cpu.mem.store_u8(addr, 0xFF);
+    }
 }
