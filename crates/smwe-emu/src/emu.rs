@@ -319,7 +319,7 @@ pub fn load_overworld(cpu: &mut Cpu<CheckedMem>, submap: u8) -> u64 {
     cpu.mem.store(addr, 0xA0); // LDY #$14
     cpu.mem.store(addr + 1, 0x14);
     addr += 2;
-    for symbol in ["PrepareGraphicsFile", "CODE_00AD25", "CODE_00922F"] {
+    for symbol in ["PrepareGraphicsFile", "CODE_00AD25", "CODE_00922F", "CODE_04D6E9"] {
         cpu.mem.store(addr, 0x22); // JSL
         cpu.mem.store_u24(
             addr + 1,

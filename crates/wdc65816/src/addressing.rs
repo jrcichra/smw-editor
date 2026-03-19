@@ -162,17 +162,17 @@ impl AddressingMode {
                 if !cpu.p.small_index() {
                     cpu.cy += 1
                 }
-                (cpu.dbr, offset + cpu.x)
+                (cpu.dbr, offset.wrapping_add(cpu.x))
             }
             AbsIndexedY(offset) => {
                 if !cpu.p.small_index() {
                     cpu.cy += 1
                 }
-                (cpu.dbr, offset + cpu.y)
+                (cpu.dbr, offset.wrapping_add(cpu.y))
             }
             AbsIndexedIndirect(addr_ptr) => {
                 let (x, pbr) = (cpu.x, cpu.pbr);
-                let addr = cpu.loadw(pbr, addr_ptr + x);
+                let addr = cpu.loadw(pbr, addr_ptr.wrapping_add(x));
                 (pbr, addr)
             }
             AbsoluteIndirect(addr_ptr) => {
@@ -181,7 +181,7 @@ impl AddressingMode {
             }
             AbsoluteIndirectLong(addr_ptr) => {
                 let addr = cpu.loadw(0, addr_ptr);
-                let bank = cpu.loadb(0, addr_ptr + 2);
+                let bank = cpu.loadb(0, addr_ptr.wrapping_add(2));
                 (bank, addr)
             }
             Rel(rel) => (cpu.pbr, (cpu.pc as i16).wrapping_add(rel as i16) as u16),
