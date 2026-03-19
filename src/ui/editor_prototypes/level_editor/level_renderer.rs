@@ -165,7 +165,7 @@ impl LevelRenderer {
             let idx_adj = if bg && !has_layer2 { idx % (16 * 27 * 2) } else { idx };
 
             let block_id = cpu.mem.load_u8(blocks_lo_addr + idx_adj) as u16
-                | ((cpu.mem.load_u8(blocks_hi_addr + idx_adj) as u16) << 8);
+                | (((cpu.mem.load_u8(blocks_hi_addr + idx_adj) as u16) & 0x01) << 8);
 
             // Look up the Map16 block pointer in WRAM table at 0x0FBE
             let block_ptr = if bg && !has_layer2 {
@@ -191,7 +191,7 @@ impl LevelRenderer {
 
 fn bg_tile(x: u32, y: u32, t: u16) -> Tile {
     let t = t as u32;
-    let tile = (t & 0x3FF).min(0x1FF);
+    let tile = t & 0x3FF;
     let scale = 8;
     let pal = (t >> 10) & 0x7;
     let params = scale | (pal << 8) | (t & 0xC000);

@@ -60,17 +60,10 @@ impl UiLevelEditor {
         {
             let level_renderer = Arc::clone(&self.level_renderer);
             let ppp = ui.ctx().pixels_per_point();
-            // egui_glow sets the GL viewport to `rect` before calling the callback,
-            // so screen_size = rect.size() * ppp  (physical pixels of the viewport).
-            // The shader: ndc = ((tile_px + offset)*zoom / screen_size * 2 - 1) * (1,-1)
-            // For tile (0,0) to appear at canvas origin (top-left of view_rect),
-            // we need offset = Vec2::ZERO when pan=0. Pan shifts tile positions,
-            // so offset = self.offset * ppp  (pan in physical pixels, pre-zoom).
             let screen_size_px = view_rect.size() * ppp;
-            // offset is in canvas-pixel units (same space as tile positions);
-            // gl_zoom = z * ppp already converts canvas→physical pixels.
-            // Do NOT multiply offset by ppp — that would over-scale it.
-            let gl_offset = self.offset + view_rect.min.to_vec2() / z;
+            // The paint callback renders in view-local coordinates, so the GL
+            // offset must use the same local pan basis as the egui overlays.
+            let gl_offset = self.offset;
             let gl_zoom = z * ppp;
             ui.painter().add(PaintCallback {
                 rect: view_rect,
