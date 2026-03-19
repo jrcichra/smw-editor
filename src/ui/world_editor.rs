@@ -468,17 +468,11 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
 
             let px = col * 16;
             let py = row * 16;
-            // 4 sub-tiles from OWL1CharData: word 0->TL, word 1->TR, word 2->BL, word 3->BR
-            // Layout in ROM: [TL][TR][BL][BR] = 8 bytes total
-            let sub_tile_data = [
-                cpu.mem.load_u16(gfx_addr + 0), // TL
-                cpu.mem.load_u16(gfx_addr + 2), // TR
-                cpu.mem.load_u16(gfx_addr + 4), // BL
-                cpu.mem.load_u16(gfx_addr + 6), // BR
-            ];
-            let offsets = [(0u32, 0u32), (8u32, 0u32), (0u32, 8u32), (8u32, 8u32)];
-            for (i, (ox, oy)) in offsets.iter().enumerate() {
-                tiles.push(ow_tile(px + ox, py + oy, sub_tile_data[i]));
+            // Overworld Map16 tiles appear to use column-major 8x8 ordering:
+            // top-left, bottom-left, top-right, bottom-right.
+            for (si, (ox, oy)) in [(0u32, 0u32), (0u32, 8u32), (8u32, 0u32), (8u32, 8u32)].iter().enumerate() {
+                let sub_tile = cpu.mem.load_u16(gfx_addr + si as u32 * 2);
+                tiles.push(ow_tile(px + ox, py + oy, sub_tile));
             }
         }
     }
