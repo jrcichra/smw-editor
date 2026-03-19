@@ -1,18 +1,14 @@
 //! World Map (Overworld) Editor UI.
 //!
 //! The overworld tilemap is stored in WRAM at $7EC800 (Map16TilesLow) after the
-//! game's init routines run. The data is copied directly from ROM via MVN with
-//! no transformation, stored in row-major order:
-//!   idx = y * 32 + x
+//! game's init routines run. `CODE_04DC09` copies `OWL1TileData` with `MVN`,
+//! so the 0x800-byte buffer stays in its packed ROM layout: 64 columns × 32 rows
+//! of u8 Map16 tile IDs in row-major order. The game selects each submap by
+//! changing the camera position, not by swapping to a separate L1 buffer.
 //!
-//! Main map uses indices 0x000-0x3FF (32 rows × 32 cols)
-//! Submaps use indices 0x400-0x7FF (also 32×32, accessed via +0x400 offset)
-//! Each byte is the Map16 tile-type ID (0–190).
-//!
-//! Layer 2 ($7F4000 / OWLayer2Tilemap): row-major 64 cols × 64 rows,
-//! indexed as ((Y * 64) + X) * 2. Each entry is [tile_num_u8, YXPCCCTT_u8]
-//! stored interleaved by LC_RLE2 (two-pass decompressor). Reading as LE u16
-//! gives the correct 10-bit tile number and flip/palette attributes.
+//! Layer 2 ($7F4000 / OWLayer2Tilemap): the full decompressed atlas is
+//! 128×64 8×8 tiles, stored as eight 32×32 screens (4 across × 2 down).
+//! Each entry is [tile_num_u8, YXPCCCTT_u8].
 
 use std::{
     path::PathBuf,
@@ -39,60 +35,36 @@ const MAP16_PX: f32 = 16.0;
 /// Game pixels per 8×8 BG tile (L2 tiles).
 const TILE_PX: f32 = 8.0;
 
-/// Layer 1 (Map16 blocks): 32×32 blocks per submap, each 16×16 pixels = 512×512 pixels total.
+/// Visible viewport size used by the editor: 32×32 Map16 blocks = 512×512 pixels.
 const MAP16_COLS: u32 = 32;
 const MAP16_ROWS: u32 = 32;
+/// Full packed L1 map size in WRAM/ROM.
+const MAP16_SRC_COLS: u32 = 64;
+const MAP16_SRC_ROWS: u32 = 32;
 
-/// Layer 2 (VRAM tiles): 64×64 tiles per submap, each 8×8 pixels = 512×512 pixels total.
-const VRAM_TILE_COLS: u32 = 64;
+/// Full packed Layer 2 atlas size.
+const VRAM_TILE_COLS: u32 = 128;
 const VRAM_TILE_ROWS: u32 = 64;
 
 /// WRAM base for the OW Layer-1 tile-type bytes (u8 each, 0x800 total).
 /// Populated by CODE_04DC09 via `MVN $7E,$0C` from OWL1TileData at $0CF7DF.
 const MAP16_TILES_LOW: u32 = 0x7EC800;
 
-/// WRAM base for the layer-2 tilemap (u16 each, row-major 64 cols × 64 rows).
+/// WRAM base for the layer-2 tilemap.
 const OW_L2_BASE: u32 = 0x7F4000;
-
-/// Layer-2 dimensions: 64 tile-cols × 64 tile-rows (full decompressed tilemap).
-/// Each tile is 8×8 game pixels. Formula: ((Y * 64) + X) * 2
 
 // ── SNES overworld tile-index helpers ─────────────────────────────────────────
 
-/// Convert screen (col, row) → memory address in Map16Tiles at $7EC800.
-///
-/// From ASM OW_TilePos_Calc ($049866), uses quadrant-based indexing:
-/// - Bits 0-3: X & 0x0F (column within 16-tile quadrant)
-/// - Bits 4-7: Y & 0x0F (row within 16-tile quadrant)
-/// - Bit 8: X & 0x10 (selects left/right half of 32-col screen)
-/// - Bit 9: Y & 0x10 (selects top/bottom half of 32-row screen)
-///
-/// Quadrant layout: TL(0x000-0x0FF), TR(0x100-0x1FF), BL(0x200-0x2FF), BR(0x300-0x3FF)
-/// Submaps add +0x400 offset.
-fn ow_l1_addr(col: u32, row: u32, submap: u8) -> u32 {
-    // X contribution: (X & 0x0F) | ((X & 0x10) << 4)  // puts X bit 4 at address bit 8
-    let x_part = (col & 0x0F) | ((col & 0x10) << 4);
-
-    // Y contribution: ((Y & 0x0F) << 4) | ((Y & 0x10) << 5)  // puts Y bit 4 at address bit 9
-    let y_part = ((row & 0x0F) << 4) | ((row & 0x10) << 5);
-
-    let idx = x_part + y_part;
-
-    // Submaps use the second half of the 0x800 byte buffer
-    let final_idx = if submap != 0 { idx + 0x400 } else { idx };
-
-    MAP16_TILES_LOW + final_idx
+/// Convert packed L1 source coordinates into the copied WRAM buffer.
+fn ow_l1_addr(col: u32, row: u32) -> u32 {
+    MAP16_TILES_LOW + (row * MAP16_SRC_COLS + col)
 }
 
-/// Layer 2 dimensions: 64 columns × 64 rows (full tilemap).
-/// Tiles stored in interleaved [tile_num][YXPCCCTT] format at $7F4000.
-/// Layout: 4 quadrants of 32×32 tiles each (TL, TR, BL, BR).
-/// The full tilemap is 64×64 tiles = 512×512 pixels to match L1's 512×512.
-const OW_L2_COLS: u32 = 64;
+/// Layer 2 atlas dimensions: 4 screens across × 2 screens down.
+const OW_L2_COLS: u32 = 128;
 
 fn ow_l2_addr(col: u32, row: u32) -> u32 {
-    // L2 is stored as 4 quadrants: 0=TL, 1=TR, 2=BL, 3=BR
-    let quadrant = ((row / 32) * 2) + (col / 32);
+    let quadrant = ((row / 32) * 4) + (col / 32);
     let sub_row = row % 32;
     let sub_col = col % 32;
     let quadrant_offset = quadrant * 32 * 32 * 2;
@@ -219,8 +191,13 @@ impl UiWorldEditor {
         r.upload_palette(&self.gl, &self.cpu.mem.cgram);
         r.upload_gfx(&self.gl, &self.cpu.mem.vram);
 
-        let l1 = build_l1_tiles(&mut self.cpu, self.submap);
-        let l2 = build_l2_tiles(&mut self.cpu);
+        let l1_scroll_x = i16::from_le_bytes(self.cpu.mem.load_u16(0x001A).to_le_bytes()) as i32;
+        let l1_scroll_y = i16::from_le_bytes(self.cpu.mem.load_u16(0x001C).to_le_bytes()) as i32;
+        let l2_scroll_x = i16::from_le_bytes(self.cpu.mem.load_u16(0x001E).to_le_bytes()) as i32;
+        let l2_scroll_y = i16::from_le_bytes(self.cpu.mem.load_u16(0x0020).to_le_bytes()) as i32;
+
+        let l1 = build_l1_tiles(&mut self.cpu, self.submap, l1_scroll_x, l1_scroll_y);
+        let l2 = build_l2_tiles(&mut self.cpu, l2_scroll_x, l2_scroll_y);
 
         // Debug: Log tile counts
         log::info!("Loaded submap {}: L1={} tiles, L2={} tiles", self.submap, l1.len(), l2.len());
@@ -294,7 +271,7 @@ impl UiWorldEditor {
         if let Some((x, y)) = self.selected_tile {
             ui.label(format!("Selected: ({x}, {y})"));
             // L1 tilemap stores u8 tile-type IDs (1 byte per tile)
-            let tile_id = self.cpu.mem.load_u8(ow_l1_addr(x, y, self.submap)) as u32;
+            let tile_id = self.cpu.mem.load_u8(ow_l1_addr(x, y)) as u32;
             ui.monospace(format!("Tile type: {tile_id} (0x{tile_id:02X})"));
             // Look up sub-tiles in OWL1CharData via Map16Pointers
             let ptr_base = 0x7E0FBE_u32;
@@ -310,7 +287,7 @@ impl UiWorldEditor {
                 ui.monospace(format!("  flip x={flip_x} y={flip_y}"));
             }
             // OWLayer1Translevel: level number stored at $7ED000 (u8 indexed, same layout as tilemap)
-            let xlevel_addr = 0x7ED000_u32 + (ow_l1_addr(x, y, self.submap) - MAP16_TILES_LOW);
+            let xlevel_addr = 0x7ED000_u32 + (ow_l1_addr(x, y) - MAP16_TILES_LOW);
             let xlevel = self.cpu.mem.load_u8(xlevel_addr) as u32;
             if xlevel != 0 {
                 ui.monospace(format!("  level 0x{xlevel:03X}"));
@@ -402,7 +379,7 @@ impl UiWorldEditor {
             if (0..MAP16_COLS as i32).contains(&tx) && (0..MAP16_ROWS as i32).contains(&ty) {
                 let x = tx as u32;
                 let y = ty as u32;
-                let tile_id = self.cpu.mem.load_u8(ow_l1_addr(x, y, self.submap));
+                let tile_id = self.cpu.mem.load_u8(ow_l1_addr(x, y));
                 let tile_rect =
                     Rect::from_min_size(origin + vec2(x as f32 * map16_sz, y as f32 * map16_sz), Vec2::splat(map16_sz));
                 painter.rect_stroke(tile_rect, Rounding::ZERO, Stroke::new(1.0, Color32::WHITE));
@@ -438,8 +415,8 @@ impl UiWorldEditor {
 /// where entry[tile_id] = 16-bit offset into OWL1CharData (bank $05D000).
 /// Each OWL1CharData block is 8 bytes = 4 u16 sub-tile attribute words for the
 /// four 8×8 pixels that make up a 16×16 Map16 block.
-fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
-    let mut tiles = Vec::with_capacity((MAP16_COLS * MAP16_ROWS) as usize * 4);
+fn build_l1_tiles(cpu: &mut Cpu, _submap: u8, scroll_x: i32, scroll_y: i32) -> Vec<Tile> {
+    let mut tiles = Vec::with_capacity((MAP16_SRC_COLS * MAP16_SRC_ROWS) as usize * 4);
 
     // Map16Pointers table in WRAM: 0x7E0FBE.
     // CODE_04DC09 sets Map16Pointers[tid] = offset from $05:0000 into OWL1CharData.
@@ -450,11 +427,9 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
     // Debug: Track unique tile types
     let mut unique_tiles = std::collections::HashSet::new();
 
-    // Only render 32 rows per submap
-    for row in 0..MAP16_ROWS {
-        for col in 0..MAP16_COLS {
-            // Read tile-type ID: u8 from the tile array at $7EC800 (1 byte per tile).
-            let addr = ow_l1_addr(col, row, submap);
+    for row in 0..MAP16_SRC_ROWS {
+        for col in 0..MAP16_SRC_COLS {
+            let addr = ow_l1_addr(col, row);
             let tile_id = cpu.mem.load_u8(addr) as u32;
 
             if tile_id != 0 {
@@ -466,13 +441,18 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
             let char_ptr = cpu.mem.load_u16(ptr_base + tile_id * 2) as u32;
             let gfx_addr = char_bank | char_ptr;
 
-            let px = col * 16;
-            let py = row * 16;
+            let px = (col * 16) as i32 - scroll_x;
+            let py = (row * 16) as i32 - scroll_y;
             // Overworld Map16 tiles appear to use column-major 8x8 ordering:
             // top-left, bottom-left, top-right, bottom-right.
             for (si, (ox, oy)) in [(0u32, 0u32), (0u32, 8u32), (8u32, 0u32), (8u32, 8u32)].iter().enumerate() {
+                let tx = px + *ox as i32;
+                let ty = py + *oy as i32;
+                if tx <= -8 || ty <= -8 || tx >= 512 || ty >= 512 {
+                    continue;
+                }
                 let sub_tile = cpu.mem.load_u16(gfx_addr + si as u32 * 2);
-                tiles.push(ow_tile(px + ox, py + oy, sub_tile));
+                tiles.push(ow_tile(tx.max(0) as u32, ty.max(0) as u32, sub_tile));
             }
         }
     }
@@ -481,11 +461,8 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
     tiles
 }
 
-/// Build draw list for Layer 2 (render 64×64 tiles for the overworld background).
-/// L2 uses quadrant layout: 4 sections of 32×32 tiles at $7F4000.
-/// The full tilemap is 64×64 tiles = 512×512 pixels to match L1's dimensions.
-fn build_l2_tiles(cpu: &mut Cpu) -> Vec<Tile> {
-    // L2 is 64×64 tiles = 512×512 pixels to match L1's 512×512 pixel area
+/// Build draw list for Layer 2 from the full 128×64 tile atlas.
+fn build_l2_tiles(cpu: &mut Cpu, scroll_x: i32, scroll_y: i32) -> Vec<Tile> {
     let l2_rows = VRAM_TILE_ROWS; // 64 rows
 
     let mut tiles = Vec::with_capacity((OW_L2_COLS * l2_rows) as usize);
@@ -500,10 +477,14 @@ fn build_l2_tiles(cpu: &mut Cpu) -> Vec<Tile> {
             let palette = (t1 >> 2) & 7;
             let flip_x = (t1 & 0x40) != 0;
             let flip_y = (t1 & 0x80) != 0;
+            let px = (col * 8) as i32 - scroll_x;
+            let py = (row * 8) as i32 - scroll_y;
+            if px <= -8 || py <= -8 || px >= 512 || py >= 512 {
+                continue;
+            }
             // Pack into format expected by ow_tile: [tile(10bits)|pal(3bits)|flip(2bits)|scale(8bits)]
             let t = tile_num | (palette << 10) | ((flip_x as u16) << 14) | ((flip_y as u16) << 15);
-            // L2 tiles are 8×8 pixels, render at (col*8, row*8)
-            tiles.push(ow_tile(col * 8, row * 8, t));
+            tiles.push(ow_tile(px.max(0) as u32, py.max(0) as u32, t));
         }
     }
     tiles

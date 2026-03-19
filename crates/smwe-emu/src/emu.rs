@@ -277,29 +277,69 @@ pub fn decompress_extram(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
 pub fn load_overworld(cpu: &mut Cpu<CheckedMem>, submap: u8) -> u64 {
     let now = std::time::Instant::now();
     cpu.emulation = false;
+    const OW_VIEW_X: [u16; 7] = [0x0000, 0xFFEF, 0xFFEF, 0xFFEF, 0x00F0, 0x00F0, 0x00F0];
+    const OW_VIEW_Y: [u16; 7] = [0x0000, 0xFFD8, 0x0080, 0x0128, 0xFFD8, 0x0080, 0x0128];
 
-    // CODE_04DC09 reads $0DD6 (PlayerTurnOW) and right-shifts by 2 to get the
-    // submap index, then looks up OWPlayerSubmap[$0DD6>>2].  So store submap*4.
-    cpu.mem.store(0x0DD6, submap.wrapping_mul(4));
-    // OWPlayerSubmap table at $1F11: each byte is the submap palette/gfx bank.
-    // Pre-fill with identity mapping so index N -> value N.
-    for i in 0u8..7 { cpu.mem.store(0x1F11 + i as u32, i); }
-    // CODE_05DBF2 reads $0DB3 (PlayerTurnLvl): 0 = main map, nonzero = submap.
-    cpu.mem.store(0x0DB3, if submap == 0 { 0x00 } else { 0x01 });
-    // Also store submap index where other routines expect it.
-    cpu.mem.store(0x0DB4, submap); // OWPlayerSubmap table offset
+    // The real game tracks the active player separately from each player's
+    // current submap. For editor previews, pin both players to the requested
+    // submap so overworld routines don't think they are on different maps.
+    cpu.mem.store(0x0DB3, 0x00); // PlayerTurnLvl = player 1
+    cpu.mem.store(0x0DD6, 0x00); // PlayerTurnOW = player 1 * 4
+    cpu.mem.store(0x1F11, submap); // OWPlayerSubmap[0]
+    cpu.mem.store(0x1F12, submap); // OWPlayerSubmap[1]
+    let idx = submap as usize;
+    let view_x = *OW_VIEW_X.get(idx).unwrap_or(&OW_VIEW_X[0]);
+    let view_y = *OW_VIEW_Y.get(idx).unwrap_or(&OW_VIEW_Y[0]);
+    cpu.mem.store_u16(0x001A, view_x); // Layer1XPos
+    cpu.mem.store_u16(0x001C, view_y); // Layer1YPos
+    cpu.mem.store_u16(0x001E, view_x); // Layer2XPos
+    cpu.mem.store_u16(0x0020, view_y); // Layer2YPos
+    cpu.mem.store_u16(0x1462, view_x); // NextLayer1XPos
+    cpu.mem.store_u16(0x1464, view_y); // NextLayer1YPos
+    cpu.mem.store_u16(0x1466, view_x); // NextLayer2XPos
+    cpu.mem.store_u16(0x1468, view_y); // NextLayer2YPos
     cpu.mem.store(0x141A, 1);
 
-    let routines: &[&str] = &[
-        "CODE_04DC09",           // Map16 pointers / OWL1TileData -> Map16TilesLow
-        "DecompressOverworldL2", // L2 tiles -> $7F4000
-        "CODE_05DBF2",           // OW L1 tilemap -> $7EC800
-        "UploadSpriteGFX",       // GFX -> VRAM
-        "CODE_00AD25",           // OW palette setup
-        "CODE_00922F",           // palette -> CGRAM
-    ];
+    cpu.ill = false;
+    cpu.s = 0x1FF;
+    cpu.pc = 0x2000;
+    cpu.pbr = 0x00;
+    cpu.dbr = 0x00;
+    cpu.trace = false;
 
-    let cy = run_routines(cpu, routines, 50_000_000);
+    let mut addr = 0x2000u32;
+    for symbol in ["CODE_04DC09", "DecompressOverworldL2", "UploadSpriteGFX"] {
+        cpu.mem.store(addr, 0x22); // JSL
+        cpu.mem.store_u24(
+            addr + 1,
+            cpu.mem.cart.resolve(symbol).unwrap_or_else(|| panic!("no symbol: {symbol}")),
+        );
+        addr += 4;
+    }
+    cpu.mem.store(addr, 0xA0); // LDY #$14
+    cpu.mem.store(addr + 1, 0x14);
+    addr += 2;
+    for symbol in ["PrepareGraphicsFile", "CODE_00AD25", "CODE_00922F"] {
+        cpu.mem.store(addr, 0x22); // JSL
+        cpu.mem.store_u24(
+            addr + 1,
+            cpu.mem.cart.resolve(symbol).unwrap_or_else(|| panic!("no symbol: {symbol}")),
+        );
+        addr += 4;
+    }
+
+    let end = addr as u16;
+    let mut cy = 0u64;
+    loop {
+        cy += cpu.dispatch() as u64;
+        if cpu.ill { log::warn!("illegal instruction at {:02X}:{:04X}", cpu.pbr, cpu.pc); break; }
+        if cpu.pbr == 0 && cpu.pc == end { break; }
+        if cy > 50_000_000 {
+            log::warn!("exceeded cycle limit");
+            break;
+        }
+        cpu.mem.process_dma();
+    }
     log::info!("load_overworld(submap={submap}) took {}µs", now.elapsed().as_micros());
     cy
 }
