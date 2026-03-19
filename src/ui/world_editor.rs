@@ -86,12 +86,18 @@ fn ow_l1_addr(col: u32, row: u32, submap: u8) -> u32 {
 
 /// Layer 2 dimensions: 64 columns × 64 rows (full tilemap).
 /// Tiles stored in interleaved [tile_num][YXPCCCTT] format at $7F4000.
-/// Index formula: ((Y * 64) + X) * 2 (row-major, 64 columns wide).
+/// Layout: 4 quadrants of 32×32 tiles each (TL, TR, BL, BR).
 /// The full tilemap is 64×64 tiles = 512×512 pixels to match L1's 512×512.
 const OW_L2_COLS: u32 = 64;
 
 fn ow_l2_addr(col: u32, row: u32) -> u32 {
-    OW_L2_BASE + ((row * OW_L2_COLS + col) * 2) as u32
+    // L2 is stored as 4 quadrants: 0=TL, 1=TR, 2=BL, 3=BR
+    let quadrant = ((row / 32) * 2) + (col / 32);
+    let sub_row = row % 32;
+    let sub_col = col % 32;
+    let quadrant_offset = quadrant * 32 * 32 * 2;
+    let idx = quadrant_offset + ((sub_row * 32 + sub_col) * 2);
+    OW_L2_BASE + idx as u32
 }
 
 // ── OpenGL renderer ───────────────────────────────────────────────────────────
@@ -481,7 +487,7 @@ fn build_l1_tiles(cpu: &mut Cpu, submap: u8) -> Vec<Tile> {
 }
 
 /// Build draw list for Layer 2 (render 64×64 tiles for the overworld background).
-/// L2 uses row-major addressing: ((Y * 64) + X) * 2 at $7F4000.
+/// L2 uses quadrant layout: 4 sections of 32×32 tiles at $7F4000.
 /// The full tilemap is 64×64 tiles = 512×512 pixels to match L1's dimensions.
 fn build_l2_tiles(cpu: &mut Cpu) -> Vec<Tile> {
     // L2 is 64×64 tiles = 512×512 pixels to match L1's 512×512 pixel area

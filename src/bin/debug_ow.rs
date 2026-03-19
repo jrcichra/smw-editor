@@ -25,6 +25,7 @@ fn main() {
 fn run_debug(rom_path: &std::path::Path, submap: u8, wireframe: bool, l1_y_offset: u8) {
     let raw = std::fs::read(rom_path).expect("Cannot read ROM");
     let rom_bytes = if raw.len() % 0x400 == 0x200 { raw[0x200..].to_vec() } else { raw };
+    let rom_bytes_for_gfx = rom_bytes.clone(); // Keep a copy for GFX loading
     let mut emu_rom = smwe_emu::rom::Rom::new(rom_bytes);
     emu_rom.load_symbols(include_str!("../../symbols/SMW_U.sym"));
     let mut cpu = smwe_emu::Cpu::new(smwe_emu::emu::CheckedMem::new(Arc::new(emu_rom)));
@@ -56,13 +57,34 @@ fn run_debug(rom_path: &std::path::Path, submap: u8, wireframe: bool, l1_y_offse
         }
     }
 
+    // Force all events to be completed so level icons appear
+    for i in 0x1F02u32..=0x1F60 {
+        cpu.mem.store_u8(i, 0xFF);
+    }
+
+    // Load overworld GFX files (1D and 1E) into VRAM
+    // These contain the L1 icons, paths, and level graphics
+    let gfx_result = load_overworld_gfx(&rom_bytes_for_gfx, &mut cpu);
+    if let Err(e) = gfx_result {
+        eprintln!("Warning: Could not load overworld GFX: {}", e);
+    }
+    println!("Missing tiles in range:");
+    for tile_id in 0x100..=0x200 {
+        let tile_base = tile_id * 32;
+        let has_data = cpu.mem.vram[tile_base..tile_base + 4].iter().any(|&b| b != 0);
+        if !has_data {
+            print!("${:03X} ", tile_id);
+        }
+    }
+    println!();
+
     let vram = &cpu.mem.vram;
     let cgram = &cpu.mem.cgram;
     let wram = &cpu.mem.wram;
 
-    // Debug: Check VRAM contents for bridge tiles (around $1D8-$1DF range)
-    println!("\n=== VRAM Debug (tiles $1D0-$1DF) ===");
-    for tile_id in 0x1D0..=0x1DF {
+    // Debug: Check VRAM contents for L1 tiles including $1D8-$1E0 range
+    println!("\n=== VRAM Debug (tiles $1D0-$1E0) ===");
+    for tile_id in 0x1D0..=0x1E0 {
         let tile_base = tile_id * 32;
         // Check if tile has non-zero data
         let has_data = vram[tile_base..tile_base + 32].iter().any(|&b| b != 0);
@@ -85,6 +107,8 @@ fn run_debug(rom_path: &std::path::Path, submap: u8, wireframe: bool, l1_y_offse
     let m16ptr_data_debug = &wram[(0x7E0FBE - 0x7E0000) as usize..];
 
     println!("L1 data first 16 bytes: {:02X?}", &l1_data_debug[..16]);
+    println!("L1 data bytes 256-271: {:02X?}", &l1_data_debug[256..272]);
+    println!("L1 data bytes 512-527: {:02X?}", &l1_data_debug[512..528]);
 
     for row in 0..10 {
         for col in 0..10 {
@@ -211,6 +235,31 @@ fn render_l1_proper(
             let snes_addr = char_bank | char_ptr;
             let rom_offset = (((snes_addr & 0x7F0000) >> 1) | (snes_addr & 0x7FFF)) as usize;
 
+            // Debug: Print tile 0x99 info
+            if tile_id == 0x99 {
+                eprintln!("Tile 0x99: ptr=${:04X}, snes=${:06X}, rom_ofs=${:06X}", char_ptr, snes_addr, rom_offset);
+            }
+
+            // Render 4 sub-tiles from OWL1CharData: word 0->TL, word 1->TR, word 2->BL, word 3->BR
+            // Layout in ROM: [TL][TR][BL][BR] = 8 bytes total
+            let sub_tiles = [
+                (rom_bytes.get(rom_offset + 0).copied().unwrap_or(0) as u16)
+                    | ((rom_bytes.get(rom_offset + 1).copied().unwrap_or(0) as u16) << 8),
+                (rom_bytes.get(rom_offset + 2).copied().unwrap_or(0) as u16)
+                    | ((rom_bytes.get(rom_offset + 3).copied().unwrap_or(0) as u16) << 8),
+                (rom_bytes.get(rom_offset + 4).copied().unwrap_or(0) as u16)
+                    | ((rom_bytes.get(rom_offset + 5).copied().unwrap_or(0) as u16) << 8),
+                (rom_bytes.get(rom_offset + 6).copied().unwrap_or(0) as u16)
+                    | ((rom_bytes.get(rom_offset + 7).copied().unwrap_or(0) as u16) << 8),
+            ];
+
+            if tile_id == 0x99 {
+                eprintln!(
+                    "  Sub-tiles: TL=${:04X} TR=${:04X} BL=${:04X} BR=${:04X}",
+                    sub_tiles[0], sub_tiles[1], sub_tiles[2], sub_tiles[3]
+                );
+            }
+
             // Position in output
             let px = col * 16;
             let py = row * 16 + l1_y_offset as u32;
@@ -231,6 +280,7 @@ fn render_l1_proper(
                 (rom_bytes.get(rom_offset + 6).copied().unwrap_or(0) as u16)
                     | ((rom_bytes.get(rom_offset + 7).copied().unwrap_or(0) as u16) << 8),
             ];
+
             let offsets = [(0u32, 0u32), (8u32, 0u32), (0u32, 8u32), (8u32, 8u32)];
             for (i, (ox, oy)) in offsets.iter().enumerate() {
                 let sub_tile = sub_tiles[i];
@@ -249,6 +299,117 @@ fn render_l1_proper(
             }
         }
     }
+}
+
+fn convert_3bpp_to_4bpp(data_3bpp: &[u8]) -> Vec<u8> {
+    // 3BPP: 24 bytes per tile (bitplanes 0-1 in bytes 0-15, bitplane 2 in bytes 16-23)
+    // 4BPP: 32 bytes per tile (bitplanes 0-1 in bytes 0-15, bitplanes 2-3 in bytes 16-31)
+    // bitplane 3 is all zeros for 3BPP source
+    let num_tiles = data_3bpp.len() / 24;
+    let mut data_4bpp = Vec::with_capacity(num_tiles * 32);
+
+    for tile_idx in 0..num_tiles {
+        let tile_offset_3bpp = tile_idx * 24;
+        let tile_offset_4bpp = tile_idx * 32;
+
+        // Copy bitplanes 0-1 (bytes 0-15)
+        for i in 0..16 {
+            data_4bpp.push(data_3bpp[tile_offset_3bpp + i]);
+        }
+
+        // Expand bitplane 2 into bitplanes 2-3 (bytes 16-31)
+        // In 4BPP, bytes are interleaved: [bp2_row0, bp3_row0, bp2_row1, bp3_row1, ...]
+        for row in 0..8 {
+            data_4bpp.push(data_3bpp[tile_offset_3bpp + 16 + row]); // bitplane 2
+            data_4bpp.push(0); // bitplane 3 (zeros)
+        }
+    }
+
+    data_4bpp
+}
+
+fn load_overworld_gfx(rom_bytes: &[u8], cpu: &mut smwe_emu::Cpu) -> Result<(), Box<dyn std::error::Error>> {
+    // GFX1D and GFX1E are 3BPP files containing overworld L1 graphics
+    // They need to be decompressed, converted to 4BPP, and loaded into VRAM
+
+    use smwe_rom::compression::lc_lz2;
+
+    // GFX1D: Overworld graphics file at PC address (LoROM $0ADC88)
+    // PC = ((SNES & 0x7F0000) >> 1) | (SNES & 0x7FFF)
+    let gfx1d_pc = ((0x0ADC88 & 0x7F0000) >> 1) | (0x0ADC88 & 0x7FFF);
+    let gfx1d_size = 2551;
+
+    // GFX1E: Overworld graphics file at PC address (LoROM $0AE67F)
+    let gfx1e_pc = ((0x0AE67F & 0x7F0000) >> 1) | (0x0AE67F & 0x7FFF);
+    let gfx1e_size = 1988;
+
+    // Decompress GFX1D, convert to 4BPP, and load into VRAM at $2400 (tile $120)
+    // This provides tiles $120-$19F to fill gaps like $122
+    // GFX1D: Overworld aesthetic (trees, rocks, Star Road moon)
+    match lc_lz2::decompress(&rom_bytes[gfx1d_pc..gfx1d_pc + gfx1d_size], false) {
+        Ok(decompressed) => {
+            let data_4bpp = convert_3bpp_to_4bpp(&decompressed);
+            let vram_base = 0x2400; // VRAM address $2400 = tile $120
+            for (i, byte) in data_4bpp.iter().enumerate() {
+                if vram_base + i < cpu.mem.vram.len() {
+                    cpu.mem.vram[vram_base + i] = *byte;
+                }
+            }
+            eprintln!("Loaded GFX1D: {} tiles into VRAM at ${:04X} (tile ${:03X})",
+                     data_4bpp.len() / 32, vram_base, vram_base / 32);
+        }
+        Err(e) => eprintln!("Failed to decompress GFX1D: {:?}", e),
+    }
+
+    // Decompress GFX1E, convert to 4BPP, and load into VRAM at $4C00 (tile $260)
+    // This provides tiles $260-$2DF to cover $279 etc.
+    // GFX1E: Overworld level tiles (castles, Yoshi's house, signs)
+    match lc_lz2::decompress(&rom_bytes[gfx1e_pc..gfx1e_pc + gfx1e_size], false) {
+        Ok(decompressed) => {
+            let data_4bpp = convert_3bpp_to_4bpp(&decompressed);
+            let vram_base = 0x4C00; // VRAM address $4C00 = tile $260
+            for (i, byte) in data_4bpp.iter().enumerate() {
+                if vram_base + i < cpu.mem.vram.len() {
+                    cpu.mem.vram[vram_base + i] = *byte;
+                }
+            }
+            eprintln!("Loaded GFX1E: {} tiles into VRAM at ${:04X} (tile ${:03X})",
+                     data_4bpp.len() / 32, vram_base, vram_base / 32);
+        }
+        Err(e) => eprintln!("Failed to decompress GFX1E: {:?}", e),
+    }
+            eprintln!(
+                "Loaded GFX1D: {} tiles into VRAM at ${:04X} (tile ${:03X})",
+                data_4bpp.len() / 32,
+                vram_base,
+                vram_base / 32
+            );
+        }
+        Err(e) => eprintln!("Failed to decompress GFX1D: {:?}", e),
+    }
+
+    // Decompress GFX1E, convert to 4BPP, and load into VRAM at $2C00 (tile $160)
+    // GFX1E: Overworld level tiles (castles, Yoshi's house, signs)
+    match lc_lz2::decompress(&rom_bytes[gfx1e_pc..gfx1e_pc + gfx1e_size], false) {
+        Ok(decompressed) => {
+            let data_4bpp = convert_3bpp_to_4bpp(&decompressed);
+            let vram_base = 0x2C00; // VRAM address $2C00 = tile $160
+            for (i, byte) in data_4bpp.iter().enumerate() {
+                if vram_base + i < cpu.mem.vram.len() {
+                    cpu.mem.vram[vram_base + i] = *byte;
+                }
+            }
+            eprintln!(
+                "Loaded GFX1E: {} tiles into VRAM at ${:04X} (tile ${:03X})",
+                data_4bpp.len() / 32,
+                vram_base,
+                vram_base / 32
+            );
+        }
+        Err(e) => eprintln!("Failed to decompress GFX1E: {:?}", e),
+    }
+
+    Ok(())
 }
 
 fn ow_l1_addr(col: u32, row: u32) -> usize {
