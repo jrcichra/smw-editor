@@ -1,136 +1,197 @@
-//! World Map Editor UI
+//! World Map (Overworld) Editor UI.
 //!
-//! Renders the SMW overworld layer-2 tilemap using the four overworld GFX files
-//! (GFX 1C, 1D, 08, 1E) and the correct submap palette obtained via the ROM's
-//! two-level indirection table ($00AD1E → $00ABDF → $00B3D8).
+//! The overworld tilemap is stored in WRAM at $7EC800 (Map16TilesLow) after the
+//! game's init routines run. `CODE_04DC09` copies `OWL1TileData` with `MVN`,
+//! so the 0x800-byte buffer stays in its packed ROM layout: 64 columns × 32 rows
+//! of u8 Map16 tile IDs in row-major order. The game selects each submap by
+//! changing the camera position, not by swapping to a separate L1 buffer.
 //!
-//! # CHR mapping
-//! Each BgTile carries a 10-bit CHR index.  The four OW GFX files each hold
-//! 128 tiles and occupy contiguous VRAM slots:
-//!
-//!   slot = chr >> 7        (0-3)
-//!   offset = chr & 0x7F    (0-127)
-//!
-//!   slot 0 → GFX 0x1C  chr 0x000-0x07F
-//!   slot 1 → GFX 0x1D  chr 0x080-0x0FF
-//!   slot 2 → GFX 0x08  chr 0x100-0x17F
-//!   slot 3 → GFX 0x1E  chr 0x180-0x1FF
-//!
-//! # Palette mapping
-//! OW layer-2 tiles use sub-palettes 4-7.  CGRAM row = palette field (4-7).
-//! SpecificOverworldColorPalette maps layer2 to CGRAM rows 4-7, cols 1-7.
-//! So cgram_index = palette * 16 + color_index.
+//! Layer 2 ($7F4000 / OWLayer2Tilemap): a 64×64 8×8-tile map stored as four
+//! 32×32 screens (2 across × 2 down). Each entry is [tile_num_u8, YXPCCCTT_u8].
 
-use std::sync::Arc;
-
-use egui::*;
-use smwe_render::color::Abgr1555;
-use smwe_rom::{
-    graphics::palette::{ColorPalette, OverworldState},
-    overworld::{BgTile, OwTilemap, OW_GFX_FILES, OW_MAIN_COLS, OW_SUBMAP_COLS, OW_TILEMAP_ROWS, OW_SUBMAP_COUNT},
-    SmwRom,
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
 };
+
+use egui::{
+    vec2, CentralPanel, Color32, Frame, PaintCallback, Rect, Rounding, Sense, SidePanel, Stroke, Ui, Vec2, WidgetText,
+};
+use egui_glow::CallbackFn;
+use smwe_emu::{emu::CheckedMem, rom::Rom as EmuRom, Cpu};
+use smwe_render::{
+    gfx_buffers::GfxBuffers,
+    tile_renderer::{Tile, TileRenderer, TileUniforms},
+};
+use smwe_rom::{overworld::SUBMAP_NAMES, SmwRom};
 
 use crate::ui::tool::DockableEditorTool;
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+// ── Layout constants ──────────────────────────────────────────────────────────
 
+/// Game pixels per Map16 block (L1 tiles are 16×16 game pixels each).
+const MAP16_PX: f32 = 16.0;
+/// Game pixels per 8×8 BG tile (L2 tiles).
 const TILE_PX: f32 = 8.0;
 
-const SUBMAP_NAMES: &[&str] = &[
-    "Main Map",
-    "Yoshi's Island",
-    "Vanilla Dome",
-    "Forest of Illusion",
-    "Valley of Bowser",
-    "Special",
-    "Star World",
-];
+/// Visible viewport size used by the editor: 32×32 Map16 blocks = 512×512 pixels.
+const MAP16_COLS: u32 = 32;
+const MAP16_ROWS: u32 = 32;
+const SUBMAP_VIEW_X: i32 = 16;
+const SUBMAP_VIEW_Y: i32 = 40;
+const SUBMAP_VIEW_W: u32 = 224;
+const SUBMAP_VIEW_H: u32 = 168;
 
-// ── Struct ───────────────────────────────────────────────────────────────────
+/// Full BG tilemap size after the game composes the active overworld into VRAM.
+const VRAM_TILE_ROWS: u32 = 64;
+const VRAM_L1_TILEMAP_BASE: usize = 0x2000 * 2;
+const VRAM_L2_TILEMAP_BASE: usize = 0x3000 * 2;
+
+// ── SNES overworld tile-index helpers ─────────────────────────────────────────
+
+const OW_L2_COLS: u32 = 64;
+
+fn tilemap_vram_addr(base: usize, col: u32, row: u32) -> usize {
+    let quadrant = ((row / 32) * 2) + (col / 32);
+    let sub_row = row % 32;
+    let sub_col = col % 32;
+    let quadrant_offset = quadrant * 32 * 32 * 2;
+    let idx = quadrant_offset + ((sub_row * 32 + sub_col) * 2);
+    base + idx as usize
+}
+
+// ── OpenGL renderer ───────────────────────────────────────────────────────────
+
+#[derive(Debug)]
+struct OverworldRenderer {
+    layer1: TileRenderer,
+    layer2: TileRenderer,
+    gfx_bufs: GfxBuffers,
+    offset: Vec2,
+    destroyed: bool,
+}
+
+impl OverworldRenderer {
+    fn new(gl: &glow::Context) -> Self {
+        Self {
+            layer1: TileRenderer::new(gl),
+            layer2: TileRenderer::new(gl),
+            gfx_bufs: GfxBuffers::new(gl),
+            offset: Vec2::ZERO,
+            destroyed: false,
+        }
+    }
+
+    fn destroy(&mut self, gl: &glow::Context) {
+        if self.destroyed {
+            return;
+        }
+        self.gfx_bufs.destroy(gl);
+        self.layer1.destroy(gl);
+        self.layer2.destroy(gl);
+        self.destroyed = true;
+    }
+
+    fn upload_gfx(&self, gl: &glow::Context, data: &[u8]) {
+        if !self.destroyed {
+            self.gfx_bufs.upload_vram(gl, data);
+        }
+    }
+
+    fn upload_palette(&self, gl: &glow::Context, data: &[u8]) {
+        if !self.destroyed {
+            self.gfx_bufs.upload_palette(gl, data);
+        }
+    }
+
+    fn set_tiles(&mut self, gl: &glow::Context, l1: Vec<Tile>, l2: Vec<Tile>) {
+        if !self.destroyed {
+            self.layer1.set_tiles(gl, l1);
+            self.layer2.set_tiles(gl, l2);
+        }
+    }
+
+    fn paint(&self, gl: &glow::Context, screen_size: Vec2, zoom: f32, offset: Vec2, draw_l1: bool, draw_l2: bool) {
+        if self.destroyed {
+            return;
+        }
+        let uniforms = TileUniforms { gfx_bufs: self.gfx_bufs, screen_size, offset, zoom };
+        if draw_l2 {
+            self.layer2.paint(gl, &uniforms);
+        }
+        if draw_l1 {
+            self.layer1.paint(gl, &uniforms);
+        }
+    }
+}
+
+// ── Editor ────────────────────────────────────────────────────────────────────
 
 pub struct UiWorldEditor {
+    gl: Arc<glow::Context>,
+    #[allow(dead_code)]
     rom: Arc<SmwRom>,
+    cpu: Cpu,
+    renderer: Arc<Mutex<OverworldRenderer>>,
 
-    zoom: f32,
+    submap: u8,
+
     offset: Vec2,
-    submap: usize,
+    zoom: f32,
     show_grid: bool,
-
-    selected_tile: Option<(usize, usize)>,
-    paint_tile: Option<u16>,
-    paint_palette: u8,
-
-    /// Local editable copy of layer-2 tilemaps (one per submap).
-    local_layer2: Vec<OwTilemap>,
-    edit_count: usize,
-
-    map_texture: Option<TextureHandle>,
-    map_texture_sub: usize,
-    sheet_texture: Option<TextureHandle>,
-    sheet_texture_sub: usize,
+    show_layer1: bool,
+    show_layer2: bool,
+    selected_tile: Option<(u32, u32)>,
 }
 
 impl UiWorldEditor {
-    pub fn new(rom: Arc<SmwRom>) -> Self {
-        let local_layer2: Vec<OwTilemap> = (0..OW_SUBMAP_COUNT)
-            .map(|sm| rom.overworld.layer2.get(sm).cloned().unwrap_or_default())
-            .collect();
+    pub fn new(gl: Arc<glow::Context>, rom: Arc<SmwRom>, rom_path: PathBuf) -> Self {
+        let renderer = Arc::new(Mutex::new(OverworldRenderer::new(&gl)));
 
-        Self {
+        let raw = std::fs::read(&rom_path).expect("cannot read ROM for emulator");
+        let rom_bytes = if raw.len() % 0x400 == 0x200 { raw[0x200..].to_vec() } else { raw };
+        let mut emu_rom = EmuRom::new(rom_bytes);
+        emu_rom.load_symbols(include_str!("../../symbols/SMW_U.sym"));
+        let cpu = Cpu::new(CheckedMem::new(Arc::new(emu_rom)));
+
+        let mut editor = Self {
+            gl,
             rom,
-            zoom: 3.0,
-            offset: Vec2::ZERO,
+            cpu,
+            renderer,
             submap: 0,
-            show_grid: true,
+            offset: Vec2::ZERO,
+            zoom: 2.0,
+            show_grid: false,
+            show_layer1: true,
+            show_layer2: true,
             selected_tile: None,
-            paint_tile: None,
-            paint_palette: 4,
-            local_layer2,
-            edit_count: 0,
-            map_texture: None,
-            map_texture_sub: usize::MAX,
-            sheet_texture: None,
-            sheet_texture_sub: usize::MAX,
-        }
+        };
+        editor.load_submap();
+        editor
     }
 
-    fn invalidate_map(&mut self) {
-        self.map_texture = None;
-        self.map_texture_sub = usize::MAX;
-    }
+    fn load_submap(&mut self) {
+        activate_all_overworld_events(&mut self.cpu);
+        smwe_emu::emu::load_overworld(&mut self.cpu, self.submap);
 
-    /// Returns the number of columns for the current submap.
-    fn current_cols(&self) -> usize {
-        if self.submap == 0 { OW_MAIN_COLS } else { OW_SUBMAP_COLS }
-    }
+        let mut r = self.renderer.lock().expect("Cannot lock overworld renderer");
+        r.upload_palette(&self.gl, &self.cpu.mem.cgram);
+        r.upload_gfx(&self.gl, &self.cpu.mem.vram);
 
-    fn ensure_map_texture(&mut self, ctx: &Context) {
-        if self.map_texture.is_some() && self.map_texture_sub == self.submap {
-            return;
-        }
-        if let Some(img) = render_ow_map(&self.rom, &self.local_layer2, self.submap) {
-            self.map_texture = Some(ctx.load_texture(
-                format!("ow_map_{}", self.submap),
-                img,
-                TextureOptions::NEAREST,
-            ));
-        }
-        self.map_texture_sub = self.submap;
-    }
+        let l2_scroll_x = i16::from_le_bytes(self.cpu.mem.load_u16(0x001E).to_le_bytes()) as i32;
+        let l2_scroll_y = i16::from_le_bytes(self.cpu.mem.load_u16(0x0020).to_le_bytes()) as i32;
 
-    fn ensure_sheet_texture(&mut self, ctx: &Context) {
-        if self.sheet_texture.is_some() && self.sheet_texture_sub == self.submap {
-            return;
-        }
-        if let Some(img) = render_tile_sheet(&self.rom, self.submap) {
-            self.sheet_texture = Some(ctx.load_texture(
-                format!("ow_sheet_{}", self.submap),
-                img,
-                TextureOptions::NEAREST,
-            ));
-        }
-        self.sheet_texture_sub = self.submap;
+        let l1 = build_bg_tiles(&self.cpu.mem.vram, VRAM_L1_TILEMAP_BASE, self.submap, l2_scroll_x, l2_scroll_y);
+        let l2 = build_bg_tiles(&self.cpu.mem.vram, VRAM_L2_TILEMAP_BASE, self.submap, l2_scroll_x, l2_scroll_y);
+
+        // Debug: Log tile counts
+        log::info!("Loaded submap {}: L1={} tiles, L2={} tiles", self.submap, l1.len(), l2.len());
+
+        r.set_tiles(&self.gl, l1, l2);
+
+        self.offset = Vec2::ZERO;
+        self.selected_tile = None;
     }
 }
 
@@ -140,505 +201,231 @@ impl DockableEditorTool for UiWorldEditor {
     }
 
     fn update(&mut self, ui: &mut Ui) {
-        self.ensure_map_texture(ui.ctx());
-        self.ensure_sheet_texture(ui.ctx());
+        SidePanel::left("world_editor.left_panel").resizable(false).show_inside(ui, |ui| self.left_panel(ui));
+        CentralPanel::default().frame(Frame::none().inner_margin(0.)).show_inside(ui, |ui| self.central_panel(ui));
+    }
 
-        SidePanel::left("world_editor.left")
-            .resizable(true)
-            .default_width(210.0)
-            .show_inside(ui, |ui| self.left_panel(ui));
-
-        SidePanel::right("world_editor.right")
-            .resizable(true)
-            .default_width(195.0)
-            .show_inside(ui, |ui| self.right_panel(ui));
-
-        CentralPanel::default()
-            .frame(Frame::none())
-            .show_inside(ui, |ui| self.canvas(ui));
+    fn on_closed(&mut self) {
+        self.renderer.lock().expect("Cannot lock overworld renderer").destroy(&self.gl);
     }
 }
 
+// ── UI ────────────────────────────────────────────────────────────────────────
+
 impl UiWorldEditor {
-    // ── Left panel ────────────────────────────────────────────────────────────
-
     fn left_panel(&mut self, ui: &mut Ui) {
-        ScrollArea::vertical().show(ui, |ui| {
-            ui.add_space(6.0);
-            ui.heading("🗺  World Map Editor");
-            ui.separator();
+        ui.heading("Overworld");
+        ui.add_space(4.0);
 
-            ui.label(RichText::new("Submap").strong());
-            let mut submap_changed = false;
-            for (i, name) in SUBMAP_NAMES.iter().enumerate() {
-                if ui.selectable_label(self.submap == i, *name).clicked() && self.submap != i {
-                    self.submap = i;
-                    self.offset = Vec2::ZERO;
-                    self.selected_tile = None;
-                    submap_changed = true;
-                }
-            }
-            if submap_changed {
-                self.invalidate_map();
-            }
-
-            ui.separator();
-            ui.label(RichText::new("View").strong());
-            ui.add(Slider::new(&mut self.zoom, 1.0..=8.0).step_by(0.5).text("Zoom"));
-            ui.checkbox(&mut self.show_grid, "Tile grid");
-            if ui.button("Reset view").clicked() {
-                self.zoom = 3.0;
-                self.offset = Vec2::ZERO;
-            }
-
-            ui.separator();
-            ui.label(RichText::new("Paint").strong());
-            match self.paint_tile {
-                Some(t) => { ui.label(format!("Tile  CHR #{t:#05x}")); }
-                None    => { ui.label(RichText::new("← Pick from tile sheet").color(Color32::GRAY).italics()); }
-            }
-            ui.horizontal(|ui| {
-                ui.label("Palette:");
-                for p in 4u8..8 {
-                    if ui.selectable_label(self.paint_palette == p, format!("{p}")).clicked() {
-                        self.paint_palette = p;
+        // Submap selector
+        ui.horizontal(|ui| {
+            ui.label("Submap");
+            let prev = self.submap;
+            egui::ComboBox::from_id_source("world_editor.submap")
+                .selected_text(SUBMAP_NAMES.get(self.submap as usize).copied().unwrap_or("Submap"))
+                .show_ui(ui, |ui| {
+                    for (i, name) in SUBMAP_NAMES.iter().enumerate() {
+                        ui.selectable_value(&mut self.submap, i as u8, *name);
                     }
-                }
-            });
-            ui.label(RichText::new("Pick tile → click map to paint\nRight-click to deselect").small().color(Color32::GRAY));
-
-            if self.edit_count > 0 {
-                ui.add_space(4.0);
-                ui.label(RichText::new(format!("⚠ {} unsaved edit(s)", self.edit_count))
-                    .color(Color32::from_rgb(255, 200, 60)));
+                });
+            if self.submap != prev {
+                self.load_submap();
             }
-
-            ui.separator();
-            ui.label(RichText::new("Selected tile").strong());
-            match self.selected_tile {
-                Some((col, row)) => {
-                    ui.label(format!("Position: ({col}, {row})"));
-                    if let Some(tm) = self.local_layer2.get(self.submap) {
-                        let t = tm.get(col, row);
-                        ui.label(format!("CHR  #{:03X}", t.tile_index()));
-                        ui.label(format!("Pal  {}",      t.palette()));
-                        ui.label(format!("Flip X={}  Y={}", t.flip_x() as u8, t.flip_y() as u8));
-                    }
-                }
-                None => { ui.label(RichText::new("None").color(Color32::GRAY).italics()); }
-            }
-
-            ui.separator();
-            if ui.button(RichText::new("💾  Save ROM…").color(Color32::from_rgb(80, 210, 80))).clicked() {
-                std::env::remove_var("DBUS_SESSION_BUS_ADDRESS");
-                if let Some(path) = rfd::FileDialog::new()
-                    .set_title("Save ROM")
-                    .add_filter("SNES ROM", &["smc", "sfc"])
-                    .save_file()
-                {
-                    match self.save_rom_to(&path) {
-                        Ok(())  => { self.edit_count = 0; log::info!("Saved ROM to {}", path.display()); }
-                        Err(e)  => log::error!("Save failed: {e}"),
-                    }
-                }
-            }
-
-            ui.separator();
-            ui.label(RichText::new("Stats").strong());
-            ui.label(format!("GFX files: {}", self.rom.gfx.files.len()));
-            ui.label(format!("Levels:    {}", self.rom.levels.len()));
-
-            let cols = self.current_cols();
-            ui.label(format!("Map size:  {}×{}", cols, OW_TILEMAP_ROWS));
         });
-    }
+        if ui.button("Reload Submap").clicked() {
+            self.load_submap();
+        }
 
-    fn save_rom_to(&self, path: &std::path::Path) -> anyhow::Result<()> {
-        use std::io::Write;
-        let bytes = self.rom.disassembly.rom.0.to_vec();
-        log::warn!("Overworld save not implemented – LC_RLE2 recompression needed");
-        let mut f = std::fs::File::create(path)?;
-        f.write_all(&bytes)?;
-        Ok(())
-    }
-
-    // ── Right panel: tile-sheet picker ───────────────────────────────────────
-
-    fn right_panel(&mut self, ui: &mut Ui) {
-        ui.add_space(6.0);
-        ui.label(RichText::new("Tile Sheet").strong());
-        ui.label(RichText::new(format!(
-            "GFX {:02X},{:02X},{:02X},{:02X}  (3bpp)",
-            OW_GFX_FILES[0], OW_GFX_FILES[1], OW_GFX_FILES[2], OW_GFX_FILES[3]
-        )).small().color(Color32::GRAY));
         ui.separator();
 
-        if let Some(tex) = self.sheet_texture.clone() {
-            let tex_size   = tex.size_vec2();
-            let avail_w    = ui.available_width().min(180.0);
-            let scale      = avail_w / tex_size.x;
-            let disp_size  = tex_size * scale;
-            let sheet_cols = 16usize;
-            let cell_px    = disp_size.x / sheet_cols as f32;
+        // Zoom
+        ui.add(egui::Slider::new(&mut self.zoom, 0.5..=8.0).step_by(0.25).text("Zoom"));
+        if ui.button("Reset View").clicked() {
+            self.offset = Vec2::ZERO;
+            self.zoom = 2.0;
+        }
 
-            let (resp, painter) = ui.allocate_painter(disp_size, Sense::click());
-            painter.image(tex.id(), resp.rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+        ui.separator();
 
-            // Highlight selected tile
-            if let Some(sel) = self.paint_tile {
-                let sc = (sel as usize) % sheet_cols;
-                let sr = (sel as usize) / sheet_cols;
-                painter.rect_stroke(
-                    Rect::from_min_size(resp.rect.min + vec2(sc as f32 * cell_px, sr as f32 * cell_px), Vec2::splat(cell_px)),
-                    Rounding::ZERO,
-                    Stroke::new(1.5, Color32::from_rgb(255, 220, 0)),
-                );
-            }
+        ui.checkbox(&mut self.show_layer1, "Show Layer 1");
+        ui.checkbox(&mut self.show_layer2, "Show Layer 2");
+        ui.checkbox(&mut self.show_grid, "Show Grid");
 
-            // Hover highlight + tooltip
-            if let Some(pos) = resp.hover_pos() {
-                let rel = pos - resp.rect.min;
-                let sc  = (rel.x / cell_px) as usize;
-                let sr  = (rel.y / cell_px) as usize;
-                painter.rect_stroke(
-                    Rect::from_min_size(resp.rect.min + vec2(sc as f32 * cell_px, sr as f32 * cell_px), Vec2::splat(cell_px)),
-                    Rounding::ZERO,
-                    Stroke::new(1.0, Color32::from_white_alpha(100)),
-                );
-                let idx = sr * sheet_cols + sc;
-                painter.text(
-                    resp.rect.left_bottom() + vec2(2.0, -12.0),
-                    Align2::LEFT_BOTTOM,
-                    format!("CHR #{idx:#05x}"),
-                    FontId::monospace(9.0),
-                    Color32::from_white_alpha(220),
-                );
-            }
+        ui.separator();
 
-            // Click: choose paint tile
-            if resp.clicked() {
-                if let Some(pos) = resp.interact_pointer_pos() {
-                    let rel = pos - resp.rect.min;
-                    let sc  = (rel.x / cell_px) as usize;
-                    let sr  = (rel.y / cell_px) as usize;
-                    let idx = sr * sheet_cols + sc;
-                    let total = OW_GFX_FILES.len() * 128; // 512
-                    if idx < total {
-                        self.paint_tile = Some(idx as u16);
-                    }
-                }
+        // Selected tile info
+        if let Some((x, y)) = self.selected_tile {
+            ui.label(format!("Selected: ({x}, {y})"));
+            let addr = tilemap_vram_addr(VRAM_L1_TILEMAP_BASE, x as u32 * 2, y as u32 * 2);
+            let sub0 = u16::from_le_bytes([self.cpu.mem.vram[addr], self.cpu.mem.vram[addr + 1]]);
+            let tile_num = (sub0 & 0x3FF) as u32;
+            let pal = ((sub0 >> 10) & 0x7) as u32;
+            let flip_x = (sub0 & 0x4000) != 0;
+            let flip_y = (sub0 & 0x8000) != 0;
+            ui.monospace(format!("  TL vram #{tile_num:03X}  pal {pal}"));
+            if flip_x || flip_y {
+                ui.monospace(format!("  flip x={flip_x} y={flip_y}"));
             }
         } else {
-            ui.label(RichText::new("No GFX data.").color(Color32::GRAY).italics());
+            ui.label("Selected: (none)");
         }
+
+        ui.add_space(ui.available_height() - 40.0);
+        ui.weak("Drag/MMB: pan   Wheel: zoom");
+        ui.weak("Click: select tile");
     }
 
-    // ── Canvas ────────────────────────────────────────────────────────────────
+    fn central_panel(&mut self, ui: &mut Ui) {
+        let available = vec2(ui.available_width(), ui.available_height());
+        let (view_rect, resp) = ui.allocate_exact_size(available, Sense::click_and_drag());
+        let painter = ui.painter_at(view_rect);
 
-    fn canvas(&mut self, ui: &mut Ui) {
-        let cols      = self.current_cols();
-        let map_w_px  = cols as f32 * TILE_PX;
-        let map_h_px  = OW_TILEMAP_ROWS as f32 * TILE_PX;
-
-        let (resp, painter) = ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
-
-        // Pan
-        if resp.dragged_by(PointerButton::Middle) || (resp.dragged() && ui.input(|i| i.modifiers.alt)) {
+        // ── Input ────────────────────────────────────────────────────────────
+        let is_pan = resp.dragged_by(egui::PointerButton::Middle) || resp.dragged_by(egui::PointerButton::Primary);
+        if is_pan {
             self.offset += resp.drag_delta() / self.zoom;
         }
 
-        // Scroll-to-zoom
-        if resp.hovered() {
-            let scroll = ui.input(|i| i.raw_scroll_delta.y);
-            if scroll != 0.0 {
-                let old = self.zoom;
-                self.zoom = (self.zoom * (1.0 + scroll * 0.0015)).clamp(0.5, 12.0);
-                if let Some(pos) = resp.hover_pos() {
-                    let tl  = resp.rect.min + self.offset * old;
-                    let rel = pos - tl;
-                    self.offset += rel / old - rel / self.zoom;
+        let scroll = ui.input(|i| i.raw_scroll_delta.y);
+        if scroll != 0.0 && resp.hovered() {
+            let factor = 1.0 + scroll * 0.001;
+            self.zoom = (self.zoom * factor).clamp(0.25, 16.0);
+        }
+
+        // ── Background ───────────────────────────────────────────────────────
+        painter.rect_filled(view_rect, Rounding::ZERO, Color32::from_rgb(16, 16, 20));
+
+        let z = self.zoom;
+        // L1 Map16 blocks are 16×16 game pixels.  The canvas border and all
+        // hover/grid/selection overlays use map16_sz so they align with L1.
+        let map16_sz = MAP16_PX * z;
+        let canvas_w = MAP16_COLS as f32 * map16_sz; // 32 * 16 = 512 game px
+        let canvas_h = MAP16_ROWS as f32 * map16_sz; // 32 * 16 = 512 game px
+        let origin = view_rect.min + self.offset * z;
+        let ow_rect = Rect::from_min_size(origin, vec2(canvas_w, canvas_h));
+
+        // ── GL render ────────────────────────────────────────────────────────
+        {
+            let renderer = Arc::clone(&self.renderer);
+            let draw_l1 = self.show_layer1;
+            let draw_l2 = self.show_layer2;
+            let ppp = ui.ctx().pixels_per_point();
+            let screen_sz = view_rect.size() * ppp;
+            // gl_offset: how many game pixels the top-left of the viewport is
+            // offset from the canvas origin (passed directly to the shader).
+            let gl_offset = -(self.offset + view_rect.min.to_vec2() / z);
+            let gl_zoom = z * ppp;
+
+            ui.painter().add(PaintCallback {
+                rect: view_rect,
+                callback: Arc::new(CallbackFn::new(move |_info, painter| {
+                    let mut r = renderer.lock().expect("Cannot lock overworld renderer");
+                    r.paint(painter.gl(), screen_sz, gl_zoom, gl_offset, draw_l1, draw_l2);
+                })),
+            });
+        }
+
+        // ── Border around canvas ──────────────────────────────────────────────
+        painter.rect_stroke(ow_rect, Rounding::ZERO, Stroke::new(2.0, Color32::from_white_alpha(140)));
+
+        // ── Grid (Map16 block grid, aligned to L1) ───────────────────────────
+        if self.show_grid || ui.input(|i| i.modifiers.shift_only()) {
+            let stroke = Stroke::new(0.5, Color32::from_white_alpha(25));
+            let start_col = ((view_rect.min.x - origin.x) / map16_sz).floor() as i32;
+            let end_col = ((view_rect.max.x - origin.x) / map16_sz).ceil() as i32;
+            for c in start_col..=end_col {
+                let px = origin.x + c as f32 * map16_sz;
+                painter.vline(px, view_rect.y_range(), stroke);
+            }
+            let start_row = ((view_rect.min.y - origin.y) / map16_sz).floor() as i32;
+            let end_row = ((view_rect.max.y - origin.y) / map16_sz).ceil() as i32;
+            for r in start_row..=end_row {
+                let py = origin.y + r as f32 * map16_sz;
+                painter.hline(view_rect.x_range(), py, stroke);
+            }
+        }
+
+        // ── Hover / click (Map16 block granularity) ───────────────────────────
+        if let Some(cursor) = resp.hover_pos() {
+            let rel = (cursor - origin) / map16_sz;
+            let tx = rel.x.floor() as i32;
+            let ty = rel.y.floor() as i32;
+            if (0..MAP16_COLS as i32).contains(&tx) && (0..MAP16_ROWS as i32).contains(&ty) {
+                let x = tx as u32;
+                let y = ty as u32;
+                let addr = tilemap_vram_addr(VRAM_L1_TILEMAP_BASE, x * 2, y * 2);
+                let tile_id = u16::from_le_bytes([self.cpu.mem.vram[addr], self.cpu.mem.vram[addr + 1]]) & 0x03FF;
+                let tile_rect =
+                    Rect::from_min_size(origin + vec2(x as f32 * map16_sz, y as f32 * map16_sz), Vec2::splat(map16_sz));
+                painter.rect_stroke(tile_rect, Rounding::ZERO, Stroke::new(1.0, Color32::WHITE));
+
+                if resp.clicked_by(egui::PointerButton::Primary) {
+                    self.selected_tile = Some((x, y));
                 }
+
+                painter.text(
+                    view_rect.right_bottom() - vec2(6.0, 6.0),
+                    egui::Align2::RIGHT_BOTTOM,
+                    format!("({tx},{ty})  L1={tile_id:#05x}  {:.0}%", z * 100.0),
+                    egui::FontId::monospace(10.0),
+                    Color32::from_white_alpha(170),
+                );
             }
         }
 
-        let z         = self.zoom;
-        let canvas_tl = resp.rect.min + self.offset;
-        let map_rect  = Rect::from_min_size(canvas_tl, vec2(map_w_px * z, map_h_px * z));
-
-        painter.rect_filled(resp.rect, Rounding::ZERO, Color32::from_gray(28));
-
-        // Tilemap texture
-        if let Some(tex) = &self.map_texture {
-            painter.image(tex.id(), map_rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
-        } else {
-            painter.rect_filled(map_rect, Rounding::ZERO, Color32::from_rgb(20, 40, 100));
-            painter.text(map_rect.center(), Align2::CENTER_CENTER, "Rendering…", FontId::proportional(14.0), Color32::WHITE);
-        }
-
-        painter.rect_stroke(map_rect, Rounding::ZERO, Stroke::new(2.0, Color32::from_rgb(255, 220, 0)));
-
-        if z >= 1.5 {
-            painter.text(
-                canvas_tl + vec2(6.0, 4.0),
-                Align2::LEFT_TOP,
-                SUBMAP_NAMES.get(self.submap).copied().unwrap_or("?"),
-                FontId::proportional((11.0 * z.sqrt()).max(9.0)),
-                Color32::from_rgba_unmultiplied(255, 240, 180, 200),
-            );
-        }
-
-        // Tile grid
-        if self.show_grid {
-            let cell   = TILE_PX * z;
-            let stroke = Stroke::new(0.5, Color32::from_white_alpha(18));
-            for col in 0..=cols {
-                let x = canvas_tl.x + col as f32 * cell;
-                painter.vline(x, canvas_tl.y..=canvas_tl.y + map_h_px * z, stroke);
-            }
-            for row in 0..=OW_TILEMAP_ROWS {
-                let y = canvas_tl.y + row as f32 * TILE_PX * z;
-                painter.hline(canvas_tl.x..=canvas_tl.x + map_w_px * z, y, stroke);
-            }
-        }
-
-        // Hovered tile
-        let hovered_tile: Option<(usize, usize)> = resp.hover_pos().and_then(|pos| {
-            let rel = (pos - canvas_tl) / z;
-            let col = (rel.x / TILE_PX) as i32;
-            let row = (rel.y / TILE_PX) as i32;
-            if col >= 0 && row >= 0 && (col as usize) < cols && (row as usize) < OW_TILEMAP_ROWS {
-                Some((col as usize, row as usize))
-            } else {
-                None
-            }
-        });
-
-        if let Some((col, row)) = hovered_tile {
-            let cell = TILE_PX * z;
-            painter.rect_filled(
-                Rect::from_min_size(canvas_tl + vec2(col as f32 * cell, row as f32 * cell), Vec2::splat(cell)),
-                Rounding::ZERO,
-                Color32::from_white_alpha(22),
-            );
-            painter.text(
-                resp.rect.right_bottom() - vec2(6.0, 6.0),
-                Align2::RIGHT_BOTTOM,
-                format!("({col}, {row})  {:.0}%", z * 100.0),
-                FontId::monospace(11.0),
-                Color32::from_white_alpha(180),
-            );
-        }
-
-        if let Some((col, row)) = self.selected_tile {
-            let cell = TILE_PX * z;
-            painter.rect_stroke(
-                Rect::from_min_size(canvas_tl + vec2(col as f32 * cell, row as f32 * cell), Vec2::splat(cell)),
-                Rounding::ZERO,
-                Stroke::new(1.5, Color32::from_rgb(255, 60, 60)),
-            );
-        }
-
-        if resp.clicked() {
-            if let Some((col, row)) = hovered_tile {
-                if let Some(chr) = self.paint_tile {
-                    let new_tile = BgTile::new(chr, self.paint_palette, false, false, false);
-                    if let Some(tm) = self.local_layer2.get_mut(self.submap) {
-                        tm.set(col, row, new_tile);
-                        self.edit_count += 1;
-                    }
-                    self.invalidate_map();
-                } else {
-                    self.selected_tile = Some((col, row));
-                }
-            }
-        }
-
-        if resp.clicked_by(PointerButton::Secondary) {
-            self.paint_tile = None;
-            self.selected_tile = None;
+        // ── Selected tile highlight ───────────────────────────────────────────
+        if let Some((x, y)) = self.selected_tile {
+            let r = Rect::from_min_size(origin + vec2(x as f32 * map16_sz, y as f32 * map16_sz), Vec2::splat(map16_sz));
+            painter.rect_stroke(r, Rounding::ZERO, Stroke::new(2.0, Color32::from_rgb(255, 220, 0)));
         }
     }
 }
 
-// ── GFX helpers ──────────────────────────────────────────────────────────────
+// ── Tile list builders ────────────────────────────────────────────────────────
 
-/// Resolve a 10-bit CHR index to `(gfx_file_index, tile_offset_within_file)`.
-///
-/// The 4 OW GFX files each hold 128 tiles (3bpp).  The CHR index is:
-///   slot   = chr >> 7       → which GFX file (0-3)
-///   offset = chr & 0x7F     → tile within that file (0-127)
-fn chr_to_gfx(chr: usize) -> Option<(usize, usize)> {
-    let slot   = chr >> 7;
-    let offset = chr & 0x7F;
-    if slot >= OW_GFX_FILES.len() {
-        return None;
-    }
-    Some((OW_GFX_FILES[slot], offset))
-}
+/// Build draw list from the composed BG tilemap already uploaded to VRAM.
+fn build_bg_tiles(vram: &[u8], tilemap_base: usize, submap: u8, scroll_x: i32, scroll_y: i32) -> Vec<Tile> {
+    let mut tiles = Vec::with_capacity((OW_L2_COLS * VRAM_TILE_ROWS) as usize);
+    let (crop_x, crop_y, view_w, view_h) = if submap == 0 {
+        (0, 0, 512, 512)
+    } else {
+        (SUBMAP_VIEW_X, SUBMAP_VIEW_Y, SUBMAP_VIEW_W as i32, SUBMAP_VIEW_H as i32)
+    };
 
-// ── CGRAM builder ─────────────────────────────────────────────────────────────
-
-/// Build a flat 256-entry CGRAM array (16 rows × 16 cols) for a submap.
-///
-/// The SpecificOverworldColorPalette's layer2 field covers rows 4-7, cols 1-7.
-/// Index formula: `cgram[row * 16 + col]  →  get_color_at(row, col)`.
-/// Transparent (color 0 in each row) is left as TRANSPARENT.
-///
-/// Also returns the sky/ocean backdrop color (layer3 row 0, col 8).
-fn build_cgram(rom: &SmwRom, submap: usize) -> (Vec<Abgr1555>, Color32) {
-    // get_submap_palette now uses the $00AD1E indirection table internally.
-    match rom.gfx.color_palettes.get_submap_palette(submap, OverworldState::PreSpecial) {
-        Ok(pal) => {
-            let cgram: Vec<Abgr1555> = (0..256usize)
-                .map(|i| pal.get_color_at(i / 16, i % 16).unwrap_or(Abgr1555::TRANSPARENT))
-                .collect();
-            let backdrop = Color32::from(pal.get_color_at(0, 8).unwrap_or(Abgr1555::TRANSPARENT));
-            (cgram, backdrop)
-        }
-        Err(e) => {
-            log::warn!("build_cgram: palette error for submap {}: {e}", submap);
-            (vec![Abgr1555::TRANSPARENT; 256], Color32::from_rgb(20, 40, 100))
-        }
-    }
-}
-
-// ── Tile decoder ─────────────────────────────────────────────────────────────
-
-/// Decode one 8×8 CHR tile (with optional flip) into a 64-pixel `Color32` array.
-///
-/// `cgram_row` is 4-7 (= the palette field of the BgTile word).
-/// Color index 0 is always transparent (BG color).
-fn decode_tile(
-    tile: &smwe_rom::graphics::gfx_file::Tile,
-    cgram: &[Abgr1555],
-    cgram_row: usize,
-    flip_x: bool,
-    flip_y: bool,
-    out: &mut [Color32; 64],
-) {
-    let base = cgram_row * 16;
-    for py in 0..8usize {
-        for px in 0..8usize {
-            let src_py = if flip_y { 7 - py } else { py };
-            let src_px = if flip_x { 7 - px } else { px };
-            let ci = tile.color_indices.get(src_py * 8 + src_px).copied().unwrap_or(0) as usize;
-            out[py * 8 + px] = if ci == 0 {
-                Color32::TRANSPARENT
-            } else {
-                Color32::from(cgram.get(base + ci).copied().unwrap_or(Abgr1555::TRANSPARENT))
-            };
-        }
-    }
-}
-
-// ── Map renderer ─────────────────────────────────────────────────────────────
-
-/// Render one submap's tilemap into an RGBA `ColorImage`.
-///
-/// Image width  = tilemap.cols * 8
-/// Image height = OW_TILEMAP_ROWS * 8  (always 216 px)
-fn render_ow_map(rom: &SmwRom, local_layer2: &[OwTilemap], submap: usize) -> Option<ColorImage> {
-    let sm      = submap.min(OW_SUBMAP_COUNT - 1);
-    let tilemap = local_layer2.get(sm)?;
-    let cols    = tilemap.cols;
-    let rows    = tilemap.rows;
-
-    let (cgram, backdrop) = build_cgram(rom, sm);
-
-    let img_w = cols * 8;
-    let img_h = rows * 8;
-    let mut pixels = vec![backdrop; img_w * img_h];
-    let mut buf    = [Color32::TRANSPARENT; 64];
-
-    log::info!(
-        "render_ow_map: submap={} tilemap={}×{} img={}×{}",
-        sm, cols, rows, img_w, img_h
-    );
-
-    for row in 0..rows {
-        for col in 0..cols {
-            let entry = tilemap.get(col, row);
-            let chr   = entry.tile_index() as usize;
-            if chr == 0 {
+    for row in 0..VRAM_TILE_ROWS {
+        for col in 0..OW_L2_COLS {
+            let addr = tilemap_vram_addr(tilemap_base, col, row);
+            let t0 = vram[addr] as u16;
+            let t1 = vram[addr + 1] as u16;
+            let tile_num = t0 | ((t1 & 3) << 8);
+            let palette = (t1 >> 2) & 7;
+            let flip_x = (t1 & 0x40) != 0;
+            let flip_y = (t1 & 0x80) != 0;
+            let px = (col * 8) as i32 - scroll_x - crop_x;
+            let py = (row * 8) as i32 - scroll_y - crop_y;
+            if px <= -8 || py <= -8 || px >= view_w || py >= view_h {
                 continue;
             }
-            let Some((file_id, offset)) = chr_to_gfx(chr) else { continue };
-            let Some(tile) = rom.gfx.files.get(file_id).and_then(|f| f.tiles.get(offset)) else {
-                log::warn!("render_ow_map: missing tile chr={chr:#05x} file={file_id:#04x} offset={offset}");
-                continue;
-            };
 
-            // OW layer2 palette values are 4-7; use directly as cgram_row.
-            let cgram_row = entry.palette() as usize;
-            decode_tile(tile, &cgram, cgram_row, entry.flip_x(), entry.flip_y(), &mut buf);
-
-            let dx = col * 8;
-            let dy = row * 8;
-            for py in 0..8usize {
-                for px in 0..8usize {
-                    let c = buf[py * 8 + px];
-                    if c.a() > 0 {
-                        pixels[(dy + py) * img_w + (dx + px)] = c;
-                    }
-                }
-            }
+            let t = tile_num | (palette << 10) | ((flip_x as u16) << 14) | ((flip_y as u16) << 15);
+            tiles.push(ow_tile(px.max(0) as u32, py.max(0) as u32, t));
         }
     }
-
-    Some(ColorImage { size: [img_w, img_h], pixels })
+    tiles
 }
 
-// ── Tile-sheet renderer ───────────────────────────────────────────────────────
+/// Convert a raw u16 SNES tile attribute word into a renderer Tile.
+fn ow_tile(x: u32, y: u32, t: u16) -> Tile {
+    let t32 = t as u32;
+    let tile = t32 & 0x3FF;
+    let pal = (t32 >> 10) & 0x7;
+    let scale = 8u32;
+    let params = scale | (pal << 8) | (t32 & 0xC000);
+    Tile([x, y, tile, params])
+}
 
-/// Render all 512 OW CHR tiles (4 GFX files × 128 tiles) into a 16-wide grid.
-fn render_tile_sheet(rom: &SmwRom, submap: usize) -> Option<ColorImage> {
-    let sm         = submap.min(OW_SUBMAP_COUNT - 1);
-    let (cgram, _) = build_cgram(rom, sm);
-
-    // Render with palette row 7 (brightest OW palette, good for preview).
-    let preview_pal_row = 7usize;
-
-    let sheet_cols   = 16usize;
-    let total_tiles  = OW_GFX_FILES.len() * 128; // 512
-    let sheet_rows   = (total_tiles + sheet_cols - 1) / sheet_cols;
-    let img_w        = sheet_cols * 8;
-    let img_h        = sheet_rows * 8;
-    let mut pixels   = vec![Color32::from_gray(28); img_w * img_h];
-
-    for chr in 0..total_tiles {
-        let slot   = chr >> 7;
-        let offset = chr & 0x7F;
-        let tc     = chr % sheet_cols;
-        let tr     = chr / sheet_cols;
-
-        let gfx_id     = OW_GFX_FILES[slot];
-        let maybe_tile = rom.gfx.files.get(gfx_id).and_then(|f| f.tiles.get(offset));
-
-        let base = preview_pal_row * 16;
-        if let Some(tile) = maybe_tile {
-            for (pi, &ci) in tile.color_indices.iter().enumerate() {
-                let px = pi % 8;
-                let py = pi / 8;
-                let c  = if ci == 0 {
-                    // Checkerboard for transparent
-                    if (tc + px + tr + py) % 2 == 0 { Color32::from_gray(45) } else { Color32::from_gray(35) }
-                } else {
-                    Color32::from(cgram.get(base + ci as usize).copied().unwrap_or(Abgr1555::MAGENTA))
-                };
-                pixels[(tr * 8 + py) * img_w + (tc * 8 + px)] = c;
-            }
-        } else {
-            // X pattern for missing tiles
-            for i in 0..8usize {
-                let c = Color32::from_gray(50);
-                pixels[(tr * 8 + i) * img_w + tc * 8 + i]       = c;
-                pixels[(tr * 8 + i) * img_w + tc * 8 + (7 - i)] = c;
-            }
-        }
+fn activate_all_overworld_events(cpu: &mut Cpu) {
+    for addr in 0x1F02u32..=0x1F60 {
+        cpu.mem.store_u8(addr, 0xFF);
     }
-
-    if pixels.iter().all(|&p| p == Color32::from_gray(28)) {
-        return None;
-    }
-    Some(ColorImage { size: [img_w, img_h], pixels })
 }

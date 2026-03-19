@@ -7,4 +7,5 @@ edition = "2021"
 rust-version = "1.70"
 
 [dependencies]
+log = "0.4"
 wdc65816 = { path = "../wdc65816" }

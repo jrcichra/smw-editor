@@ -9,12 +9,7 @@ pub fn draw_welcome(ui: &mut Ui, project_creator: &mut Option<UiProjectCreator>)
     ui.add_space((total_h * 0.08).max(20.0));
 
     ui.vertical_centered(|ui| {
-        ui.label(
-            RichText::new("🍄  SMW Editor")
-                .size(48.0)
-                .strong()
-                .color(Color32::from_rgb(255, 214, 0)),
-        );
+        ui.label(RichText::new("🍄  SMW Editor").size(48.0).strong().color(Color32::from_rgb(255, 214, 0)));
         ui.add_space(4.0);
         ui.label(RichText::new("Super Mario World ROM Hacking Tool").size(15.0).color(Color32::GRAY));
         ui.add_space(32.0);
@@ -30,7 +25,9 @@ pub fn draw_welcome(ui: &mut Ui, project_creator: &mut Option<UiProjectCreator>)
             *project_creator = Some(UiProjectCreator::default());
         }
         ui.add_space(6.0);
-        ui.label(RichText::new("File → Open ROM  or drag & drop a .smc / .sfc file").size(11.0).color(Color32::DARK_GRAY));
+        ui.label(
+            RichText::new("File → Open ROM  or drag & drop a .smc / .sfc file").size(11.0).color(Color32::DARK_GRAY),
+        );
 
         let recent = crate::project::Project::load_recent_files();
         if !recent.is_empty() {
@@ -40,12 +37,19 @@ pub fn draw_welcome(ui: &mut Ui, project_creator: &mut Option<UiProjectCreator>)
 
             let mut chosen: Option<std::path::PathBuf> = None;
             for path in recent.iter().take(6) {
-                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Unknown".into());
+                let name =
+                    path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "Unknown".into());
                 let full = path.to_string_lossy().to_string();
                 let resp = ui
-                    .add(Button::new(RichText::new(format!("  📄  {name}")).size(13.0)).min_size(vec2(360.0, 28.0)).rounding(Rounding::same(5.0)))
+                    .add(
+                        Button::new(RichText::new(format!("  📄  {name}")).size(13.0))
+                            .min_size(vec2(360.0, 28.0))
+                            .rounding(Rounding::same(5.0)),
+                    )
                     .on_hover_text(&full);
-                if resp.clicked() { chosen = Some(path.clone()); }
+                if resp.clicked() {
+                    chosen = Some(path.clone());
+                }
             }
             if let Some(path) = chosen {
                 // Load the ROM directly without showing the Open ROM dialog.

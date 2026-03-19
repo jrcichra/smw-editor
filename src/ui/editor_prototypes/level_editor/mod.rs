@@ -106,10 +106,7 @@ impl UiLevelEditor {
         self.upload_gfx_palette();
 
         // Upload tile layer from WRAM
-        self.level_renderer
-            .lock()
-            .expect("Cannot lock level_renderer")
-            .upload_level(&self.gl, &mut self.cpu);
+        self.level_renderer.lock().expect("Cannot lock level_renderer").upload_level(&self.gl, &mut self.cpu);
     }
 
     fn upload_gfx_palette(&self) {
@@ -120,17 +117,11 @@ impl UiLevelEditor {
         // ── CGRAM ──────────────────────────────────────────────────────────────
         // The emulator runs LoadPalette + CODE_00922F so self.cpu.mem.cgram is
         // already correct after decompress_sublevel.  Upload it directly.
-        self.level_renderer
-            .lock()
-            .expect("Cannot lock level_renderer")
-            .upload_palette(&self.gl, &self.cpu.mem.cgram);
+        self.level_renderer.lock().expect("Cannot lock level_renderer").upload_palette(&self.gl, &self.cpu.mem.cgram);
 
         // ── VRAM ───────────────────────────────────────────────────────────────
         // The emulator runs UploadSpriteGFX which fills self.cpu.mem.vram with
         // the correct tile graphics for this level's tileset.  Upload directly.
-        self.level_renderer
-            .lock()
-            .expect("Cannot lock level_renderer")
-            .upload_gfx(&self.gl, &self.cpu.mem.vram);
+        self.level_renderer.lock().expect("Cannot lock level_renderer").upload_gfx(&self.gl, &self.cpu.mem.vram);
     }
 }

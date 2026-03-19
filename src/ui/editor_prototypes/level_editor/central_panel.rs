@@ -194,11 +194,8 @@ impl UiLevelEditor {
                 painter.rect_stroke(rect, Rounding::same(2.0), Stroke::new(1.0, fill.linear_multiply(2.0)));
 
                 if self.show_object_labels && z >= 0.9 {
-                    let label = if obj.is_extended {
-                        format!("E{:02X}", obj.extended_id)
-                    } else {
-                        format!("{:02X}", obj.id)
-                    };
+                    let label =
+                        if obj.is_extended { format!("E{:02X}", obj.extended_id) } else { format!("{:02X}", obj.id) };
                     painter.text(
                         rect.left_top() + vec2(2.0, 2.0),
                         Align2::LEFT_TOP,

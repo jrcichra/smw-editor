@@ -83,7 +83,9 @@ impl eframe::App for UiMainWindow {
 
         // Open the level editor automatically whenever a ROM just became available
         // and there are no tabs yet (startup pre-load OR direct recent-file click).
-        if self.pending_initial_editor || (rom.is_some() && self.dock_state.iter_all_tabs().count() == 0 && self.project_creator.is_none()) {
+        if self.pending_initial_editor
+            || (rom.is_some() && self.dock_state.iter_all_tabs().count() == 0 && self.project_creator.is_none())
+        {
             self.pending_initial_editor = false;
             if let Some(ref rom) = rom {
                 let path = self.rom_path.clone().unwrap_or_default();
@@ -229,7 +231,12 @@ impl UiMainWindow {
                             ui.close_menu();
                         }
                         if ui.button("World Map Editor").clicked() {
-                            self.open_tool(UiWorldEditor::new(Arc::clone(rom.unwrap())));
+                            let Some(path) = self.rom_path.clone() else {
+                                self.save_error = Some("No ROM path available for emulator-backed overworld view.".into());
+                                ui.close_menu();
+                                return;
+                            };
+                            self.open_tool(UiWorldEditor::new(Arc::clone(&self.gl), Arc::clone(rom.unwrap()), path));
                             ui.close_menu();
                         }
                         if ui.button("Sprite Tile Editor").clicked() {
