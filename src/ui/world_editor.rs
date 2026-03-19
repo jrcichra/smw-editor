@@ -60,6 +60,29 @@ fn tilemap_vram_addr(base: usize, col: u32, row: u32) -> usize {
     base + idx as usize
 }
 
+fn visible_map_size(submap: u8) -> (u32, u32) {
+    if submap == 0 {
+        (512, 512)
+    } else {
+        (SUBMAP_VIEW_W, SUBMAP_VIEW_H)
+    }
+}
+
+fn visible_map_crop(submap: u8) -> (u32, u32) {
+    if submap == 0 {
+        (0, 0)
+    } else {
+        (SUBMAP_VIEW_X as u32, SUBMAP_VIEW_Y as u32)
+    }
+}
+
+fn l1_vram_addr_for_map16(submap: u8, map16_x: u32, map16_y: u32) -> usize {
+    let (crop_x, crop_y) = visible_map_crop(submap);
+    let tile_x = (map16_x * 16 + crop_x) / 8;
+    let tile_y = (map16_y * 16 + crop_y) / 8;
+    tilemap_vram_addr(VRAM_L1_TILEMAP_BASE, tile_x, tile_y)
+}
+
 // ── OpenGL renderer ───────────────────────────────────────────────────────────
 
 #[derive(Debug)]
@@ -256,7 +279,7 @@ impl UiWorldEditor {
         // Selected tile info
         if let Some((x, y)) = self.selected_tile {
             ui.label(format!("Selected: ({x}, {y})"));
-            let addr = tilemap_vram_addr(VRAM_L1_TILEMAP_BASE, x as u32 * 2, y as u32 * 2);
+            let addr = l1_vram_addr_for_map16(self.submap, x, y);
             let sub0 = u16::from_le_bytes([self.cpu.mem.vram[addr], self.cpu.mem.vram[addr + 1]]);
             let tile_num = (sub0 & 0x3FF) as u32;
             let pal = ((sub0 >> 10) & 0x7) as u32;
@@ -296,11 +319,14 @@ impl UiWorldEditor {
         painter.rect_filled(view_rect, Rounding::ZERO, Color32::from_rgb(16, 16, 20));
 
         let z = self.zoom;
+        let (map_px_w, map_px_h) = visible_map_size(self.submap);
+        let map16_cols = map_px_w.div_ceil(16);
+        let map16_rows = map_px_h.div_ceil(16);
         // L1 Map16 blocks are 16×16 game pixels.  The canvas border and all
         // hover/grid/selection overlays use map16_sz so they align with L1.
         let map16_sz = MAP16_PX * z;
-        let canvas_w = MAP16_COLS as f32 * map16_sz; // 32 * 16 = 512 game px
-        let canvas_h = MAP16_ROWS as f32 * map16_sz; // 32 * 16 = 512 game px
+        let canvas_w = map_px_w as f32 * z;
+        let canvas_h = map_px_h as f32 * z;
         let origin = view_rect.min + self.offset * z;
         let ow_rect = Rect::from_min_size(origin, vec2(canvas_w, canvas_h));
 
@@ -311,9 +337,9 @@ impl UiWorldEditor {
             let draw_l2 = self.show_layer2;
             let ppp = ui.ctx().pixels_per_point();
             let screen_sz = view_rect.size() * ppp;
-            // gl_offset: how many game pixels the top-left of the viewport is
-            // offset from the canvas origin (passed directly to the shader).
-            let gl_offset = -(self.offset + view_rect.min.to_vec2() / z);
+            // The paint callback renders in view-local coordinates, so the GL
+            // tile origin must match the egui overlay origin exactly.
+            let gl_offset = self.offset;
             let gl_zoom = z * ppp;
 
             ui.painter().add(PaintCallback {
@@ -350,10 +376,10 @@ impl UiWorldEditor {
             let rel = (cursor - origin) / map16_sz;
             let tx = rel.x.floor() as i32;
             let ty = rel.y.floor() as i32;
-            if (0..MAP16_COLS as i32).contains(&tx) && (0..MAP16_ROWS as i32).contains(&ty) {
+            if (0..map16_cols as i32).contains(&tx) && (0..map16_rows as i32).contains(&ty) {
                 let x = tx as u32;
                 let y = ty as u32;
-                let addr = tilemap_vram_addr(VRAM_L1_TILEMAP_BASE, x * 2, y * 2);
+                let addr = l1_vram_addr_for_map16(self.submap, x, y);
                 let tile_id = u16::from_le_bytes([self.cpu.mem.vram[addr], self.cpu.mem.vram[addr + 1]]) & 0x03FF;
                 let tile_rect =
                     Rect::from_min_size(origin + vec2(x as f32 * map16_sz, y as f32 * map16_sz), Vec2::splat(map16_sz));
