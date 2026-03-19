@@ -72,6 +72,7 @@ visuals synchronized with vanilla SMW behavior.
 
 This is a community fork of the [original SMW Editor](https://github.com/SMW-Editor/smw-editor).
 Contributions are welcome — open an issue or pull request to discuss changes.
+AI-assisted contributions are accepted, but must include screenshots demonstrating they work.
 
 If you're looking to contribute, experience in any of the following is helpful:
 - [Rust](https://www.rust-lang.org/)
