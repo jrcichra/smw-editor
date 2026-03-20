@@ -102,11 +102,21 @@ impl UiLevelEditor {
         // the real game does — no hand-translated object routines needed.
         smwe_emu::emu::decompress_sublevel(&mut self.cpu, self.level_num);
 
+        // Run sprite init so OAM ($0300) is populated with tile/palette data for
+        // every sprite in the level — required before uploading sprite tiles.
+        smwe_emu::emu::exec_sprites(&mut self.cpu);
+
         // Upload GFX/palette (still sourced from smwe-rom, which is fine)
         self.upload_gfx_palette();
 
-        // Upload tile layer from WRAM
-        self.level_renderer.lock().expect("Cannot lock level_renderer").upload_level(&self.gl, &mut self.cpu);
+        // Upload tile layers and OAM sprite tiles in one lock.
+        {
+            let mut renderer = self.level_renderer.lock().expect("Cannot lock level_renderer");
+            renderer.upload_level(&self.gl, &mut self.cpu);
+            // Upload OAM sprite tiles so sprites (e.g. Dragon Coin) render with
+            // the correct graphics and palette instead of a purple placeholder.
+            renderer.upload_sprites(&self.gl, &mut self.cpu);
+        }
     }
 
     fn upload_gfx_palette(&self) {

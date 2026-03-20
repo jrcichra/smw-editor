@@ -68,7 +68,6 @@ impl LevelRenderer {
         self.load_layer(gl, cpu, true);
     }
 
-    #[allow(dead_code)]
     pub(super) fn upload_sprites(&mut self, gl: &Context, cpu: &mut Cpu) {
         if self.destroyed {
             return;
@@ -198,7 +197,6 @@ fn bg_tile(x: u32, y: u32, t: u16) -> Tile {
     Tile([x, y, tile, params])
 }
 
-#[allow(dead_code)]
 fn sp_tile(x: u32, y: u32, t: u16) -> Tile {
     let t = t as u32;
     let tile = (t & 0x1FF) + 0x600;

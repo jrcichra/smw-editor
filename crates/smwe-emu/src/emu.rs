@@ -8,36 +8,40 @@ use crate::rom::Rom;
 
 #[derive(Debug, Clone)]
 pub struct CheckedMem {
-    pub cart:       Arc<Rom>,
-    pub wram:       Vec<u8>,
-    pub regs:       Vec<u8>,
-    pub vram:       Vec<u8>,
-    pub cgram:      Vec<u8>,
-    pub extram:     Vec<u8>,
-    pub uninit:     HashSet<usize>,
-    pub error:      Option<u32>,
-    pub err_value:  Option<u8>,
+    pub cart: Arc<Rom>,
+    pub wram: Vec<u8>,
+    pub regs: Vec<u8>,
+    pub vram: Vec<u8>,
+    pub cgram: Vec<u8>,
+    pub extram: Vec<u8>,
+    pub uninit: HashSet<usize>,
+    pub error: Option<u32>,
+    pub err_value: Option<u8>,
     pub last_store: Option<u32>,
 }
 
 impl CheckedMem {
     pub fn new(rom: Arc<Rom>) -> Self {
         Self {
-            cart:       rom,
-            wram:       Vec::from([0; 0x20000]),
-            regs:       Vec::from([0; 0x6000]),
-            vram:       Vec::from([0; 0x10000]),
-            cgram:      Vec::from([0; 0x200]),
-            extram:     Vec::from([0; 0x10000]),
-            uninit:     HashSet::new(),
-            error:      None,
-            err_value:  None,
+            cart: rom,
+            wram: Vec::from([0; 0x20000]),
+            regs: Vec::from([0; 0x6000]),
+            vram: Vec::from([0; 0x10000]),
+            cgram: Vec::from([0; 0x200]),
+            extram: Vec::from([0; 0x10000]),
+            uninit: HashSet::new(),
+            error: None,
+            err_value: None,
             last_store: None,
         }
     }
 
-    pub fn load_u8(&mut self, addr: u32) -> u8 { self.load(addr) }
-    pub fn store_u8(&mut self, addr: u32, value: u8) { self.store(addr, value) }
+    pub fn load_u8(&mut self, addr: u32) -> u8 {
+        self.load(addr)
+    }
+    pub fn store_u8(&mut self, addr: u32, value: u8) {
+        self.store(addr, value)
+    }
 
     pub fn load_u16(&mut self, addr: u32) -> u16 {
         let l = self.load(addr);
@@ -141,7 +145,9 @@ impl CheckedMem {
 }
 
 impl Mem for CheckedMem {
-    fn load(&mut self, addr: u32) -> u8 { self.map(addr, None) }
+    fn load(&mut self, addr: u32) -> u8 {
+        self.map(addr, None)
+    }
     fn store(&mut self, addr: u32, value: u8) {
         self.map(addr, Some(value));
         self.last_store = Some(addr);
@@ -160,10 +166,7 @@ fn run_routines(cpu: &mut Cpu<CheckedMem>, routines: &[&str], cycle_limit: u64) 
     let mut addr = 0x2000u32;
     for symbol in routines {
         cpu.mem.store(addr, 0x22); // JSL
-        cpu.mem.store_u24(
-            addr + 1,
-            cpu.mem.cart.resolve(symbol).unwrap_or_else(|| panic!("no symbol: {symbol}")),
-        );
+        cpu.mem.store_u24(addr + 1, cpu.mem.cart.resolve(symbol).unwrap_or_else(|| panic!("no symbol: {symbol}")));
         addr += 4;
     }
     let end = addr as u16;
@@ -171,9 +174,17 @@ fn run_routines(cpu: &mut Cpu<CheckedMem>, routines: &[&str], cycle_limit: u64) 
     let mut cy = 0u64;
     loop {
         cy += cpu.dispatch() as u64;
-        if cpu.ill { log::warn!("illegal instruction at {:02X}:{:04X}", cpu.pbr, cpu.pc); break; }
-        if cpu.pbr == 0 && cpu.pc == end { break; }
-        if cy > cycle_limit { log::warn!("exceeded cycle limit"); break; }
+        if cpu.ill {
+            log::warn!("illegal instruction at {:02X}:{:04X}", cpu.pbr, cpu.pc);
+            break;
+        }
+        if cpu.pbr == 0 && cpu.pc == end {
+            break;
+        }
+        if cy > cycle_limit {
+            log::warn!("exceeded cycle limit");
+            break;
+        }
         cpu.mem.process_dma();
     }
     cy
@@ -189,7 +200,9 @@ pub fn exec_sprite_id(cpu: &mut Cpu<CheckedMem>, id: u8) -> u64 {
     cpu.mem.store(0x1C, 0x00);
     cpu.mem.store(0xD8, 0x80);
     cpu.mem.store(0xE4, 0x80);
-    for i in 0..12 { cpu.mem.store(0x14C8 + i, 0); }
+    for i in 0..12 {
+        cpu.mem.store(0x14C8 + i, 0);
+    }
     cpu.mem.store(0x14C8, 1);
     cpu.y = 0;
     cpu.x = 0;
@@ -205,6 +218,7 @@ pub fn decompress_sublevel(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
     cpu.emulation = false;
     cpu.mem.store(0x1F11, (id >> 8) as _);
     cpu.mem.store(0x141A, 1);
+    cpu.mem.store_u16(0x10B, id); // Set level number
     cpu.ill = false;
     cpu.s = 0x1FF;
     cpu.pc = 0x2000;
@@ -213,8 +227,14 @@ pub fn decompress_sublevel(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
     cpu.trace = false;
 
     let routines = [
-        "CODE_00A993", "CODE_00B888", "CODE_05D796", "CODE_05801E",
-        "UploadSpriteGFX", "LoadPalette", "CODE_00922F",
+        "CODE_00A993",
+        "CODE_00B888",
+        "CODE_05D796",
+        "CODE_05801E",
+        "UploadSpriteGFX",
+        "LoadPalette",
+        "CODE_00922F",
+        "InitSpriteTables",
     ];
     let mut addr = 0x2000u32;
     for i in routines {
@@ -226,9 +246,16 @@ pub fn decompress_sublevel(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
     let mut cy = 0u64;
     loop {
         cy += cpu.dispatch() as u64;
-        if cpu.ill { println!("ILLEGAL INSTR"); break; }
-        if cpu.pc == 0xD8B7 && cpu.pbr == 0x05 { cpu.mem.store_u16(0xE, id); }
-        if cpu.pbr == 0 && cpu.pc == end { break; }
+        if cpu.ill {
+            println!("ILLEGAL INSTR");
+            break;
+        }
+        if cpu.pc == 0xD8B7 && cpu.pbr == 0x05 {
+            cpu.mem.store_u16(0xE, id);
+        }
+        if cpu.pbr == 0 && cpu.pc == end {
+            break;
+        }
         cpu.mem.process_dma();
     }
     println!("decompress_sublevel took {}µs", now.elapsed().as_micros());
@@ -247,10 +274,8 @@ pub fn decompress_extram(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
     cpu.dbr = 0x00;
     cpu.trace = false;
 
-    let routines = [
-        "CODE_00A993", "CODE_00B888", "CODE_05D796", "CODE_05801E",
-        "UploadSpriteGFX", "LoadPalette", "CODE_00922F",
-    ];
+    let routines =
+        ["CODE_00A993", "CODE_00B888", "CODE_05D796", "CODE_05801E", "UploadSpriteGFX", "LoadPalette", "CODE_00922F"];
     let mut addr = 0x2000u32;
     for i in routines {
         cpu.mem.store(addr, 0x22);
@@ -262,10 +287,19 @@ pub fn decompress_extram(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
     let mut cy = 0u64;
     loop {
         cy += cpu.dispatch() as u64;
-        if cpu.ill { println!("ILLEGAL INSTR"); break; }
-        if cpu.pc == 0xD8B7 && cpu.pbr == 0x05 { cpu.mem.store_u16(0xE, id); }
-        if cpu.pbr == 0 && cpu.pc == end { break; }
-        if cpu.pc == 0x200C { cpu.mem.store_u24(layer1_data_ptr, 0x600000); }
+        if cpu.ill {
+            println!("ILLEGAL INSTR");
+            break;
+        }
+        if cpu.pc == 0xD8B7 && cpu.pbr == 0x05 {
+            cpu.mem.store_u16(0xE, id);
+        }
+        if cpu.pbr == 0 && cpu.pc == end {
+            break;
+        }
+        if cpu.pc == 0x200C {
+            cpu.mem.store_u24(layer1_data_ptr, 0x600000);
+        }
         cpu.mem.process_dma();
     }
     println!("decompress_extram took {}µs", now.elapsed().as_micros());
@@ -310,10 +344,7 @@ pub fn load_overworld(cpu: &mut Cpu<CheckedMem>, submap: u8) -> u64 {
     let mut addr = 0x2000u32;
     for symbol in ["CODE_04DC09", "DecompressOverworldL2", "UploadSpriteGFX"] {
         cpu.mem.store(addr, 0x22); // JSL
-        cpu.mem.store_u24(
-            addr + 1,
-            cpu.mem.cart.resolve(symbol).unwrap_or_else(|| panic!("no symbol: {symbol}")),
-        );
+        cpu.mem.store_u24(addr + 1, cpu.mem.cart.resolve(symbol).unwrap_or_else(|| panic!("no symbol: {symbol}")));
         addr += 4;
     }
     cpu.mem.store(addr, 0xA0); // LDY #$14
@@ -321,10 +352,7 @@ pub fn load_overworld(cpu: &mut Cpu<CheckedMem>, submap: u8) -> u64 {
     addr += 2;
     for symbol in ["PrepareGraphicsFile", "CODE_00AD25", "CODE_00922F", "CODE_04D6E9"] {
         cpu.mem.store(addr, 0x22); // JSL
-        cpu.mem.store_u24(
-            addr + 1,
-            cpu.mem.cart.resolve(symbol).unwrap_or_else(|| panic!("no symbol: {symbol}")),
-        );
+        cpu.mem.store_u24(addr + 1, cpu.mem.cart.resolve(symbol).unwrap_or_else(|| panic!("no symbol: {symbol}")));
         addr += 4;
     }
 
@@ -332,8 +360,13 @@ pub fn load_overworld(cpu: &mut Cpu<CheckedMem>, submap: u8) -> u64 {
     let mut cy = 0u64;
     loop {
         cy += cpu.dispatch() as u64;
-        if cpu.ill { log::warn!("illegal instruction at {:02X}:{:04X}", cpu.pbr, cpu.pc); break; }
-        if cpu.pbr == 0 && cpu.pc == end { break; }
+        if cpu.ill {
+            log::warn!("illegal instruction at {:02X}:{:04X}", cpu.pbr, cpu.pc);
+            break;
+        }
+        if cpu.pbr == 0 && cpu.pc == end {
+            break;
+        }
         if cy > 50_000_000 {
             log::warn!("exceeded cycle limit");
             break;
