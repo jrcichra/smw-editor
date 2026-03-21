@@ -29,6 +29,7 @@ pub struct UiLevelEditor {
     always_show_grid: bool,
     show_object_overlay: bool,
     show_object_labels: bool,
+    selected_tile: Option<(u32, u32)>,
 
     level_properties: LevelProperties,
     layer1: EditableObjectLayer,
@@ -55,6 +56,7 @@ impl UiLevelEditor {
             always_show_grid: false,
             show_object_overlay: false,
             show_object_labels: true,
+            selected_tile: None,
             level_properties: LevelProperties::default(),
             layer1: EditableObjectLayer::default(),
         };
@@ -70,7 +72,9 @@ impl DockableEditorTool for UiLevelEditor {
         CentralPanel::default().frame(Frame::none().inner_margin(0.)).show_inside(ui, |ui| self.central_panel(ui));
     }
 
-    fn title(&self) -> WidgetText { "Level Editor".into() }
+    fn title(&self) -> WidgetText {
+        "Level Editor".into()
+    }
 
     fn on_closed(&mut self) {
         self.level_renderer.lock().unwrap().destroy(&self.gl);
@@ -93,6 +97,7 @@ impl UiLevelEditor {
             (level.sprite_layer.clone(), level.secondary_header.vertical_level())
         };
         self.offset = Vec2::ZERO;
+        self.selected_tile = None;
 
         // Reset emulator RAM before loading the new level so no state leaks
         // from the previously loaded level (stale sprite tables, VRAM, etc.).
@@ -109,9 +114,7 @@ impl UiLevelEditor {
         // and collect the OAM tiles the sprite emits relative to the anchor point.
         let mut oam_map: HashMap<u8, Vec<smwe_emu::emu::SpriteOamTile>> = HashMap::new();
         {
-            let mut unique_ids: Vec<u8> = sprite_layer.sprites.iter()
-                .map(|s| s.sprite_id())
-                .collect();
+            let mut unique_ids: Vec<u8> = sprite_layer.sprites.iter().map(|s| s.sprite_id()).collect();
             unique_ids.sort_unstable();
             unique_ids.dedup();
 
@@ -135,9 +138,46 @@ impl UiLevelEditor {
 
     fn upload_gfx_palette(&self) {
         let level_idx = self.level_num as usize;
-        if level_idx >= self.rom.levels.len() { return; }
+        if level_idx >= self.rom.levels.len() {
+            return;
+        }
         let renderer = self.level_renderer.lock().expect("Cannot lock level_renderer");
         renderer.upload_palette(&self.gl, &self.cpu.mem.cgram);
         renderer.upload_gfx(&self.gl, &self.cpu.mem.vram);
+    }
+
+    /// Look up the L1 block ID at the given tile (pixel) coordinate by reading
+    /// the WRAM block map populated during `decompress_sublevel`.
+    fn block_id_at(&mut self, tile_x: u32, tile_y: u32) -> Option<u16> {
+        let vertical = self.level_properties.is_vertical;
+        let has_layer2 = self.level_properties.has_layer2;
+
+        let bx = tile_x / 16;
+        let by = tile_y / 16;
+
+        let (scr_len, scr_size) = if vertical {
+            (if has_layer2 { 0x0E } else { 0x1C }, 16 * 32)
+        } else {
+            (if has_layer2 { 0x10 } else { 0x20 }, 16 * 27)
+        };
+
+        let (screen, sidx) = if vertical {
+            let sub_y = by / 32;
+            let sub_x = bx / 16;
+            let row = by % 32;
+            let col = bx % 16;
+            (sub_y * 2 + sub_x, row * 16 + col)
+        } else {
+            let screen = bx / scr_len as u32;
+            let col = bx % scr_len as u32;
+            let row = by;
+            (screen, row * scr_len as u32 + col)
+        };
+
+        let idx = screen * scr_size as u32 + sidx;
+
+        let lo = 0x7EC800u32 + idx;
+        let hi = 0x7FC800u32 + idx;
+        Some(self.cpu.mem.load_u8(lo) as u16 | (((self.cpu.mem.load_u8(hi) as u16) & 0x01) << 8))
     }
 }

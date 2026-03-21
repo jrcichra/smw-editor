@@ -200,18 +200,36 @@ impl UiLevelEditor {
             }
         }
 
-        // ── Hover status bar ──────────────────────────────────
+        // ── Hover / click (tile granularity) ────────────────────
         if let Some(cursor) = resp.hover_pos() {
             let rel = (cursor - origin) / tile_sz;
-            let tx = rel.x as i32;
-            let ty = rel.y as i32;
-            painter.text(
-                view_rect.right_bottom() - vec2(6.0, 6.0),
-                Align2::RIGHT_BOTTOM,
-                format!("({tx}, {ty})  {:.0}%", z * 100.0),
-                FontId::monospace(10.0),
-                Color32::from_white_alpha(160),
-            );
+            let tx = rel.x.floor() as i32;
+            let ty = rel.y.floor() as i32;
+            if tx >= 0 && ty >= 0 && (tx as u32) < level_w && (ty as u32) < level_h {
+                let tile_rect =
+                    Rect::from_min_size(origin + vec2(tx as f32 * tile_sz, ty as f32 * tile_sz), Vec2::splat(tile_sz));
+                painter.rect_stroke(tile_rect, Rounding::ZERO, Stroke::new(1.0, Color32::WHITE));
+
+                if resp.clicked_by(egui::PointerButton::Primary) {
+                    self.selected_tile = Some((tx as u32, ty as u32));
+                }
+
+                let block_info =
+                    self.block_id_at(tx as u32, ty as u32).map(|id| format!("  blk={id:#04X}")).unwrap_or_default();
+                painter.text(
+                    view_rect.right_bottom() - vec2(6.0, 6.0),
+                    Align2::RIGHT_BOTTOM,
+                    format!("({tx}, {ty}){block_info}  {:.0}%", z * 100.0),
+                    FontId::monospace(10.0),
+                    Color32::from_white_alpha(160),
+                );
+            }
+        }
+
+        // ── Selected tile highlight ────────────────────────────
+        if let Some((x, y)) = self.selected_tile {
+            let r = Rect::from_min_size(origin + vec2(x as f32 * tile_sz, y as f32 * tile_sz), Vec2::splat(tile_sz));
+            painter.rect_stroke(r, Rounding::ZERO, Stroke::new(2.0, Color32::from_rgb(255, 220, 0)));
         }
     }
 }

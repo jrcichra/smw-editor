@@ -30,12 +30,29 @@ impl UiLevelEditor {
 
         ui.separator();
         ui.label(format!("Level {:03X}", self.level_num));
-        let props = &self.level_properties;
-        ui.label(format!("Mode: {:02X}  GFX: {:X}", props.level_mode, props.fg_bg_gfx));
-        ui.label(format!("Music: {}  Timer: {}", props.music, props.timer));
-        ui.label(if props.is_vertical { "Vertical" } else { "Horizontal" });
-        ui.label(format!("Screens: {}", props.num_screens()));
-        let (w, h) = props.level_dimensions_in_tiles();
-        ui.label(format!("Size: {}x{} tiles", w, h));
+        let is_vertical = {
+            let props = &self.level_properties;
+            ui.label(format!("Mode: {:02X}  GFX: {:X}", props.level_mode, props.fg_bg_gfx));
+            ui.label(format!("Music: {}  Timer: {}", props.music, props.timer));
+            ui.label(if props.is_vertical { "Vertical" } else { "Horizontal" });
+            ui.label(format!("Screens: {}", props.num_screens()));
+            let (w, h) = props.level_dimensions_in_tiles();
+            ui.label(format!("Size: {}x{} tiles", w, h));
+            props.is_vertical
+        };
+
+        ui.separator();
+
+        // Selected tile info
+        if let Some((x, y)) = self.selected_tile {
+            ui.label(format!("Selected: ({x}, {y})"));
+            if let Some(block_id) = self.block_id_at(x, y) {
+                ui.monospace(format!("  Block ID: {block_id:#04X}"));
+                let screen = if is_vertical { y / 512 } else { x / 256 };
+                ui.monospace(format!("  Screen: {screen:X}"));
+            }
+        } else {
+            ui.label("Selected: (none)");
+        }
     }
 }
