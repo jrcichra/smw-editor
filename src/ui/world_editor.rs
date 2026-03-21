@@ -162,6 +162,7 @@ pub struct UiWorldEditor {
     show_layer1: bool,
     show_layer2: bool,
     selected_tile: Option<(u32, u32)>,
+    needs_center: bool,
 }
 
 impl UiWorldEditor {
@@ -186,6 +187,7 @@ impl UiWorldEditor {
             show_layer1: true,
             show_layer2: true,
             selected_tile: None,
+            needs_center: false,
         };
         editor.load_submap();
         editor
@@ -212,6 +214,7 @@ impl UiWorldEditor {
 
         self.offset = Vec2::ZERO;
         self.selected_tile = None;
+        self.needs_center = true;
     }
 }
 
@@ -299,6 +302,15 @@ impl UiWorldEditor {
         let available = vec2(ui.available_width(), ui.available_height());
         let (view_rect, resp) = ui.allocate_exact_size(available, Sense::click_and_drag());
         let painter = ui.painter_at(view_rect);
+
+        // ── Auto-center on submap load ─────────────────────────────────────
+        if self.needs_center {
+            self.needs_center = false;
+            let z = self.zoom;
+            let (map_px_w, map_px_h) = visible_map_size(self.submap);
+            self.offset =
+                vec2((view_rect.width() / z - map_px_w as f32) * 0.5, (view_rect.height() / z - map_px_h as f32) * 0.5);
+        }
 
         // ── Input ────────────────────────────────────────────────────────────
         let is_pan = resp.dragged_by(egui::PointerButton::Middle) || resp.dragged_by(egui::PointerButton::Primary);
