@@ -1,6 +1,6 @@
 use egui::Vec2;
 use glow::*;
-use smwe_emu::Cpu;
+use smwe_emu::{emu::SpriteOamTile, Cpu};
 use smwe_render::{
     gfx_buffers::GfxBuffers,
     tile_renderer::{Tile, TileRenderer, TileUniforms},
@@ -35,9 +35,7 @@ impl LevelRenderer {
     }
 
     pub(super) fn paint(&self, gl: &Context, screen_size: Vec2, zoom: f32) {
-        if self.destroyed {
-            return;
-        }
+        if self.destroyed { return; }
         let uniforms = TileUniforms { gfx_bufs: self.gfx_bufs, screen_size, offset: self.offset, zoom };
         self.layer2.paint(gl, &uniforms);
         self.layer1.paint(gl, &uniforms);
@@ -45,70 +43,72 @@ impl LevelRenderer {
     }
 
     pub(super) fn upload_gfx(&self, gl: &Context, data: &[u8]) {
-        if self.destroyed {
-            return;
-        }
+        if self.destroyed { return; }
         self.gfx_bufs.upload_vram(gl, data);
     }
 
     pub(super) fn upload_palette(&self, gl: &Context, data: &[u8]) {
-        if self.destroyed {
-            return;
-        }
+        if self.destroyed { return; }
         self.gfx_bufs.upload_palette(gl, data);
     }
 
     pub(super) fn upload_level(&mut self, gl: &Context, cpu: &mut Cpu) {
-        if self.destroyed {
-            return;
-        }
+        if self.destroyed { return; }
         self.load_layer(gl, cpu, false);
         self.load_layer(gl, cpu, true);
     }
 
-    /// Build sprite tiles using:
-    ///   - Positions from the smwe-rom SpriteLayer (accurate ROM data)
-    ///   - Tile/palette from oam_map: sprite_id -> (tile_word, is_16x16)
-    ///     which was built by running exec_sprite_id per unique ID
+    /// Build sprite tiles from ROM sprite positions + emulator OAM tile data.
+    ///
+    /// `oam_map`: sprite_id → Vec<SpriteOamTile> collected by sprite_oam_tiles().
+    /// Each SpriteOamTile has dx/dy offsets from the emulator's fixed anchor
+    /// (x=0xD0, y=0x80). We apply those offsets to the ROM-decoded pixel position
+    /// so every tile of multi-tile sprites (Wiggler body, Dragon Coin frame) is
+    /// placed correctly relative to the sprite's actual in-level position.
     pub(super) fn upload_sprites(
         &mut self,
         gl: &Context,
         sprite_layer: &smwe_rom::level::SpriteLayer,
-        oam_map: &std::collections::HashMap<u8, (u16, bool)>,
+        oam_map: &std::collections::HashMap<u8, Vec<SpriteOamTile>>,
         vertical: bool,
     ) {
-        if self.destroyed {
-            return;
-        }
+        if self.destroyed { return; }
         let mut tiles = Vec::new();
 
         for spr in &sprite_layer.sprites {
             let id = spr.sprite_id();
-            let (tile_word, is_16x16) = match oam_map.get(&id) {
-                Some(&v) => v,
-                None => continue, // sprite wrote no OAM — skip
+            let oam_tiles = match oam_map.get(&id) {
+                Some(v) if !v.is_empty() => v,
+                _ => continue,
             };
 
-            // Decode pixel position from ROM sprite data
+            // Decode ROM pixel position for the sprite's anchor point
             let (x_tile, y_tile) = spr.xy_pos();
-            let screen = spr.screen_number() as u32;
-            let (x_px, y_px) = if vertical {
+            let screen = spr.screen_number() as i32;
+            let (anchor_x, anchor_y) = if vertical {
                 let sx = screen % 2;
                 let sy = screen / 2;
-                (sx * 256 + x_tile as u32 * 16, sy * 512 + y_tile as u32 * 16)
+                (sx * 256 + x_tile as i32 * 16, sy * 512 + y_tile as i32 * 16)
             } else {
-                (screen * 256 + x_tile as u32 * 16, y_tile as u32 * 16)
+                (screen * 256 + x_tile as i32 * 16, y_tile as i32 * 16)
             };
 
-            if is_16x16 {
-                let (xn, xf) = if tile_word & 0x4000 == 0 { (0u32, 8u32) } else { (8, 0) };
-                let (yn, yf) = if tile_word & 0x8000 == 0 { (0u32, 8u32) } else { (8, 0) };
-                tiles.push(sp_tile(x_px + xn, y_px + yn, tile_word));
-                tiles.push(sp_tile(x_px + xf, y_px + yn, tile_word + 1));
-                tiles.push(sp_tile(x_px + xn, y_px + yf, tile_word + 16));
-                tiles.push(sp_tile(x_px + xf, y_px + yf, tile_word + 17));
-            } else {
-                tiles.push(sp_tile(x_px, y_px, tile_word));
+            // Emit each OAM tile at anchor + its emulator-derived offset
+            for oam in oam_tiles {
+                let px = (anchor_x + oam.dx) as u32;
+                let py = (anchor_y + oam.dy) as u32;
+                let t = oam.tile_word;
+
+                if oam.is_16x16 {
+                    let (xn, xf) = if t & 0x4000 == 0 { (0u32, 8u32) } else { (8, 0) };
+                    let (yn, yf) = if t & 0x8000 == 0 { (0u32, 8u32) } else { (8, 0) };
+                    tiles.push(sp_tile(px + xn, py + yn, t));
+                    tiles.push(sp_tile(px + xf, py + yn, t + 1));
+                    tiles.push(sp_tile(px + xn, py + yf, t + 16));
+                    tiles.push(sp_tile(px + xf, py + yf, t + 17));
+                } else {
+                    tiles.push(sp_tile(px, py, t));
+                }
             }
         }
 
@@ -116,9 +116,7 @@ impl LevelRenderer {
     }
 
     pub(super) fn set_offset(&mut self, offset: Vec2) {
-        if self.destroyed {
-            return;
-        }
+        if self.destroyed { return; }
         self.offset = offset;
     }
 
@@ -127,7 +125,6 @@ impl LevelRenderer {
 
         let map16_bank = cpu.mem.cart.resolve("Map16Common").expect("Cannot resolve Map16Common") & 0xFF0000;
         let map16_bg = cpu.mem.cart.resolve("Map16BGTiles").expect("Cannot resolve Map16BGTiles");
-
         let vertical = cpu.mem.load_u8(0x5B) & if bg { 2 } else { 1 } != 0;
 
         let has_layer2 = {
@@ -140,19 +137,16 @@ impl LevelRenderer {
 
         let scr_len = match (vertical, has_layer2) {
             (false, false) => 0x20,
-            (true, false) => 0x1C,
-            (false, true) => 0x10,
-            (true, true) => 0x0E,
+            (true, false)  => 0x1C,
+            (false, true)  => 0x10,
+            (true, true)   => 0x0E,
         };
         let scr_size = if vertical { 16 * 32 } else { 16 * 27 };
 
         let (blocks_lo_addr, blocks_hi_addr) = match (bg, has_layer2) {
-            (true, true) => {
-                let offset = scr_len * scr_size;
-                (0x7EC800 + offset, 0x7FC800 + offset)
-            }
+            (true, true)  => { let o = scr_len * scr_size; (0x7EC800 + o, 0x7FC800 + o) }
             (true, false) => (0x7EB900, 0x7EBD00),
-            (false, _) => (0x7EC800, 0x7FC800),
+            (false, _)    => (0x7EC800, 0x7FC800),
         };
 
         let len = if has_layer2 { 256 * 27 } else { 512 * 27 };
@@ -170,7 +164,6 @@ impl LevelRenderer {
             };
 
             let idx_adj = if bg && !has_layer2 { idx % (16 * 27 * 2) } else { idx };
-
             let block_id = cpu.mem.load_u8(blocks_lo_addr + idx_adj) as u16
                 | (((cpu.mem.load_u8(blocks_hi_addr + idx_adj) as u16) & 0x01) << 8);
 
@@ -186,11 +179,7 @@ impl LevelRenderer {
             }
         }
 
-        if bg {
-            self.layer2.set_tiles(gl, tiles);
-        } else {
-            self.layer1.set_tiles(gl, tiles);
-        }
+        if bg { self.layer2.set_tiles(gl, tiles); } else { self.layer1.set_tiles(gl, tiles); }
     }
 }
 

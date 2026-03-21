@@ -36,12 +36,8 @@ impl CheckedMem {
         }
     }
 
-    pub fn load_u8(&mut self, addr: u32) -> u8 {
-        self.load(addr)
-    }
-    pub fn store_u8(&mut self, addr: u32, value: u8) {
-        self.store(addr, value)
-    }
+    pub fn load_u8(&mut self, addr: u32) -> u8 { self.load(addr) }
+    pub fn store_u8(&mut self, addr: u32, value: u8) { self.store(addr, value) }
 
     pub fn load_u16(&mut self, addr: u32) -> u16 {
         let l = self.load(addr);
@@ -145,9 +141,7 @@ impl CheckedMem {
 }
 
 impl Mem for CheckedMem {
-    fn load(&mut self, addr: u32) -> u8 {
-        self.map(addr, None)
-    }
+    fn load(&mut self, addr: u32) -> u8 { self.map(addr, None) }
     fn store(&mut self, addr: u32, value: u8) {
         self.map(addr, Some(value));
         self.last_store = Some(addr);
@@ -165,7 +159,7 @@ fn run_routines(cpu: &mut Cpu<CheckedMem>, routines: &[&str], cycle_limit: u64) 
 
     let mut addr = 0x2000u32;
     for symbol in routines {
-        cpu.mem.store(addr, 0x22); // JSL
+        cpu.mem.store(addr, 0x22);
         cpu.mem.store_u24(addr + 1, cpu.mem.cart.resolve(symbol).unwrap_or_else(|| panic!("no symbol: {symbol}")));
         addr += 4;
     }
@@ -174,17 +168,9 @@ fn run_routines(cpu: &mut Cpu<CheckedMem>, routines: &[&str], cycle_limit: u64) 
     let mut cy = 0u64;
     loop {
         cy += cpu.dispatch() as u64;
-        if cpu.ill {
-            log::warn!("illegal instruction at {:02X}:{:04X}", cpu.pbr, cpu.pc);
-            break;
-        }
-        if cpu.pbr == 0 && cpu.pc == end {
-            break;
-        }
-        if cy > cycle_limit {
-            log::warn!("exceeded cycle limit");
-            break;
-        }
+        if cpu.ill { log::warn!("illegal instruction at {:02X}:{:04X}", cpu.pbr, cpu.pc); break; }
+        if cpu.pbr == 0 && cpu.pc == end { break; }
+        if cy > cycle_limit { log::warn!("exceeded cycle limit"); break; }
         cpu.mem.process_dma();
     }
     cy
@@ -213,20 +199,52 @@ pub fn exec_sprites(cpu: &mut Cpu<CheckedMem>) -> u64 {
     run_routines(cpu, &["CODE_01808C"], 20_000_000)
 }
 
-/// Run exec_sprite_id for a given sprite ID and return (tile_word, is_16x16).
-/// Scans all OAM slots for the first on-screen entry with a non-zero tile.
-/// Returns None if the sprite writes no OAM (e.g. bosses, generators).
-pub fn sprite_oam_info(cpu: &mut Cpu<CheckedMem>, id: u8) -> Option<(u16, bool)> {
+/// One OAM tile emitted by a sprite, expressed as a pixel offset from the
+/// spawn anchor (x = 0xD0, y = 0x80 as set by exec_sprite_id).
+#[derive(Debug, Clone)]
+pub struct SpriteOamTile {
+    pub dx: i32,
+    pub dy: i32,
+    pub tile_word: u16,
+    pub is_16x16: bool,
+}
+
+/// Run exec_sprite_id for the given ID, then tick extra frames so that sprites
+/// whose draw routine fires on frame 2+ (e.g. Dragon Coin 0xA6) still produce
+/// OAM. Collect ALL OAM tiles with non-zero tile words AND non-blank VRAM,
+/// expressed as signed offsets from the spawn anchor (x=0xD0, y=0x80).
+/// Returns an empty Vec if the sprite writes no OAM.
+pub fn sprite_oam_tiles(cpu: &mut Cpu<CheckedMem>, id: u8) -> Vec<SpriteOamTile> {
+    const ANCHOR_X: i32 = 0xD0;
+    const ANCHOR_Y: i32 = 0x80;
+
     exec_sprite_id(cpu, id);
-    for slot in 0..64u32 {
-        let y = cpu.mem.load_u8(0x301 + slot * 4);
-        let tile = cpu.mem.load_u16(0x302 + slot * 4);
-        let size = cpu.mem.load_u8(0x460 + slot);
-        if y < 0xE0 && tile != 0 {
-            return Some((tile, (size & 0x02) != 0));
-        }
+    // Extra ticks for sprites that draw on later frames
+    for _ in 0..4 {
+        exec_sprites(cpu);
     }
-    None
+
+    let mut tiles = Vec::new();
+    for slot in 0..64u32 {
+        let raw_x = cpu.mem.load_u8(0x300 + slot * 4) as i32;
+        let raw_y = cpu.mem.load_u8(0x301 + slot * 4) as i32;
+        let tile  = cpu.mem.load_u16(0x302 + slot * 4);
+        let size  = cpu.mem.load_u8(0x460 + slot);
+        if raw_y >= 0xE0 || tile == 0 { continue; }
+
+        // Skip tiles whose VRAM data is entirely blank
+        let voff = ((tile & 0x1FF) as usize + 0x600) * 32;
+        if voff + 32 > cpu.mem.vram.len() { continue; }
+        if cpu.mem.vram[voff..voff + 32].iter().all(|&b| b == 0) { continue; }
+
+        tiles.push(SpriteOamTile {
+            dx: raw_x - ANCHOR_X,
+            dy: raw_y - ANCHOR_Y,
+            tile_word: tile,
+            is_16x16: (size & 0x02) != 0,
+        });
+    }
+    tiles
 }
 
 pub fn decompress_sublevel(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
@@ -234,7 +252,7 @@ pub fn decompress_sublevel(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
     cpu.emulation = false;
     cpu.mem.store(0x1F11, (id >> 8) as _);
     cpu.mem.store(0x141A, 1);
-    cpu.mem.store_u16(0x10B, id); // Set level number
+    cpu.mem.store_u16(0x10B, id);
     cpu.ill = false;
     cpu.s = 0x1FF;
     cpu.pc = 0x2000;
@@ -243,14 +261,8 @@ pub fn decompress_sublevel(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
     cpu.trace = false;
 
     let routines = [
-        "CODE_00A993",
-        "CODE_00B888",
-        "CODE_05D796",
-        "CODE_05801E",
-        "UploadSpriteGFX",
-        "LoadPalette",
-        "CODE_00922F",
-        "InitSpriteTables",
+        "CODE_00A993", "CODE_00B888", "CODE_05D796", "CODE_05801E",
+        "UploadSpriteGFX", "LoadPalette", "CODE_00922F", "InitSpriteTables",
     ];
     let mut addr = 0x2000u32;
     for i in routines {
@@ -262,16 +274,9 @@ pub fn decompress_sublevel(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
     let mut cy = 0u64;
     loop {
         cy += cpu.dispatch() as u64;
-        if cpu.ill {
-            println!("ILLEGAL INSTR");
-            break;
-        }
-        if cpu.pc == 0xD8B7 && cpu.pbr == 0x05 {
-            cpu.mem.store_u16(0xE, id);
-        }
-        if cpu.pbr == 0 && cpu.pc == end {
-            break;
-        }
+        if cpu.ill { println!("ILLEGAL INSTR"); break; }
+        if cpu.pc == 0xD8B7 && cpu.pbr == 0x05 { cpu.mem.store_u16(0xE, id); }
+        if cpu.pbr == 0 && cpu.pc == end { break; }
         cpu.mem.process_dma();
     }
     println!("decompress_sublevel took {}µs", now.elapsed().as_micros());
@@ -290,8 +295,10 @@ pub fn decompress_extram(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
     cpu.dbr = 0x00;
     cpu.trace = false;
 
-    let routines =
-        ["CODE_00A993", "CODE_00B888", "CODE_05D796", "CODE_05801E", "UploadSpriteGFX", "LoadPalette", "CODE_00922F"];
+    let routines = [
+        "CODE_00A993", "CODE_00B888", "CODE_05D796", "CODE_05801E",
+        "UploadSpriteGFX", "LoadPalette", "CODE_00922F",
+    ];
     let mut addr = 0x2000u32;
     for i in routines {
         cpu.mem.store(addr, 0x22);
@@ -303,27 +310,16 @@ pub fn decompress_extram(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
     let mut cy = 0u64;
     loop {
         cy += cpu.dispatch() as u64;
-        if cpu.ill {
-            println!("ILLEGAL INSTR");
-            break;
-        }
-        if cpu.pc == 0xD8B7 && cpu.pbr == 0x05 {
-            cpu.mem.store_u16(0xE, id);
-        }
-        if cpu.pbr == 0 && cpu.pc == end {
-            break;
-        }
-        if cpu.pc == 0x200C {
-            cpu.mem.store_u24(layer1_data_ptr, 0x600000);
-        }
+        if cpu.ill { println!("ILLEGAL INSTR"); break; }
+        if cpu.pc == 0xD8B7 && cpu.pbr == 0x05 { cpu.mem.store_u16(0xE, id); }
+        if cpu.pbr == 0 && cpu.pc == end { break; }
+        if cpu.pc == 0x200C { cpu.mem.store_u24(layer1_data_ptr, 0x600000); }
         cpu.mem.process_dma();
     }
     println!("decompress_extram took {}µs", now.elapsed().as_micros());
     cy
 }
 
-/// Load the overworld for the given submap (0=main, 1-6=submaps).
-/// After return: vram/cgram filled, WRAM $7EC800=L1 tilemap, $7F4000=L2 tilemap.
 pub fn load_overworld(cpu: &mut Cpu<CheckedMem>, submap: u8) -> u64 {
     let now = std::time::Instant::now();
     cpu.emulation = false;
@@ -373,17 +369,9 @@ pub fn load_overworld(cpu: &mut Cpu<CheckedMem>, submap: u8) -> u64 {
     let mut cy = 0u64;
     loop {
         cy += cpu.dispatch() as u64;
-        if cpu.ill {
-            log::warn!("illegal instruction at {:02X}:{:04X}", cpu.pbr, cpu.pc);
-            break;
-        }
-        if cpu.pbr == 0 && cpu.pc == end {
-            break;
-        }
-        if cy > 50_000_000 {
-            log::warn!("exceeded cycle limit");
-            break;
-        }
+        if cpu.ill { log::warn!("illegal instruction at {:02X}:{:04X}", cpu.pbr, cpu.pc); break; }
+        if cpu.pbr == 0 && cpu.pc == end { break; }
+        if cy > 50_000_000 { log::warn!("exceeded cycle limit"); break; }
         cpu.mem.process_dma();
     }
     log::info!("load_overworld(submap={submap}) took {}µs", now.elapsed().as_micros());

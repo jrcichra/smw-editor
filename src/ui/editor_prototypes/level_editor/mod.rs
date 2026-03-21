@@ -70,9 +70,7 @@ impl DockableEditorTool for UiLevelEditor {
         CentralPanel::default().frame(Frame::none().inner_margin(0.)).show_inside(ui, |ui| self.central_panel(ui));
     }
 
-    fn title(&self) -> WidgetText {
-        "Level Editor".into()
-    }
+    fn title(&self) -> WidgetText { "Level Editor".into() }
 
     fn on_closed(&mut self) {
         self.level_renderer.lock().unwrap().destroy(&self.gl);
@@ -96,14 +94,14 @@ impl UiLevelEditor {
         };
         self.offset = Vec2::ZERO;
 
-        // Decompress level — fills WRAM block maps, VRAM, and CGRAM.
+        // Decompress level: fills WRAM block maps, VRAM tile graphics, CGRAM palette.
         smwe_emu::emu::decompress_sublevel(&mut self.cpu, self.level_num);
 
-        // Build a map of sprite_id -> (tile_word, is_16x16) by running
-        // exec_sprite_id for each unique sprite ID in the level. This gives
-        // us the correct tile/palette for each sprite type without relying
-        // on live OAM positions (which are emulator-fake).
-        let mut oam_map: HashMap<u8, (u16, bool)> = HashMap::new();
+        // For each unique sprite ID in the level, run sprite_oam_tiles() to get
+        // every OAM tile the sprite produces (with correct tile/palette and
+        // relative offsets). This handles multi-tile sprites (Wiggler, Dragon Coin)
+        // and sprites that only write OAM on later frames.
+        let mut oam_map: HashMap<u8, Vec<smwe_emu::emu::SpriteOamTile>> = HashMap::new();
         {
             let mut unique_ids: Vec<u8> = sprite_layer.sprites.iter()
                 .map(|s| s.sprite_id())
@@ -112,32 +110,29 @@ impl UiLevelEditor {
             unique_ids.dedup();
 
             for id in unique_ids {
-                if let Some(info) = smwe_emu::emu::sprite_oam_info(&mut self.cpu, id) {
-                    oam_map.insert(id, info);
+                let tiles = smwe_emu::emu::sprite_oam_tiles(&mut self.cpu, id);
+                if !tiles.is_empty() {
+                    oam_map.insert(id, tiles);
                 }
             }
 
-            // Re-run decompress after exec_sprite_id calls to restore clean VRAM/CGRAM
-            // (exec_sprite_id may disturb emulator state).
+            // Restore clean VRAM/CGRAM after exec_sprite_id calls may have
+            // disturbed emulator state.
             smwe_emu::emu::decompress_sublevel(&mut self.cpu, self.level_num);
         }
 
-        // Upload CGRAM and VRAM from the clean post-decompress state.
-        {
-            let mut renderer = self.level_renderer.lock().expect("Cannot lock level_renderer");
-            renderer.upload_palette(&self.gl, &self.cpu.mem.cgram);
-            renderer.upload_gfx(&self.gl, &self.cpu.mem.vram);
-            renderer.upload_level(&self.gl, &mut self.cpu);
-            renderer.upload_sprites(&self.gl, &sprite_layer, &oam_map, is_vertical);
-        }
+        // Upload palette + GFX from the clean post-decompress state, then tiles.
+        let mut renderer = self.level_renderer.lock().expect("Cannot lock level_renderer");
+        renderer.upload_palette(&self.gl, &self.cpu.mem.cgram);
+        renderer.upload_gfx(&self.gl, &self.cpu.mem.vram);
+        renderer.upload_level(&self.gl, &mut self.cpu);
+        renderer.upload_sprites(&self.gl, &sprite_layer, &oam_map, is_vertical);
     }
 
     fn upload_gfx_palette(&self) {
         let level_idx = self.level_num as usize;
-        if level_idx >= self.rom.levels.len() {
-            return;
-        }
-        let mut renderer = self.level_renderer.lock().expect("Cannot lock level_renderer");
+        if level_idx >= self.rom.levels.len() { return; }
+        let renderer = self.level_renderer.lock().expect("Cannot lock level_renderer");
         renderer.upload_palette(&self.gl, &self.cpu.mem.cgram);
         renderer.upload_gfx(&self.gl, &self.cpu.mem.vram);
     }
