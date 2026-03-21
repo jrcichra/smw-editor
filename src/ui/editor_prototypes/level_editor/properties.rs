@@ -28,7 +28,7 @@ impl LevelProperties {
     pub fn from_level(level: &Level) -> Self {
         let h = &level.primary_header;
         let is_vertical = level.secondary_header.vertical_level();
-        let has_layer2 = matches!(level.layer2, smwe_rom::level::Layer2Data::Objects(_));
+        let has_layer2 = true;
         Self {
             palette_bg: h.palette_bg(),
             level_length: h.level_length(),
