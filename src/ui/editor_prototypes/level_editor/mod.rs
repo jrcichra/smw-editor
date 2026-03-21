@@ -219,11 +219,13 @@ impl UiLevelEditor {
             let row = (block_y_px / 16) % 32;
             (screen, row * 16 + col)
         } else {
-            let screen_col = block_x_px / 16; // screen * scr_len + local_col
-            let screen = screen_col / scr_len as u32;
-            let col = screen_col % scr_len as u32;
+            // Each horizontal screen is 16 tiles wide (256 px / 16 px per tile).
+            // load_layer indexes as: idx = screen * (16 * 27) + row * 16 + col
+            //   where block_x = col + screen * 16,  block_y = row
+            let screen = block_x / 16;
+            let col = block_x % 16;
             let row = block_y;
-            let sidx = row * scr_len as u32 + col;
+            let sidx = row * 16 + col;
             (screen, sidx)
         };
 
