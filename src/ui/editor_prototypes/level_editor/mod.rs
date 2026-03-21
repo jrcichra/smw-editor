@@ -176,25 +176,44 @@ impl UiLevelEditor {
     }
 
     /// Compute the WRAM block map index from block (tile) coordinates.
+    /// Must produce the same index as `load_layer`'s reverse mapping.
     fn block_map_index(&self, block_x: u32, block_y: u32) -> u32 {
         let vertical = self.level_properties.is_vertical;
         let has_layer2 = self.level_properties.has_layer2;
 
-        let (scr_len, scr_size) = if vertical {
-            (if has_layer2 { 0x0E } else { 0x1C }, 16 * 32)
+        let scr_len = if vertical {
+            if has_layer2 {
+                0x0E
+            } else {
+                0x1C
+            }
         } else {
-            (if has_layer2 { 0x10 } else { 0x20 }, 16 * 27)
+            if has_layer2 {
+                0x10
+            } else {
+                0x20
+            }
         };
+        let scr_size = if vertical { 16 * 32 } else { 16 * 27 };
+
+        // Convert block coords to pixel coords matching load_layer's format:
+        //   block_x_pixels = column * 16 + screen * 256
+        //   block_y_pixels = row * 16  (+ screen offset for vertical)
+        // The "screen column" used by load_layer is block_x_pixels / 16.
+        let block_x_px = block_x * 16;
+        let block_y_px = block_y * 16;
 
         let (screen, sidx) = if vertical {
-            let sub_y = block_y / 32;
-            let sub_x = block_x / 16;
-            let row = block_y % 32;
-            let col = block_x % 16;
-            (sub_y * 2 + sub_x, row * 16 + col)
+            let sub_y = block_y_px / 512;
+            let sub_x = block_x_px / 256;
+            let screen = sub_y * 2 + sub_x;
+            let col = (block_x_px / 16) % 16;
+            let row = (block_y_px / 16) % 32;
+            (screen, row * 16 + col)
         } else {
-            let screen = block_x / scr_len as u32;
-            let col = block_x % scr_len as u32;
+            let screen_col = block_x_px / 16; // screen * scr_len + local_col
+            let screen = screen_col / scr_len as u32;
+            let col = screen_col % scr_len as u32;
             let row = block_y;
             (screen, row * scr_len as u32 + col)
         };
