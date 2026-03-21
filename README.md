@@ -1,5 +1,7 @@
 # SMW Editor
 
+![Overworld Editor](assets/overworld.png)
+
 > [!NOTE]
 > This is an AI-generated community fork of the [original SMW Editor](https://github.com/SMW-Editor/smw-editor).
 
@@ -7,6 +9,8 @@ SMW Editor is an open-source, multi-platform, modern alternative to Lunar Magic,
 providing all the necessary tools for SMW romhacking. It uses a built-in emulator
 to decompress and render graphics directly from the ROM, ensuring accurate
 visualization of vanilla SMW content.
+
+![Level Editor](assets/level_editor.png)
 
 ## Features
 
