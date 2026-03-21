@@ -1,12 +1,14 @@
 mod dev_utils;
 mod editing_mode;
 mod editor_prototypes;
+mod ow_tile_picker;
 mod project_creator;
 mod style;
 mod tab_viewer;
 mod tool;
 mod welcome;
 mod world_editor;
+mod world_editor_editing;
 
 use std::{path::PathBuf, sync::Arc};
 
@@ -232,7 +234,8 @@ impl UiMainWindow {
                         }
                         if ui.button("World Map Editor").clicked() {
                             let Some(path) = self.rom_path.clone() else {
-                                self.save_error = Some("No ROM path available for emulator-backed overworld view.".into());
+                                self.save_error =
+                                    Some("No ROM path available for emulator-backed overworld view.".into());
                                 ui.close_menu();
                                 return;
                             };

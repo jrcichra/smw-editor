@@ -39,15 +39,15 @@ const SUBMAP_VIEW_W: u32 = 224;
 const SUBMAP_VIEW_H: u32 = 168;
 
 /// Full BG tilemap size after the game composes the active overworld into VRAM.
-const VRAM_TILE_ROWS: u32 = 64;
-const VRAM_L1_TILEMAP_BASE: usize = 0x2000 * 2;
-const VRAM_L2_TILEMAP_BASE: usize = 0x3000 * 2;
+pub(super) const VRAM_TILE_ROWS: u32 = 64;
+pub(super) const VRAM_L1_TILEMAP_BASE: usize = 0x2000 * 2;
+pub(super) const VRAM_L2_TILEMAP_BASE: usize = 0x3000 * 2;
 
 // ── SNES overworld tile-index helpers ─────────────────────────────────────────
 
-const OW_L2_COLS: u32 = 64;
+pub(super) const OW_L2_COLS: u32 = 64;
 
-fn tilemap_vram_addr(base: usize, col: u32, row: u32) -> usize {
+pub(super) fn tilemap_vram_addr(base: usize, col: u32, row: u32) -> usize {
     let quadrant = ((row / 32) * 2) + (col / 32);
     let sub_row = row % 32;
     let sub_col = col % 32;
@@ -56,7 +56,7 @@ fn tilemap_vram_addr(base: usize, col: u32, row: u32) -> usize {
     base + idx as usize
 }
 
-fn visible_map_size(submap: u8) -> (u32, u32) {
+pub(super) fn visible_map_size(submap: u8) -> (u32, u32) {
     if submap == 0 {
         (512, 512)
     } else {
@@ -64,7 +64,7 @@ fn visible_map_size(submap: u8) -> (u32, u32) {
     }
 }
 
-fn visible_map_crop(submap: u8) -> (u32, u32) {
+pub(super) fn visible_map_crop(submap: u8) -> (u32, u32) {
     if submap == 0 {
         (0, 0)
     } else {
@@ -72,7 +72,7 @@ fn visible_map_crop(submap: u8) -> (u32, u32) {
     }
 }
 
-fn l1_vram_addr_for_map16(submap: u8, map16_x: u32, map16_y: u32) -> usize {
+pub(super) fn l1_vram_addr_for_map16(submap: u8, map16_x: u32, map16_y: u32) -> usize {
     let (crop_x, crop_y) = visible_map_crop(submap);
     let tile_x = (map16_x * 16 + crop_x) / 8;
     let tile_y = (map16_y * 16 + crop_y) / 8;
@@ -82,7 +82,7 @@ fn l1_vram_addr_for_map16(submap: u8, map16_x: u32, map16_y: u32) -> usize {
 // ── OpenGL renderer ───────────────────────────────────────────────────────────
 
 #[derive(Debug)]
-struct OverworldRenderer {
+pub(super) struct OverworldRenderer {
     layer1: TileRenderer,
     layer2: TileRenderer,
     gfx_bufs: GfxBuffers,
@@ -124,7 +124,7 @@ impl OverworldRenderer {
         }
     }
 
-    fn set_tiles(&mut self, gl: &glow::Context, l1: Vec<Tile>, l2: Vec<Tile>) {
+    pub(super) fn set_tiles(&mut self, gl: &glow::Context, l1: Vec<Tile>, l2: Vec<Tile>) {
         if !self.destroyed {
             self.layer1.set_tiles(gl, l1);
             self.layer2.set_tiles(gl, l2);
@@ -148,21 +148,28 @@ impl OverworldRenderer {
 // ── Editor ────────────────────────────────────────────────────────────────────
 
 pub struct UiWorldEditor {
-    gl: Arc<glow::Context>,
+    pub(super) gl: Arc<glow::Context>,
     #[allow(dead_code)]
     rom: Arc<SmwRom>,
-    cpu: Cpu,
-    renderer: Arc<Mutex<OverworldRenderer>>,
+    pub(super) cpu: Cpu,
+    pub(super) renderer: Arc<Mutex<OverworldRenderer>>,
 
-    submap: u8,
+    pub(super) submap: u8,
 
     offset: Vec2,
     zoom: f32,
     show_grid: bool,
     show_layer1: bool,
     show_layer2: bool,
-    selected_tile: Option<(u32, u32)>,
+    pub(super) selected_tile: Option<(u32, u32)>,
     needs_center: bool,
+
+    // Editing state
+    pub(super) editing_mode: crate::ui::editing_mode::EditingMode,
+    pub(super) draw_tile_num: u8,
+    pub(super) draw_palette: u8,
+    pub(super) draw_tile_attr: u8,
+    pub(super) tile_picker: crate::ui::ow_tile_picker::OwTilePicker,
 }
 
 impl UiWorldEditor {
@@ -188,6 +195,11 @@ impl UiWorldEditor {
             show_layer2: true,
             selected_tile: None,
             needs_center: false,
+            editing_mode: crate::ui::editing_mode::EditingMode::Select,
+            draw_tile_num: 0x00,
+            draw_palette: 0,
+            draw_tile_attr: 0x00,
+            tile_picker: crate::ui::ow_tile_picker::OwTilePicker::new(),
         };
         editor.load_submap();
         editor
@@ -211,6 +223,9 @@ impl UiWorldEditor {
         log::info!("Loaded submap {}: L1={} tiles, L2={} tiles", self.submap, l1.len(), l2.len());
 
         r.set_tiles(&self.gl, l1, l2);
+
+        // Rebuild the tile picker from current VRAM
+        self.tile_picker.rebuild(&self.cpu.mem.vram, &self.cpu.mem.cgram);
 
         self.offset = Vec2::ZERO;
         self.selected_tile = None;
@@ -237,62 +252,138 @@ impl DockableEditorTool for UiWorldEditor {
 
 impl UiWorldEditor {
     fn left_panel(&mut self, ui: &mut Ui) {
-        ui.heading("Overworld");
-        ui.add_space(4.0);
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.heading("Overworld");
+            ui.add_space(4.0);
 
-        // Submap selector
-        ui.horizontal(|ui| {
-            ui.label("Submap");
-            let prev = self.submap;
-            egui::ComboBox::from_id_source("world_editor.submap")
-                .selected_text(SUBMAP_NAMES.get(self.submap as usize).copied().unwrap_or("Submap"))
-                .show_ui(ui, |ui| {
-                    for (i, name) in SUBMAP_NAMES.iter().enumerate() {
-                        ui.selectable_value(&mut self.submap, i as u8, *name);
+            // Submap selector
+            ui.horizontal(|ui| {
+                ui.label("Submap");
+                let prev = self.submap;
+                egui::ComboBox::from_id_source("world_editor.submap")
+                    .selected_text(SUBMAP_NAMES.get(self.submap as usize).copied().unwrap_or("Submap"))
+                    .show_ui(ui, |ui| {
+                        for (i, name) in SUBMAP_NAMES.iter().enumerate() {
+                            ui.selectable_value(&mut self.submap, i as u8, *name);
+                        }
+                    });
+                if self.submap != prev {
+                    self.load_submap();
+                }
+            });
+
+            ui.separator();
+
+            // Zoom
+            ui.add(egui::Slider::new(&mut self.zoom, 0.5..=8.0).step_by(0.25).text("Zoom"));
+            if ui.button("Reset View").clicked() {
+                self.offset = Vec2::ZERO;
+                self.zoom = 2.0;
+            }
+
+            ui.separator();
+
+            ui.checkbox(&mut self.show_layer1, "Show Layer 1");
+            ui.checkbox(&mut self.show_layer2, "Show Layer 2");
+            ui.checkbox(&mut self.show_grid, "Show Grid");
+
+            // ── Editing mode toolbar ────────────────────────────────
+            ui.separator();
+            ui.label("Mode:");
+            ui.horizontal(|ui| {
+                let modes = [
+                    ("Select [1]", crate::ui::editing_mode::EditingMode::Select),
+                    ("Draw [2]", crate::ui::editing_mode::EditingMode::Draw),
+                    ("Erase [3]", crate::ui::editing_mode::EditingMode::Erase),
+                ];
+                for (label, mode) in modes {
+                    let active = self.editing_mode == mode;
+                    let fill = if active { Some(Color32::from_rgb(70, 130, 200)) } else { None };
+                    let btn = egui::Button::new(label);
+                    let btn = if let Some(f) = fill { btn.fill(f) } else { btn };
+                    if ui.add(btn).clicked() {
+                        self.editing_mode = mode;
+                    }
+                }
+            });
+
+            // ── Draw mode tile picker ───────────────────────────────
+            if self.editing_mode == crate::ui::editing_mode::EditingMode::Draw {
+                ui.separator();
+                ui.label("Paint tile:");
+                ui.horizontal(|ui| {
+                    ui.label(format!("Tile: {:#04X}", self.draw_tile_num));
+                    let mut t = self.draw_tile_num as u16;
+                    if ui
+                        .add(egui::Slider::new(&mut t, 0..=0xFF).show_value(false).hexadecimal(2, false, false))
+                        .changed()
+                    {
+                        self.draw_tile_num = t as u8;
                     }
                 });
-            if self.submap != prev {
-                self.load_submap();
+                ui.horizontal(|ui| {
+                    ui.label("Palette:");
+                    let mut p = self.draw_palette as u16;
+                    if ui.add(egui::Slider::new(&mut p, 0..=7)).changed() {
+                        self.draw_palette = p as u8;
+                    }
+                });
+
+                // VRAM tile picker grid
+                let tex = self.tile_picker.texture(ui.ctx());
+                let tex_size = tex.size();
+                let max_w = ui.available_width().min(300.0);
+                let display_w = max_w;
+                let display_h = display_w;
+                let (rect, resp) = ui.allocate_exact_size(vec2(display_w, display_h), egui::Sense::click());
+                ui.painter().image(
+                    tex.id(),
+                    rect,
+                    Rect::from_min_size(egui::pos2(0.0, 0.0), vec2(1.0, 1.0)),
+                    Color32::WHITE,
+                );
+
+                if resp.clicked_by(egui::PointerButton::Primary) {
+                    if let Some(pos) = resp.interact_pointer_pos() {
+                        let rel = pos - rect.min;
+                        let px = rel.x / display_w * tex_size[0] as f32;
+                        let py = rel.y / display_h * tex_size[1] as f32;
+                        if let Some(tile_num) = self.tile_picker.tile_at_pixel(px, py) {
+                            self.draw_tile_num = tile_num;
+                        }
+                    }
+                }
+
+                // Highlight selected tile
+                let sel_col = (self.draw_tile_num as usize % 32) as f32;
+                let sel_row = (self.draw_tile_num as usize / 32) as f32;
+                let tile_screen = display_w / 32.0;
+                let sel_rect = Rect::from_min_size(
+                    rect.min + vec2(sel_col * tile_screen, sel_row * tile_screen),
+                    vec2(tile_screen, tile_screen),
+                );
+                ui.painter().rect_stroke(sel_rect, Rounding::ZERO, Stroke::new(2.0, Color32::YELLOW));
+            }
+
+            ui.separator();
+
+            // Selected tile info
+            if let Some((x, y)) = self.selected_tile {
+                ui.label(format!("Selected: ({x}, {y})"));
+                let addr = l1_vram_addr_for_map16(self.submap, x, y);
+                let sub0 = u16::from_le_bytes([self.cpu.mem.vram[addr], self.cpu.mem.vram[addr + 1]]);
+                let tile_num = (sub0 & 0x3FF) as u32;
+                let pal = ((sub0 >> 10) & 0x7) as u32;
+                let flip_x = (sub0 & 0x4000) != 0;
+                let flip_y = (sub0 & 0x8000) != 0;
+                ui.monospace(format!("  TL vram #{tile_num:03X}  pal {pal}"));
+                if flip_x || flip_y {
+                    ui.monospace(format!("  flip x={flip_x} y={flip_y}"));
+                }
+            } else {
+                ui.label("Selected: (none)");
             }
         });
-
-        ui.separator();
-
-        // Zoom
-        ui.add(egui::Slider::new(&mut self.zoom, 0.5..=8.0).step_by(0.25).text("Zoom"));
-        if ui.button("Reset View").clicked() {
-            self.offset = Vec2::ZERO;
-            self.zoom = 2.0;
-        }
-
-        ui.separator();
-
-        ui.checkbox(&mut self.show_layer1, "Show Layer 1");
-        ui.checkbox(&mut self.show_layer2, "Show Layer 2");
-        ui.checkbox(&mut self.show_grid, "Show Grid");
-
-        ui.separator();
-
-        // Selected tile info
-        if let Some((x, y)) = self.selected_tile {
-            ui.label(format!("Selected: ({x}, {y})"));
-            let addr = l1_vram_addr_for_map16(self.submap, x, y);
-            let sub0 = u16::from_le_bytes([self.cpu.mem.vram[addr], self.cpu.mem.vram[addr + 1]]);
-            let tile_num = (sub0 & 0x3FF) as u32;
-            let pal = ((sub0 >> 10) & 0x7) as u32;
-            let flip_x = (sub0 & 0x4000) != 0;
-            let flip_y = (sub0 & 0x8000) != 0;
-            ui.monospace(format!("  TL vram #{tile_num:03X}  pal {pal}"));
-            if flip_x || flip_y {
-                ui.monospace(format!("  flip x={flip_x} y={flip_y}"));
-            }
-        } else {
-            ui.label("Selected: (none)");
-        }
-
-        ui.add_space(ui.available_height() - 40.0);
-        ui.weak("Drag/MMB: pan   Wheel: zoom");
-        ui.weak("Click: select tile");
     }
 
     fn central_panel(&mut self, ui: &mut Ui) {
@@ -391,7 +482,10 @@ impl UiWorldEditor {
                     Rect::from_min_size(origin + vec2(x as f32 * map16_sz, y as f32 * map16_sz), Vec2::splat(map16_sz));
                 painter.rect_stroke(tile_rect, Rounding::ZERO, Stroke::new(1.0, Color32::WHITE));
 
-                if resp.clicked_by(egui::PointerButton::Primary) {
+                if resp.clicked_by(egui::PointerButton::Primary)
+                    && (self.editing_mode == crate::ui::editing_mode::EditingMode::Select
+                        || ui.input(|i| i.modifiers.alt))
+                {
                     self.selected_tile = Some((x, y));
                 }
 
@@ -405,6 +499,22 @@ impl UiWorldEditor {
             }
         }
 
+        // ── Editing interaction ─────────────────────────────────────
+        self.handle_editing_interaction(&resp, origin, map16_sz);
+
+        // ── Keyboard shortcuts ──────────────────────────────────────
+        ui.input_mut(|input| {
+            if input.key_pressed(egui::Key::Num1) {
+                self.editing_mode = crate::ui::editing_mode::EditingMode::Select;
+            }
+            if input.key_pressed(egui::Key::Num2) {
+                self.editing_mode = crate::ui::editing_mode::EditingMode::Draw;
+            }
+            if input.key_pressed(egui::Key::Num3) {
+                self.editing_mode = crate::ui::editing_mode::EditingMode::Erase;
+            }
+        });
+
         // ── Selected tile highlight ───────────────────────────────────────────
         if let Some((x, y)) = self.selected_tile {
             let r = Rect::from_min_size(origin + vec2(x as f32 * map16_sz, y as f32 * map16_sz), Vec2::splat(map16_sz));
@@ -416,7 +526,7 @@ impl UiWorldEditor {
 // ── Tile list builders ────────────────────────────────────────────────────────
 
 /// Build draw list from the composed BG tilemap already uploaded to VRAM.
-fn build_bg_tiles(vram: &[u8], tilemap_base: usize, submap: u8, scroll_x: i32, scroll_y: i32) -> Vec<Tile> {
+pub(super) fn build_bg_tiles(vram: &[u8], tilemap_base: usize, submap: u8, scroll_x: i32, scroll_y: i32) -> Vec<Tile> {
     let mut tiles = Vec::with_capacity((OW_L2_COLS * VRAM_TILE_ROWS) as usize);
     let (crop_x, crop_y, view_w, view_h) = if submap == 0 {
         (0, 0, 512, 512)
