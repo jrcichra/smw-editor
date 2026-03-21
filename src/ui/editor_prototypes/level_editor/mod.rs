@@ -177,9 +177,17 @@ impl UiLevelEditor {
 
     /// Compute the WRAM block map index from block (tile) coordinates.
     /// Must produce the same index as `load_layer`'s reverse mapping.
-    fn block_map_index(&self, block_x: u32, block_y: u32) -> u32 {
+    fn block_map_index(&mut self, block_x: u32, block_y: u32) -> u32 {
         let vertical = self.level_properties.is_vertical;
-        let has_layer2 = self.level_properties.has_layer2;
+
+        // Compute has_layer2 exactly as load_layer does (mode-based renderer check).
+        let has_layer2 = {
+            let mode = self.cpu.mem.load_u8(0x1925);
+            let renderer_table = self.cpu.mem.cart.resolve("CODE_058955").unwrap() + 9;
+            let renderer = self.cpu.mem.load_u24(renderer_table + (mode as u32) * 3);
+            let l2_renderers = [self.cpu.mem.cart.resolve("CODE_058B8D"), self.cpu.mem.cart.resolve("CODE_058C71")];
+            l2_renderers.contains(&Some(renderer))
+        };
 
         let scr_len = if vertical {
             if has_layer2 {
@@ -215,7 +223,8 @@ impl UiLevelEditor {
             let screen = screen_col / scr_len as u32;
             let col = screen_col % scr_len as u32;
             let row = block_y;
-            (screen, row * scr_len as u32 + col)
+            let sidx = row * scr_len as u32 + col;
+            (screen, sidx)
         };
 
         screen * scr_size as u32 + sidx

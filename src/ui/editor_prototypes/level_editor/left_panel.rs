@@ -6,10 +6,12 @@ use crate::ui::editing_mode::EditingMode;
 
 impl UiLevelEditor {
     pub(super) fn left_panel(&mut self, ui: &mut Ui) {
-        ui.add_space(ui.spacing().item_spacing.y);
-        ui.group(|ui| {
-            ui.allocate_space(vec2(ui.available_width(), 0.));
-            self.controls_panel(ui);
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.add_space(ui.spacing().item_spacing.y);
+            ui.group(|ui| {
+                ui.allocate_space(vec2(ui.available_width(), 0.));
+                self.controls_panel(ui);
+            });
         });
     }
 
@@ -81,7 +83,8 @@ impl UiLevelEditor {
             // Tile picker grid
             let tex = self.tile_picker.texture(ui.ctx());
             let tex_size = tex.size();
-            let display_w = ui.available_width().min(tex_size[0] as f32 * 2.0);
+            let max_w = ui.available_width().min(300.0);
+            let display_w = max_w.min(tex_size[0] as f32 * 2.0);
             let display_h = display_w * (tex_size[1] as f32 / tex_size[0] as f32);
             let (rect, resp) = ui.allocate_exact_size(vec2(display_w, display_h), Sense::click());
             ui.painter().image(

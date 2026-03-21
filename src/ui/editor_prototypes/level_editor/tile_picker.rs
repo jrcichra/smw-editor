@@ -18,11 +18,12 @@ const TEX_H: usize = ROWS * BLOCK_PX; // 512
 pub(super) struct TilePicker {
     pixels: Vec<u8>, // RGBA, TEX_W * TEX_H * 4
     texture: Option<TextureHandle>,
+    dirty: bool,
 }
 
 impl TilePicker {
     pub fn new() -> Self {
-        Self { pixels: vec![0u8; TEX_W * TEX_H * 4], texture: None }
+        Self { pixels: vec![0u8; TEX_W * TEX_H * 4], texture: None, dirty: true }
     }
 
     /// Decode all 512 Map16 blocks from the current VRAM/CGRAM state.
@@ -65,17 +66,23 @@ impl TilePicker {
             }
         }
 
-        // Mark texture as stale so it gets re-uploaded.
-        self.texture = None;
+        self.dirty = true;
     }
 
     /// Get the egui texture handle, creating or updating as needed.
-    pub fn texture(&mut self, ctx: &egui::Context) -> &TextureHandle {
+    pub fn texture(&mut self, ctx: &egui::Context) -> TextureHandle {
         if self.texture.is_none() {
             let image = egui::ColorImage::from_rgba_unmultiplied([TEX_W, TEX_H], &self.pixels);
-            self.texture = Some(ctx.load_texture("level_tile_picker", image, egui::TextureOptions::NEAREST));
+            let handle = ctx.load_texture("level_tile_picker", image, egui::TextureOptions::NEAREST);
+            self.texture = Some(handle);
+            self.dirty = false;
         }
-        self.texture.as_ref().unwrap()
+        if self.dirty {
+            let image = egui::ColorImage::from_rgba_unmultiplied([TEX_W, TEX_H], &self.pixels);
+            self.texture.as_mut().unwrap().set(image, egui::TextureOptions::NEAREST);
+            self.dirty = false;
+        }
+        self.texture.as_ref().unwrap().clone()
     }
 
     /// Convert a pixel position within the texture to a block ID (0-511).
