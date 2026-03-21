@@ -94,6 +94,13 @@ impl UiLevelEditor {
         };
         self.offset = Vec2::ZERO;
 
+        // Reset emulator RAM before loading the new level so no state leaks
+        // from the previously loaded level (stale sprite tables, VRAM, etc.).
+        self.cpu.mem.wram.fill(0);
+        self.cpu.mem.vram.fill(0);
+        self.cpu.mem.cgram.fill(0);
+        self.cpu.mem.regs.fill(0);
+
         // Decompress level: fills WRAM block maps, VRAM tile graphics, CGRAM palette.
         smwe_emu::emu::decompress_sublevel(&mut self.cpu, self.level_num);
 
