@@ -1,6 +1,9 @@
 use egui::Vec2;
 use glow::*;
-use smwe_emu::{emu::{RawOamEntry, SpriteOamTile}, Cpu};
+use smwe_emu::{
+    emu::{RawOamEntry, SpriteOamTile},
+    Cpu,
+};
 use smwe_render::{
     gfx_buffers::GfxBuffers,
     tile_renderer::{Tile, TileRenderer, TileUniforms},
@@ -35,7 +38,9 @@ impl LevelRenderer {
     }
 
     pub(super) fn paint(&self, gl: &Context, screen_size: Vec2, zoom: f32) {
-        if self.destroyed { return; }
+        if self.destroyed {
+            return;
+        }
         let uniforms = TileUniforms { gfx_bufs: self.gfx_bufs, screen_size, offset: self.offset, zoom };
         self.layer2.paint(gl, &uniforms);
         self.layer1.paint(gl, &uniforms);
@@ -43,17 +48,23 @@ impl LevelRenderer {
     }
 
     pub(super) fn upload_gfx(&self, gl: &Context, data: &[u8]) {
-        if self.destroyed { return; }
+        if self.destroyed {
+            return;
+        }
         self.gfx_bufs.upload_vram(gl, data);
     }
 
     pub(super) fn upload_palette(&self, gl: &Context, data: &[u8]) {
-        if self.destroyed { return; }
+        if self.destroyed {
+            return;
+        }
         self.gfx_bufs.upload_palette(gl, data);
     }
 
     pub(super) fn upload_level(&mut self, gl: &Context, cpu: &mut Cpu) {
-        if self.destroyed { return; }
+        if self.destroyed {
+            return;
+        }
         self.load_layer(gl, cpu, false);
         self.load_layer(gl, cpu, true);
     }
@@ -66,13 +77,12 @@ impl LevelRenderer {
     /// so every tile of multi-tile sprites (Wiggler body, Dragon Coin frame) is
     /// placed correctly relative to the sprite's actual in-level position.
     pub(super) fn upload_sprites(
-        &mut self,
-        gl: &Context,
-        sprite_layer: &smwe_rom::level::SpriteLayer,
-        oam_map: &std::collections::HashMap<u8, Vec<SpriteOamTile>>,
-        vertical: bool,
+        &mut self, gl: &Context, sprite_layer: &smwe_rom::level::SpriteLayer,
+        oam_map: &std::collections::HashMap<u8, Vec<SpriteOamTile>>, vertical: bool,
     ) {
-        if self.destroyed { return; }
+        if self.destroyed {
+            return;
+        }
         let mut tiles = Vec::new();
 
         for spr in &sprite_layer.sprites {
@@ -123,19 +133,16 @@ impl LevelRenderer {
     /// Render sprites directly from a raw OAM snapshot taken after exec_sprites().
     /// Since the camera starts at (0,0) after decompress_sublevel, OAM X/Y are
     /// already level-space pixel coordinates — no anchor math needed.
-    pub(super) fn upload_sprites_oam(
-        &mut self,
-        gl: &Context,
-        entries: &[RawOamEntry],
-        _vertical: bool,
-    ) {
-        if self.destroyed { return; }
+    pub(super) fn upload_sprites_oam(&mut self, gl: &Context, entries: &[RawOamEntry], _vertical: bool) {
+        if self.destroyed {
+            return;
+        }
         let mut tiles = Vec::new();
 
         for entry in entries {
             let px = entry.x as u32;
             let py = entry.y as u32;
-            let t  = entry.tile_word;
+            let t = entry.tile_word;
 
             if entry.is_16x16 {
                 let (xn, xf) = if t & 0x4000 == 0 { (0u32, 8u32) } else { (8, 0) };
@@ -155,7 +162,9 @@ impl LevelRenderer {
     }
 
     pub(super) fn set_offset(&mut self, offset: Vec2) {
-        if self.destroyed { return; }
+        if self.destroyed {
+            return;
+        }
         self.offset = offset;
     }
 
@@ -176,16 +185,19 @@ impl LevelRenderer {
 
         let scr_len = match (vertical, has_layer2) {
             (false, false) => 0x20,
-            (true, false)  => 0x1C,
-            (false, true)  => 0x10,
-            (true, true)   => 0x0E,
+            (true, false) => 0x1C,
+            (false, true) => 0x10,
+            (true, true) => 0x0E,
         };
         let scr_size = if vertical { 16 * 32 } else { 16 * 27 };
 
         let (blocks_lo_addr, blocks_hi_addr) = match (bg, has_layer2) {
-            (true, true)  => { let o = scr_len * scr_size; (0x7EC800 + o, 0x7FC800 + o) }
+            (true, true) => {
+                let o = scr_len * scr_size;
+                (0x7EC800 + o, 0x7FC800 + o)
+            }
             (true, false) => (0x7EB900, 0x7EBD00),
-            (false, _)    => (0x7EC800, 0x7FC800),
+            (false, _) => (0x7EC800, 0x7FC800),
         };
 
         let len = if has_layer2 { 256 * 27 } else { 512 * 27 };
@@ -218,7 +230,11 @@ impl LevelRenderer {
             }
         }
 
-        if bg { self.layer2.set_tiles(gl, tiles); } else { self.layer1.set_tiles(gl, tiles); }
+        if bg {
+            self.layer2.set_tiles(gl, tiles);
+        } else {
+            self.layer1.set_tiles(gl, tiles);
+        }
     }
 }
 

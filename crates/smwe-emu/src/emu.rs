@@ -36,8 +36,12 @@ impl CheckedMem {
         }
     }
 
-    pub fn load_u8(&mut self, addr: u32) -> u8 { self.load(addr) }
-    pub fn store_u8(&mut self, addr: u32, value: u8) { self.store(addr, value) }
+    pub fn load_u8(&mut self, addr: u32) -> u8 {
+        self.load(addr)
+    }
+    pub fn store_u8(&mut self, addr: u32, value: u8) {
+        self.store(addr, value)
+    }
 
     pub fn load_u16(&mut self, addr: u32) -> u16 {
         let l = self.load(addr);
@@ -162,7 +166,9 @@ impl CheckedMem {
 }
 
 impl Mem for CheckedMem {
-    fn load(&mut self, addr: u32) -> u8 { self.map(addr, None) }
+    fn load(&mut self, addr: u32) -> u8 {
+        self.map(addr, None)
+    }
     fn store(&mut self, addr: u32, value: u8) {
         self.map(addr, Some(value));
         self.last_store = Some(addr);
@@ -189,9 +195,17 @@ fn run_routines(cpu: &mut Cpu<CheckedMem>, routines: &[&str], cycle_limit: u64) 
     let mut cy = 0u64;
     loop {
         cy += cpu.dispatch() as u64;
-        if cpu.ill { log::warn!("illegal instruction at {:02X}:{:04X}", cpu.pbr, cpu.pc); break; }
-        if cpu.pbr == 0 && cpu.pc == end { break; }
-        if cy > cycle_limit { log::warn!("exceeded cycle limit"); break; }
+        if cpu.ill {
+            log::warn!("illegal instruction at {:02X}:{:04X}", cpu.pbr, cpu.pc);
+            break;
+        }
+        if cpu.pbr == 0 && cpu.pc == end {
+            break;
+        }
+        if cy > cycle_limit {
+            log::warn!("exceeded cycle limit");
+            break;
+        }
         cpu.mem.process_dma();
     }
     cy
@@ -249,9 +263,11 @@ pub fn sprite_oam_tiles(cpu: &mut Cpu<CheckedMem>, id: u8) -> Vec<SpriteOamTile>
     for slot in 0..64u32 {
         let raw_x = cpu.mem.load_u8(0x300 + slot * 4) as i32;
         let raw_y = cpu.mem.load_u8(0x301 + slot * 4) as i32;
-        let tile  = cpu.mem.load_u16(0x302 + slot * 4);
-        let size  = cpu.mem.load_u8(0x460 + slot);
-        if raw_y >= 0xE0 || tile == 0 { continue; }
+        let tile = cpu.mem.load_u16(0x302 + slot * 4);
+        let size = cpu.mem.load_u8(0x460 + slot);
+        if raw_y >= 0xE0 || tile == 0 {
+            continue;
+        }
 
         tiles.push(SpriteOamTile {
             dx: raw_x - ANCHOR_X,
@@ -270,7 +286,7 @@ pub fn sprite_oam_tiles(cpu: &mut Cpu<CheckedMem>, id: u8) -> Vec<SpriteOamTile>
 pub struct RawOamEntry {
     pub x: u8,
     pub y: u8,
-    pub tile_word: u16,  // [attr_byte][tile_byte] little-endian u16
+    pub tile_word: u16, // [attr_byte][tile_byte] little-endian u16
     pub is_16x16: bool,
 }
 
@@ -280,17 +296,14 @@ pub struct RawOamEntry {
 pub fn read_oam_snapshot(cpu: &mut Cpu<CheckedMem>) -> Vec<RawOamEntry> {
     let mut entries = Vec::new();
     for slot in 0..64u32 {
-        let x    = cpu.mem.load_u8(0x300 + slot * 4);
-        let y    = cpu.mem.load_u8(0x301 + slot * 4);
+        let x = cpu.mem.load_u8(0x300 + slot * 4);
+        let y = cpu.mem.load_u8(0x301 + slot * 4);
         let tile = cpu.mem.load_u16(0x302 + slot * 4);
         let size = cpu.mem.load_u8(0x460 + slot);
-        if y >= 0xE0 || tile == 0 { continue; }
-        entries.push(RawOamEntry {
-            x,
-            y,
-            tile_word: tile,
-            is_16x16: (size & 0x02) != 0,
-        });
+        if y >= 0xE0 || tile == 0 {
+            continue;
+        }
+        entries.push(RawOamEntry { x, y, tile_word: tile, is_16x16: (size & 0x02) != 0 });
     }
     entries
 }
@@ -309,8 +322,14 @@ pub fn decompress_sublevel(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
     cpu.trace = false;
 
     let routines = [
-        "CODE_00A993", "CODE_00B888", "CODE_05D796", "CODE_05801E",
-        "UploadSpriteGFX", "LoadPalette", "CODE_00922F", "InitSpriteTables",
+        "CODE_00A993",
+        "CODE_00B888",
+        "CODE_05D796",
+        "CODE_05801E",
+        "UploadSpriteGFX",
+        "LoadPalette",
+        "CODE_00922F",
+        "InitSpriteTables",
         // Upload the dynamic palette table to CGRAM - this commits any palette
         // entries (e.g. Dragon Coin gold oval) that LoadPalette queued into
         // DynPaletteTable but didn't write to CGRAM directly.
@@ -326,10 +345,26 @@ pub fn decompress_sublevel(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
     let mut cy = 0u64;
     loop {
         cy += cpu.dispatch() as u64;
-        if cpu.ill { println!("ILLEGAL INSTR"); break; }
-        if cpu.pc == 0xD8B7 && cpu.pbr == 0x05 { cpu.mem.store_u16(0xE, id); }
-        if cpu.pbr == 0 && cpu.pc == end { break; }
+        if cpu.ill {
+            println!("ILLEGAL INSTR");
+            break;
+        }
+        if cpu.pc == 0xD8B7 && cpu.pbr == 0x05 {
+            cpu.mem.store_u16(0xE, id);
+        }
+        if cpu.pbr == 0 && cpu.pc == end {
+            break;
+        }
         cpu.mem.process_dma();
+    }
+    // Fix dragon coin palette: copy gold colors from row 10 colors 0-7 to 8-15
+    // Dragon coin tiles use color indices 9, 12, 13 which are in the upper half
+    let row_10_base = 0xA0 * 2;
+    for c in 0..8usize {
+        let src = row_10_base + c * 2;
+        let dst = row_10_base + (c + 8) * 2;
+        cpu.mem.cgram[dst] = cpu.mem.cgram[src];
+        cpu.mem.cgram[dst + 1] = cpu.mem.cgram[src + 1];
     }
     println!("decompress_sublevel took {}µs", now.elapsed().as_micros());
     cy
@@ -347,10 +382,8 @@ pub fn decompress_extram(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
     cpu.dbr = 0x00;
     cpu.trace = false;
 
-    let routines = [
-        "CODE_00A993", "CODE_00B888", "CODE_05D796", "CODE_05801E",
-        "UploadSpriteGFX", "LoadPalette", "CODE_00922F",
-    ];
+    let routines =
+        ["CODE_00A993", "CODE_00B888", "CODE_05D796", "CODE_05801E", "UploadSpriteGFX", "LoadPalette", "CODE_00922F"];
     let mut addr = 0x2000u32;
     for i in routines {
         cpu.mem.store(addr, 0x22);
@@ -362,10 +395,19 @@ pub fn decompress_extram(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
     let mut cy = 0u64;
     loop {
         cy += cpu.dispatch() as u64;
-        if cpu.ill { println!("ILLEGAL INSTR"); break; }
-        if cpu.pc == 0xD8B7 && cpu.pbr == 0x05 { cpu.mem.store_u16(0xE, id); }
-        if cpu.pbr == 0 && cpu.pc == end { break; }
-        if cpu.pc == 0x200C { cpu.mem.store_u24(layer1_data_ptr, 0x600000); }
+        if cpu.ill {
+            println!("ILLEGAL INSTR");
+            break;
+        }
+        if cpu.pc == 0xD8B7 && cpu.pbr == 0x05 {
+            cpu.mem.store_u16(0xE, id);
+        }
+        if cpu.pbr == 0 && cpu.pc == end {
+            break;
+        }
+        if cpu.pc == 0x200C {
+            cpu.mem.store_u24(layer1_data_ptr, 0x600000);
+        }
         cpu.mem.process_dma();
     }
     println!("decompress_extram took {}µs", now.elapsed().as_micros());
@@ -421,9 +463,17 @@ pub fn load_overworld(cpu: &mut Cpu<CheckedMem>, submap: u8) -> u64 {
     let mut cy = 0u64;
     loop {
         cy += cpu.dispatch() as u64;
-        if cpu.ill { log::warn!("illegal instruction at {:02X}:{:04X}", cpu.pbr, cpu.pc); break; }
-        if cpu.pbr == 0 && cpu.pc == end { break; }
-        if cy > 50_000_000 { log::warn!("exceeded cycle limit"); break; }
+        if cpu.ill {
+            log::warn!("illegal instruction at {:02X}:{:04X}", cpu.pbr, cpu.pc);
+            break;
+        }
+        if cpu.pbr == 0 && cpu.pc == end {
+            break;
+        }
+        if cy > 50_000_000 {
+            log::warn!("exceeded cycle limit");
+            break;
+        }
         cpu.mem.process_dma();
     }
     log::info!("load_overworld(submap={submap}) took {}µs", now.elapsed().as_micros());
