@@ -42,6 +42,8 @@ pub struct UiLevelEditor {
     level_properties: LevelProperties,
     layer1: UndoableData<EditableObjectLayer>,
     tile_picker: TilePicker,
+    preview_texture: Option<egui::TextureHandle>,
+    preview_for: Option<(u32, u32)>,
 
     // Editing state
     editing_mode: EditingMode,
@@ -76,6 +78,8 @@ impl UiLevelEditor {
             level_properties: LevelProperties::default(),
             layer1: UndoableData::new(EditableObjectLayer::default()),
             tile_picker: TilePicker::new(),
+            preview_texture: None,
+            preview_for: None,
             editing_mode: EditingMode::Select,
             selected_object_indices: HashSet::new(),
             draw_object_id: 0x00,

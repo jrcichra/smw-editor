@@ -62,7 +62,7 @@ impl TilePicker {
                 let hi = cpu.mem.cart.read(tile_word_addr + 1).unwrap_or(0);
                 let t = lo as u16 | ((hi as u16) << 8);
 
-                render_sub_tile(vram, cgram, t, x0 + sx, y0 + sy, &mut self.pixels);
+                render_sub_tile(vram, cgram, t, x0 + sx, y0 + sy, &mut self.pixels, TEX_W);
             }
         }
 
@@ -106,7 +106,7 @@ impl TilePicker {
 }
 
 /// Decode a single 8×8 SNES 4bpp tile from VRAM and write RGBA pixels.
-fn render_sub_tile(vram: &[u8], cgram: &[u8], t: u16, x0: u32, y0: u32, pixels: &mut [u8]) {
+fn render_sub_tile(vram: &[u8], cgram: &[u8], t: u16, x0: u32, y0: u32, pixels: &mut [u8], stride: usize) {
     let tile_num = (t & 0x3FF) as usize;
     let pal = ((t >> 10) & 0x7) as usize;
     let flip_x = (t & 0x4000) != 0;
@@ -149,7 +149,7 @@ fn render_sub_tile(vram: &[u8], cgram: &[u8], t: u16, x0: u32, y0: u32, pixels: 
 
             let px_abs = x0 + tx;
             let py_abs = y0 + ty;
-            let off = ((py_abs as usize) * TEX_W + px_abs as usize) * 4;
+            let off = ((py_abs as usize) * stride + px_abs as usize) * 4;
             if off + 3 < pixels.len() {
                 pixels[off] = r;
                 pixels[off + 1] = g;
@@ -158,4 +158,24 @@ fn render_sub_tile(vram: &[u8], cgram: &[u8], t: u16, x0: u32, y0: u32, pixels: 
             }
         }
     }
+}
+
+/// Render a single Map16 block (16×16) into a 16×16 RGBA pixel buffer.
+/// Returns the pixels and a 16×16 egui::ColorImage.
+pub(super) fn render_block_image(block_id: u16, cpu: &mut Cpu) -> egui::ColorImage {
+    let mut pixels = vec![0u8; 16 * 16 * 4];
+    let map16_bank = cpu.mem.cart.resolve("Map16Common").unwrap_or(0) & 0xFF0000;
+    let ptr_lo = 0x0FBE + (block_id as usize) * 2;
+    if ptr_lo + 1 < 0x10000 {
+        let block_ptr = cpu.mem.load_u16(ptr_lo as u32) as u32 + map16_bank;
+        let sub_offsets = [(0u32, 0u32), (0, 8), (8, 0), (8, 8)];
+        for (sub_i, (sx, sy)) in sub_offsets.into_iter().enumerate() {
+            let tile_word_addr = block_ptr + (sub_i as u32) * 2;
+            let lo = cpu.mem.cart.read(tile_word_addr).unwrap_or(0);
+            let hi = cpu.mem.cart.read(tile_word_addr + 1).unwrap_or(0);
+            let t = lo as u16 | ((hi as u16) << 8);
+            render_sub_tile(&cpu.mem.vram, &cpu.mem.cgram, t, sx, sy, &mut pixels, 16);
+        }
+    }
+    egui::ColorImage::from_rgba_unmultiplied([16, 16], &pixels)
 }

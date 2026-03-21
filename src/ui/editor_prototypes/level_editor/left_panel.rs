@@ -141,6 +141,25 @@ impl UiLevelEditor {
                 ui.monospace(format!("  Block ID: {block_id:#04X}"));
                 let screen = if is_vertical { y / 512 } else { x / 256 };
                 ui.monospace(format!("  Screen: {screen:X}"));
+
+                // Tile preview
+                if self.preview_for != Some((x, y)) {
+                    let image = super::tile_picker::render_block_image(block_id, &mut self.cpu);
+                    let handle =
+                        ui.ctx().load_texture(format!("block_preview_{x}_{y}"), image, egui::TextureOptions::NEAREST);
+                    self.preview_texture = Some(handle);
+                    self.preview_for = Some((x, y));
+                }
+                if let Some(ref tex) = self.preview_texture {
+                    let display_size = 64.0;
+                    let (rect, _) = ui.allocate_exact_size(vec2(display_size, display_size), Sense::hover());
+                    ui.painter().image(
+                        tex.id(),
+                        rect,
+                        Rect::from_min_size(egui::pos2(0.0, 0.0), vec2(1.0, 1.0)),
+                        Color32::WHITE,
+                    );
+                }
             }
         }
 

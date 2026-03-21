@@ -170,6 +170,8 @@ pub struct UiWorldEditor {
     pub(super) draw_palette: u8,
     pub(super) draw_tile_attr: u8,
     pub(super) tile_picker: crate::ui::ow_tile_picker::OwTilePicker,
+    preview_texture: Option<egui::TextureHandle>,
+    preview_for: Option<(u32, u32)>,
 }
 
 impl UiWorldEditor {
@@ -200,6 +202,8 @@ impl UiWorldEditor {
             draw_palette: 0,
             draw_tile_attr: 0x00,
             tile_picker: crate::ui::ow_tile_picker::OwTilePicker::new(),
+            preview_texture: None,
+            preview_for: None,
         };
         editor.load_submap();
         editor
@@ -370,6 +374,25 @@ impl UiWorldEditor {
                 ui.monospace(format!("  TL vram #{tile_num:03X}  pal {pal}"));
                 if flip_x || flip_y {
                     ui.monospace(format!("  flip x={flip_x} y={flip_y}"));
+                }
+
+                // Tile preview — render the 4 sub-tiles as a 16×16 block
+                if self.preview_for != Some((x, y)) {
+                    let image = render_ow_block_preview(&self.cpu.mem.vram, &self.cpu.mem.cgram, self.submap, x, y);
+                    let handle =
+                        ui.ctx().load_texture(format!("ow_preview_{x}_{y}"), image, egui::TextureOptions::NEAREST);
+                    self.preview_texture = Some(handle);
+                    self.preview_for = Some((x, y));
+                }
+                if let Some(ref tex) = self.preview_texture {
+                    let display_size = 64.0;
+                    let (rect, _) = ui.allocate_exact_size(vec2(display_size, display_size), egui::Sense::hover());
+                    ui.painter().image(
+                        tex.id(),
+                        rect,
+                        Rect::from_min_size(egui::pos2(0.0, 0.0), vec2(1.0, 1.0)),
+                        Color32::WHITE,
+                    );
                 }
             } else {
                 ui.label("Selected: (none)");
@@ -561,4 +584,77 @@ fn activate_all_overworld_events(cpu: &mut Cpu) {
     for addr in 0x1F02u32..=0x1F60 {
         cpu.mem.store_u8(addr, 0xFF);
     }
+}
+
+/// Render a 16×16 preview of the Map16 block at (map16_x, map16_y) by reading
+/// its 4 sub-tiles from the L1 VRAM tilemap.
+fn render_ow_block_preview(vram: &[u8], cgram: &[u8], submap: u8, map16_x: u32, map16_y: u32) -> egui::ColorImage {
+    let (crop_x, crop_y) = visible_map_crop(submap);
+    let base_tile_x = (map16_x * 16 + crop_x) / 8;
+    let base_tile_y = (map16_y * 16 + crop_y) / 8;
+    let mut pixels = vec![0u8; 16 * 16 * 4];
+
+    let sub_positions = [(0u32, 0u32), (1, 0), (0, 1), (1, 1)];
+    for (dx, dy) in sub_positions {
+        let tx = base_tile_x + dx;
+        let ty = base_tile_y + dy;
+        let addr = tilemap_vram_addr(VRAM_L1_TILEMAP_BASE, tx, ty);
+        if addr + 1 >= vram.len() {
+            continue;
+        }
+        let t0 = vram[addr] as u16;
+        let t1 = vram[addr + 1] as u16;
+        let tile_num = (t0 | ((t1 & 3) << 8)) as usize;
+        let pal = ((t1 >> 2) & 7) as usize;
+        let flip_x = (t1 & 0x40) != 0;
+        let flip_y = (t1 & 0x80) != 0;
+
+        let tile_base = tile_num * 32;
+        let x0 = dx * 8;
+        let y0 = dy * 8;
+        for ty_px in 0..8u32 {
+            for tx_px in 0..8u32 {
+                let px = if flip_x { 7 - tx_px } else { tx_px };
+                let py = if flip_y { 7 - ty_px } else { ty_px };
+                let row_off = tile_base + (py as usize) * 2;
+                if row_off + 17 >= vram.len() {
+                    continue;
+                }
+                let b0 = vram[row_off];
+                let b1 = vram[row_off + 1];
+                let b2 = vram[row_off + 16];
+                let b3 = vram[row_off + 17];
+                let bit = 7 - px as usize;
+                let color_idx = (((b0 >> bit) & 1)
+                    | (((b1 >> bit) & 1) << 1)
+                    | (((b2 >> bit) & 1) << 2)
+                    | (((b3 >> bit) & 1) << 3)) as usize;
+                if color_idx == 0 {
+                    continue;
+                }
+                let pal_idx = pal * 16 + color_idx;
+                let off_color = pal_idx * 2;
+                if off_color + 1 >= cgram.len() {
+                    continue;
+                }
+                let lo = cgram[off_color] as u16;
+                let hi = cgram[off_color + 1] as u16;
+                let rgb = lo | (hi << 8);
+                let r = ((rgb & 0x1F) << 3) as u8;
+                let g = (((rgb >> 5) & 0x1F) << 3) as u8;
+                let b = (((rgb >> 10) & 0x1F) << 3) as u8;
+
+                let px_abs = x0 + tx_px;
+                let py_abs = y0 + ty_px;
+                let off = ((py_abs as usize) * 16 + px_abs as usize) * 4;
+                if off + 3 < pixels.len() {
+                    pixels[off] = r;
+                    pixels[off + 1] = g;
+                    pixels[off + 2] = b;
+                    pixels[off + 3] = 255;
+                }
+            }
+        }
+    }
+    egui::ColorImage::from_rgba_unmultiplied([16, 16], &pixels)
 }
