@@ -119,6 +119,27 @@ impl CheckedMem {
                     let a = self.load_u16(0x2116);
                     self.vram[(a as usize) * 2 + 1] = value;
                     self.store_u16(0x2116, a + 1);
+                } else if ptr == 0x2122 {
+                    // CGRAM data port: writes alternate low/high byte of a color entry.
+                    // $2121 (regs[0x0121]) holds the current word address; bit 0 of
+                    // an internal latch (regs[0x0120]) tracks which byte we're writing.
+                    let latch = self.regs[0x0120];
+                    let word_addr = self.regs[0x0121] as usize;
+                    let byte_offset = word_addr * 2 + latch as usize;
+                    if byte_offset < self.cgram.len() {
+                        self.cgram[byte_offset] = value;
+                    }
+                    if latch == 0 {
+                        self.regs[0x0120] = 1;
+                    } else {
+                        self.regs[0x0120] = 0;
+                        // Advance word address after writing the high byte.
+                        let next = (word_addr + 1) as u8;
+                        self.regs[0x0121] = next;
+                    }
+                } else if ptr == 0x2121 {
+                    // Writing to CGRAM address register resets the latch.
+                    self.regs[0x0120] = 0;
                 }
             }
             &mut self.regs[ptr - 0x2000]
@@ -290,6 +311,10 @@ pub fn decompress_sublevel(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
     let routines = [
         "CODE_00A993", "CODE_00B888", "CODE_05D796", "CODE_05801E",
         "UploadSpriteGFX", "LoadPalette", "CODE_00922F", "InitSpriteTables",
+        // Upload the dynamic palette table to CGRAM - this commits any palette
+        // entries (e.g. Dragon Coin gold oval) that LoadPalette queued into
+        // DynPaletteTable but didn't write to CGRAM directly.
+        "CODE_00A488",
     ];
     let mut addr = 0x2000u32;
     for i in routines {
