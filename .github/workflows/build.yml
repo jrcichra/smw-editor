@@ -54,7 +54,7 @@ jobs:
             ${{ matrix.target }}-cargo-
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --target ${{ matrix.target }} --bin smw-editor
 
       - name: Package (Windows)
         if: runner.os == 'Windows'

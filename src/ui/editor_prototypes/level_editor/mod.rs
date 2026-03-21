@@ -189,19 +189,6 @@ impl UiLevelEditor {
             l2_renderers.contains(&Some(renderer))
         };
 
-        let scr_len = if vertical {
-            if has_layer2 {
-                0x0E
-            } else {
-                0x1C
-            }
-        } else {
-            if has_layer2 {
-                0x10
-            } else {
-                0x20
-            }
-        };
         let scr_size = if vertical { 16 * 32 } else { 16 * 27 };
 
         // Convert block coords to pixel coords matching load_layer's format:
