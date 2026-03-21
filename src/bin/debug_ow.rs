@@ -355,8 +355,12 @@ fn load_overworld_gfx(rom_bytes: &[u8], cpu: &mut smwe_emu::Cpu) -> Result<(), B
                     cpu.mem.vram[vram_base + i] = *byte;
                 }
             }
-            eprintln!("Loaded GFX1D: {} tiles into VRAM at ${:04X} (tile ${:03X})",
-                     data_4bpp.len() / 32, vram_base, vram_base / 32);
+            eprintln!(
+                "Loaded GFX1D: {} tiles into VRAM at ${:04X} (tile ${:03X})",
+                data_4bpp.len() / 32,
+                vram_base,
+                vram_base / 32
+            );
         }
         Err(e) => eprintln!("Failed to decompress GFX1D: {:?}", e),
     }
@@ -368,32 +372,6 @@ fn load_overworld_gfx(rom_bytes: &[u8], cpu: &mut smwe_emu::Cpu) -> Result<(), B
         Ok(decompressed) => {
             let data_4bpp = convert_3bpp_to_4bpp(&decompressed);
             let vram_base = 0x4C00; // VRAM address $4C00 = tile $260
-            for (i, byte) in data_4bpp.iter().enumerate() {
-                if vram_base + i < cpu.mem.vram.len() {
-                    cpu.mem.vram[vram_base + i] = *byte;
-                }
-            }
-            eprintln!("Loaded GFX1E: {} tiles into VRAM at ${:04X} (tile ${:03X})",
-                     data_4bpp.len() / 32, vram_base, vram_base / 32);
-        }
-        Err(e) => eprintln!("Failed to decompress GFX1E: {:?}", e),
-    }
-            eprintln!(
-                "Loaded GFX1D: {} tiles into VRAM at ${:04X} (tile ${:03X})",
-                data_4bpp.len() / 32,
-                vram_base,
-                vram_base / 32
-            );
-        }
-        Err(e) => eprintln!("Failed to decompress GFX1D: {:?}", e),
-    }
-
-    // Decompress GFX1E, convert to 4BPP, and load into VRAM at $2C00 (tile $160)
-    // GFX1E: Overworld level tiles (castles, Yoshi's house, signs)
-    match lc_lz2::decompress(&rom_bytes[gfx1e_pc..gfx1e_pc + gfx1e_size], false) {
-        Ok(decompressed) => {
-            let data_4bpp = convert_3bpp_to_4bpp(&decompressed);
-            let vram_base = 0x2C00; // VRAM address $2C00 = tile $160
             for (i, byte) in data_4bpp.iter().enumerate() {
                 if vram_base + i < cpu.mem.vram.len() {
                     cpu.mem.vram[vram_base + i] = *byte;
