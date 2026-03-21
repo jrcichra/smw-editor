@@ -232,11 +232,6 @@ pub fn sprite_oam_tiles(cpu: &mut Cpu<CheckedMem>, id: u8) -> Vec<SpriteOamTile>
         let size  = cpu.mem.load_u8(0x460 + slot);
         if raw_y >= 0xE0 || tile == 0 { continue; }
 
-        // Skip tiles whose VRAM data is entirely blank
-        let voff = ((tile & 0x1FF) as usize + 0x600) * 32;
-        if voff + 32 > cpu.mem.vram.len() { continue; }
-        if cpu.mem.vram[voff..voff + 32].iter().all(|&b| b == 0) { continue; }
-
         tiles.push(SpriteOamTile {
             dx: raw_x - ANCHOR_X,
             dy: raw_y - ANCHOR_Y,
@@ -245,6 +240,38 @@ pub fn sprite_oam_tiles(cpu: &mut Cpu<CheckedMem>, id: u8) -> Vec<SpriteOamTile>
         });
     }
     tiles
+}
+
+/// A single OAM entry as written by the SNES sprite engine.
+/// X and Y are raw screen-space pixel positions as the game set them
+/// (scroll-relative: sprite at screen pos x=0xD0 when camera is at x=0).
+#[derive(Debug, Clone)]
+pub struct RawOamEntry {
+    pub x: u8,
+    pub y: u8,
+    pub tile_word: u16,  // [attr_byte][tile_byte] little-endian u16
+    pub is_16x16: bool,
+}
+
+/// Read all non-offscreen OAM entries after sprite execution.
+/// The game writes sprite OAM to $0300-$03FF (x, y, tile, attr × 64 slots)
+/// and size flags to $0460-$049F (one byte per slot, bit 1 = 16×16).
+pub fn read_oam_snapshot(cpu: &mut Cpu<CheckedMem>) -> Vec<RawOamEntry> {
+    let mut entries = Vec::new();
+    for slot in 0..64u32 {
+        let x    = cpu.mem.load_u8(0x300 + slot * 4);
+        let y    = cpu.mem.load_u8(0x301 + slot * 4);
+        let tile = cpu.mem.load_u16(0x302 + slot * 4);
+        let size = cpu.mem.load_u8(0x460 + slot);
+        if y >= 0xE0 || tile == 0 { continue; }
+        entries.push(RawOamEntry {
+            x,
+            y,
+            tile_word: tile,
+            is_16x16: (size & 0x02) != 0,
+        });
+    }
+    entries
 }
 
 pub fn decompress_sublevel(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {

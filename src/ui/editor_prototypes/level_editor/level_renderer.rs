@@ -1,6 +1,6 @@
 use egui::Vec2;
 use glow::*;
-use smwe_emu::{emu::SpriteOamTile, Cpu};
+use smwe_emu::{emu::{RawOamEntry, SpriteOamTile}, Cpu};
 use smwe_render::{
     gfx_buffers::GfxBuffers,
     tile_renderer::{Tile, TileRenderer, TileUniforms},
@@ -102,13 +102,52 @@ impl LevelRenderer {
                 if oam.is_16x16 {
                     let (xn, xf) = if t & 0x4000 == 0 { (0u32, 8u32) } else { (8, 0) };
                     let (yn, yf) = if t & 0x8000 == 0 { (0u32, 8u32) } else { (8, 0) };
-                    tiles.push(sp_tile(px + xn, py + yn, t));
-                    tiles.push(sp_tile(px + xf, py + yn, t + 1));
-                    tiles.push(sp_tile(px + xn, py + yf, t + 16));
-                    tiles.push(sp_tile(px + xf, py + yf, t + 17));
+                    // Preserve attribute bits (palette, flip, priority); only increment
+                    // the 9-bit tile number field. Adding to the raw u16 would corrupt
+                    // the attribute byte whenever the tile number wraps past 0x100.
+                    let attr = t & 0xFE00;
+                    let base = t & 0x01FF;
+                    tiles.push(sp_tile(px + xn, py + yn, attr | (base & 0x1FF)));
+                    tiles.push(sp_tile(px + xf, py + yn, attr | ((base + 1) & 0x1FF)));
+                    tiles.push(sp_tile(px + xn, py + yf, attr | ((base + 16) & 0x1FF)));
+                    tiles.push(sp_tile(px + xf, py + yf, attr | ((base + 17) & 0x1FF)));
                 } else {
                     tiles.push(sp_tile(px, py, t));
                 }
+            }
+        }
+
+        self.sprites.set_tiles(gl, tiles);
+    }
+
+    /// Render sprites directly from a raw OAM snapshot taken after exec_sprites().
+    /// Since the camera starts at (0,0) after decompress_sublevel, OAM X/Y are
+    /// already level-space pixel coordinates — no anchor math needed.
+    pub(super) fn upload_sprites_oam(
+        &mut self,
+        gl: &Context,
+        entries: &[RawOamEntry],
+        _vertical: bool,
+    ) {
+        if self.destroyed { return; }
+        let mut tiles = Vec::new();
+
+        for entry in entries {
+            let px = entry.x as u32;
+            let py = entry.y as u32;
+            let t  = entry.tile_word;
+
+            if entry.is_16x16 {
+                let (xn, xf) = if t & 0x4000 == 0 { (0u32, 8u32) } else { (8, 0) };
+                let (yn, yf) = if t & 0x8000 == 0 { (0u32, 8u32) } else { (8, 0) };
+                let attr = t & 0xFE00;
+                let base = t & 0x01FF;
+                tiles.push(sp_tile(px + xn, py + yn, attr | (base & 0x1FF)));
+                tiles.push(sp_tile(px + xf, py + yn, attr | ((base + 1) & 0x1FF)));
+                tiles.push(sp_tile(px + xn, py + yf, attr | ((base + 16) & 0x1FF)));
+                tiles.push(sp_tile(px + xf, py + yf, attr | ((base + 17) & 0x1FF)));
+            } else {
+                tiles.push(sp_tile(px, py, t));
             }
         }
 

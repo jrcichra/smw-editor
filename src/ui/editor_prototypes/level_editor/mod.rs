@@ -97,10 +97,9 @@ impl UiLevelEditor {
         // Decompress level: fills WRAM block maps, VRAM tile graphics, CGRAM palette.
         smwe_emu::emu::decompress_sublevel(&mut self.cpu, self.level_num);
 
-        // For each unique sprite ID in the level, run sprite_oam_tiles() to get
-        // every OAM tile the sprite produces (with correct tile/palette and
-        // relative offsets). This handles multi-tile sprites (Wiggler, Dragon Coin)
-        // and sprites that only write OAM on later frames.
+        // For each unique sprite ID, clone the clean post-decompress CPU state,
+        // run exec_sprite_id on the clone (so state never accumulates between IDs),
+        // and collect the OAM tiles the sprite emits relative to the anchor point.
         let mut oam_map: HashMap<u8, Vec<smwe_emu::emu::SpriteOamTile>> = HashMap::new();
         {
             let mut unique_ids: Vec<u8> = sprite_layer.sprites.iter()
@@ -110,15 +109,13 @@ impl UiLevelEditor {
             unique_ids.dedup();
 
             for id in unique_ids {
-                let tiles = smwe_emu::emu::sprite_oam_tiles(&mut self.cpu, id);
+                // Clone gives each ID a pristine post-decompress environment.
+                let mut cpu_clone = self.cpu.clone();
+                let tiles = smwe_emu::emu::sprite_oam_tiles(&mut cpu_clone, id);
                 if !tiles.is_empty() {
                     oam_map.insert(id, tiles);
                 }
             }
-
-            // Restore clean VRAM/CGRAM after exec_sprite_id calls may have
-            // disturbed emulator state.
-            smwe_emu::emu::decompress_sublevel(&mut self.cpu, self.level_num);
         }
 
         // Upload palette + GFX from the clean post-decompress state, then tiles.
