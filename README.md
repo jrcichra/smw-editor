@@ -12,24 +12,40 @@ visualization of vanilla SMW content.
 
 ### Currently Functional
 
-- **Level Editor** — View and navigate levels rendered via the emulator's
-  decompression routines. Supports zoom, grid overlay, layer toggles, and
-  object layer visualization with exit markers.
+- **Level Editor** — View, navigate, and edit levels rendered via the emulator's
+  decompression routines. Supports zoom, grid overlay, object visualization,
+  and tile painting with a visual Map16 tile picker.
 - **Overworld Editor** — Browse all 7 submaps rendered from composed VRAM
   tilemaps. Toggle layer 1/2, pan and zoom, and inspect individual tiles.
+- **Sprite Tile Editor** — Place, move, delete, flip, and copy/paste tiles on a
+  32×32 canvas with VRAM browser, palette selection, and full undo/redo.
 - **Address Converter** — Convert between PC and SNES address spaces with
   LoROM/HiROM and header options.
 - **ROM Loading** — Parses standard SMW ROMs with internal header detection.
   Persists recent files between sessions.
 
+### Level Editor Controls
+
+| Key | Action |
+|-----|--------|
+| `1` | Select mode — click objects to select |
+| `2` | Draw mode — pick a block from the tile picker, click to paint |
+| `3` | Erase mode — click to delete objects |
+| `4` | Probe mode — click to inspect objects |
+| `Ctrl+Z` / `Ctrl+Y` | Undo / Redo |
+| `Delete` | Delete selected object |
+| Scroll wheel | Zoom |
+| Middle-mouse drag | Pan |
+| `Shift` | Show grid overlay |
+| `Alt+click` | Inspect block ID at tile |
+
 ### In Development
 
-- Sprite tile editor with VRAM browser and palette viewer
 - Block editor UI (viewing and editing not yet implemented)
+- Level save/export to ROM
 
 ### Planned
 
-- Level editing (object placement, tile modification)
 - Overworld editing (tile placement, event editing)
 - Block editor (custom block creation)
 - Graphics editor
@@ -38,18 +54,35 @@ visualization of vanilla SMW content.
 - Custom plugins and extensions
 - Multiple language support
 
-## Building
+## Getting Started
 
-Make sure you have [rustup](https://rustup.rs/) installed.
+Make sure you have [rustup](https://rustup.rs/) installed, then build and launch the editor:
 
 ```bash
 cargo run --release
 ```
 
-Set the `ROM_PATH` environment variable to load a ROM on startup:
+The editor opens with an empty workspace. Use **File > Open ROM** (or drag and
+drop an `.smc`/`.sfc` file onto the window) to load a Super Mario World ROM.
+Once loaded, open an editor tab from the **Editors** menu.
+
+To open a ROM directly from the command line:
 
 ```bash
 ROM_PATH=/path/to/smw.smc cargo run --release
+```
+
+### Render Binaries
+
+The repository also includes CLI tools for rendering levels and overworld maps
+to PNG files (useful for debugging and comparison):
+
+```bash
+# Render a specific level
+cargo run --bin render_level -- --level=105 --out=level.png
+
+# Render an overworld submap
+cargo run --bin render_ow_submap -- --submap=3 --out=forest.png
 ```
 
 ## Technical Overview
