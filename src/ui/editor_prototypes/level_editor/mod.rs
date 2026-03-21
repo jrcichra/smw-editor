@@ -175,13 +175,10 @@ impl UiLevelEditor {
         renderer.upload_gfx(&self.gl, &self.cpu.mem.vram);
     }
 
-    /// Write a block ID at the given tile coordinate into the WRAM block map.
-    fn set_block_id_at(&mut self, tile_x: u32, tile_y: u32, block_id: u16) {
+    /// Compute the WRAM block map index from block (tile) coordinates.
+    fn block_map_index(&self, block_x: u32, block_y: u32) -> u32 {
         let vertical = self.level_properties.is_vertical;
         let has_layer2 = self.level_properties.has_layer2;
-
-        let bx = tile_x / 16;
-        let by = tile_y / 16;
 
         let (scr_len, scr_size) = if vertical {
             (if has_layer2 { 0x0E } else { 0x1C }, 16 * 32)
@@ -190,19 +187,24 @@ impl UiLevelEditor {
         };
 
         let (screen, sidx) = if vertical {
-            let sub_y = by / 32;
-            let sub_x = bx / 16;
-            let row = by % 32;
-            let col = bx % 16;
+            let sub_y = block_y / 32;
+            let sub_x = block_x / 16;
+            let row = block_y % 32;
+            let col = block_x % 16;
             (sub_y * 2 + sub_x, row * 16 + col)
         } else {
-            let screen = bx / scr_len as u32;
-            let col = bx % scr_len as u32;
-            let row = by;
+            let screen = block_x / scr_len as u32;
+            let col = block_x % scr_len as u32;
+            let row = block_y;
             (screen, row * scr_len as u32 + col)
         };
 
-        let idx = screen * scr_size as u32 + sidx;
+        screen * scr_size as u32 + sidx
+    }
+
+    /// Write a block ID at the given block coordinates into the WRAM block map.
+    fn set_block_id_at(&mut self, block_x: u32, block_y: u32, block_id: u16) {
+        let idx = self.block_map_index(block_x, block_y);
         self.cpu.mem.store_u8(0x7EC800 + idx, (block_id & 0xFF) as u8);
         self.cpu.mem.store_u8(0x7FC800 + idx, ((block_id >> 8) & 0x01) as u8);
     }
@@ -213,36 +215,10 @@ impl UiLevelEditor {
         renderer.upload_level(&self.gl, &mut self.cpu);
     }
 
-    /// Look up the L1 block ID at the given tile (pixel) coordinate by reading
+    /// Look up the L1 block ID at the given block coordinates by reading
     /// the WRAM block map populated during `decompress_sublevel`.
-    fn block_id_at(&mut self, tile_x: u32, tile_y: u32) -> Option<u16> {
-        let vertical = self.level_properties.is_vertical;
-        let has_layer2 = self.level_properties.has_layer2;
-
-        let bx = tile_x / 16;
-        let by = tile_y / 16;
-
-        let (scr_len, scr_size) = if vertical {
-            (if has_layer2 { 0x0E } else { 0x1C }, 16 * 32)
-        } else {
-            (if has_layer2 { 0x10 } else { 0x20 }, 16 * 27)
-        };
-
-        let (screen, sidx) = if vertical {
-            let sub_y = by / 32;
-            let sub_x = bx / 16;
-            let row = by % 32;
-            let col = bx % 16;
-            (sub_y * 2 + sub_x, row * 16 + col)
-        } else {
-            let screen = bx / scr_len as u32;
-            let col = bx % scr_len as u32;
-            let row = by;
-            (screen, row * scr_len as u32 + col)
-        };
-
-        let idx = screen * scr_size as u32 + sidx;
-
+    fn block_id_at(&mut self, block_x: u32, block_y: u32) -> Option<u16> {
+        let idx = self.block_map_index(block_x, block_y);
         let lo = 0x7EC800u32 + idx;
         let hi = 0x7FC800u32 + idx;
         Some(self.cpu.mem.load_u8(lo) as u16 | (((self.cpu.mem.load_u8(hi) as u16) & 0x01) << 8))
