@@ -1,11 +1,12 @@
 mod central_panel;
+mod editing;
 mod left_panel;
 mod level_renderer;
 mod object_layer;
 mod properties;
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -15,7 +16,10 @@ use smwe_emu::{emu::CheckedMem, rom::Rom as EmuRom, Cpu};
 use smwe_rom::SmwRom;
 
 use self::{level_renderer::LevelRenderer, object_layer::EditableObjectLayer, properties::LevelProperties};
-use crate::ui::tool::DockableEditorTool;
+use crate::{
+    ui::{editing_mode::EditingMode, tool::DockableEditorTool},
+    undo::UndoableData,
+};
 
 pub struct UiLevelEditor {
     gl: Arc<glow::Context>,
@@ -32,7 +36,13 @@ pub struct UiLevelEditor {
     selected_tile: Option<(u32, u32)>,
 
     level_properties: LevelProperties,
-    layer1: EditableObjectLayer,
+    layer1: UndoableData<EditableObjectLayer>,
+
+    // Editing state
+    editing_mode: EditingMode,
+    selected_object_indices: HashSet<usize>,
+    draw_object_id: u8,
+    draw_object_settings: u8,
 }
 
 impl UiLevelEditor {
@@ -58,7 +68,11 @@ impl UiLevelEditor {
             show_object_labels: true,
             selected_tile: None,
             level_properties: LevelProperties::default(),
-            layer1: EditableObjectLayer::default(),
+            layer1: UndoableData::new(EditableObjectLayer::default()),
+            editing_mode: EditingMode::Select,
+            selected_object_indices: HashSet::new(),
+            draw_object_id: 0x00,
+            draw_object_settings: 0x00,
         };
         editor.load_level();
         editor
@@ -93,11 +107,13 @@ impl UiLevelEditor {
         let (sprite_layer, is_vertical) = {
             let level = &self.rom.levels[level_idx];
             self.level_properties = LevelProperties::from_level(level);
-            self.layer1 = EditableObjectLayer::from_level(level);
+            let layer1 = EditableObjectLayer::from_level(level);
+            self.layer1 = UndoableData::new(layer1);
             (level.sprite_layer.clone(), level.secondary_header.vertical_level())
         };
         self.offset = Vec2::ZERO;
         self.selected_tile = None;
+        self.selected_object_indices.clear();
 
         // Reset emulator RAM before loading the new level so no state leaks
         // from the previously loaded level (stale sprite tables, VRAM, etc.).

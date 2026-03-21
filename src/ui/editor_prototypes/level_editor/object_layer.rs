@@ -3,6 +3,8 @@
 
 use smwe_rom::{level::Level, objects::Object};
 
+use crate::undo::Undo;
+
 const SCREEN_WIDTH: u32 = 16;
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
@@ -122,5 +124,73 @@ impl EditableObjectLayer {
             }
         }
         layer
+    }
+}
+
+// ── Undo support ────────────────────────────────────────────────────────────
+
+impl Undo for EditableObjectLayer {
+    fn from_bytes(bytes: Vec<u8>) -> Self {
+        if bytes.len() < 4 {
+            return Self::default();
+        }
+        let num_objects = u16::from_le_bytes([bytes[0], bytes[1]]) as usize;
+        let num_exits = u16::from_le_bytes([bytes[2], bytes[3]]) as usize;
+
+        let mut objects = Vec::with_capacity(num_objects);
+        let mut offset = 4;
+        for _ in 0..num_objects {
+            if offset + 12 > bytes.len() {
+                break;
+            }
+            let x = u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+            let y = u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().unwrap());
+            let id = bytes[offset + 8];
+            let settings = bytes[offset + 9];
+            let is_extended = bytes[offset + 10] != 0;
+            let extended_id = bytes[offset + 11];
+            objects.push(EditableObject { x, y, id, settings, is_extended, extended_id });
+            offset += 12;
+        }
+
+        let mut exits = Vec::with_capacity(num_exits);
+        for _ in 0..num_exits {
+            if offset + 5 > bytes.len() {
+                break;
+            }
+            let screen = bytes[offset];
+            let midway = bytes[offset + 1] != 0;
+            let secondary = bytes[offset + 2] != 0;
+            let id = u16::from_le_bytes([bytes[offset + 3], bytes[offset + 4]]);
+            exits.push(EditableExit { screen, midway, secondary, id });
+            offset += 5;
+        }
+
+        Self { objects, exits }
+    }
+
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(4 + self.objects.len() * 12 + self.exits.len() * 5);
+        bytes.extend_from_slice(&(self.objects.len() as u16).to_le_bytes());
+        bytes.extend_from_slice(&(self.exits.len() as u16).to_le_bytes());
+        for obj in &self.objects {
+            bytes.extend_from_slice(&obj.x.to_le_bytes());
+            bytes.extend_from_slice(&obj.y.to_le_bytes());
+            bytes.push(obj.id);
+            bytes.push(obj.settings);
+            bytes.push(obj.is_extended as u8);
+            bytes.push(obj.extended_id);
+        }
+        for exit in &self.exits {
+            bytes.push(exit.screen);
+            bytes.push(exit.midway as u8);
+            bytes.push(exit.secondary as u8);
+            bytes.extend_from_slice(&exit.id.to_le_bytes());
+        }
+        bytes
+    }
+
+    fn size_bytes(&self) -> usize {
+        4 + self.objects.len() * 12 + self.exits.len() * 5
     }
 }

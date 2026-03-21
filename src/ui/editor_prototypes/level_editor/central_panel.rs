@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
-use egui::{vec2, Align2, Color32, FontId, PaintCallback, Rect, Rounding, Sense, Stroke, Ui, Vec2};
+use egui::{vec2, Align2, Color32, FontId, Key, PaintCallback, Rect, Rounding, Sense, Stroke, Ui, Vec2};
 use egui_glow::CallbackFn;
 
 use super::UiLevelEditor;
+use crate::ui::editing_mode::EditingMode;
 
 // Pixels per game tile at zoom=1
 const TILE_PX: f32 = 16.0;
@@ -110,28 +111,30 @@ impl UiLevelEditor {
         }
 
         // ── Draw exit markers (subtle gold badges over GL tiles) ───
-        for exit in &self.layer1.exits {
-            let sx = if props.is_vertical { 0 } else { exit.screen as u32 };
-            let sy = if props.is_vertical { exit.screen as u32 } else { 0 };
-            let ex = (sx * scr_w) as f32 * tile_sz;
-            let ey = (sy * scr_h) as f32 * tile_sz;
-            let er = Rect::from_min_size(origin + vec2(ex, ey), Vec2::splat(tile_sz * 2.0));
-            painter.rect_filled(er, Rounding::same(3.0), Color32::from_rgba_unmultiplied(255, 220, 0, 120));
-            painter.rect_stroke(
-                er,
-                Rounding::same(3.0),
-                Stroke::new(1.5, Color32::from_rgba_unmultiplied(255, 200, 0, 200)),
-            );
-            if z >= 0.8 {
-                painter.text(
-                    er.center(),
-                    Align2::CENTER_CENTER,
-                    format!("→{:03X}", exit.id),
-                    FontId::proportional(7.0 * z.min(1.5)),
-                    Color32::BLACK,
+        self.layer1.read(|layer| {
+            for exit in &layer.exits {
+                let sx = if props.is_vertical { 0 } else { exit.screen as u32 };
+                let sy = if props.is_vertical { exit.screen as u32 } else { 0 };
+                let ex = (sx * scr_w) as f32 * tile_sz;
+                let ey = (sy * scr_h) as f32 * tile_sz;
+                let er = Rect::from_min_size(origin + vec2(ex, ey), Vec2::splat(tile_sz * 2.0));
+                painter.rect_filled(er, Rounding::same(3.0), Color32::from_rgba_unmultiplied(255, 220, 0, 120));
+                painter.rect_stroke(
+                    er,
+                    Rounding::same(3.0),
+                    Stroke::new(1.5, Color32::from_rgba_unmultiplied(255, 200, 0, 200)),
                 );
+                if z >= 0.8 {
+                    painter.text(
+                        er.center(),
+                        Align2::CENTER_CENTER,
+                        format!("→{:03X}", exit.id),
+                        FontId::proportional(7.0 * z.min(1.5)),
+                        Color32::BLACK,
+                    );
+                }
             }
-        }
+        });
 
         // ── Grid overlay ──────────────────────────────────────
         if self.always_show_grid || ui.input(|i| i.modifiers.shift_only()) {
@@ -151,8 +154,11 @@ impl UiLevelEditor {
             }
         }
 
-        // ── Object overlay (debug/structure view) ─────────────
-        if self.show_object_overlay {
+        // ── Object overlay (structure view + editing) ─────────
+        let show_overlay = self.show_object_overlay
+            || self.editing_mode != EditingMode::Select
+            || !self.selected_object_indices.is_empty();
+        if show_overlay {
             let obj_color = |id: u8, is_ext: bool| -> Color32 {
                 if is_ext {
                     Color32::from_rgba_unmultiplied(255, 140, 0, 90)
@@ -164,40 +170,55 @@ impl UiLevelEditor {
                 }
             };
 
-            for obj in &self.layer1.objects {
-                let (w, h) = if obj.is_extended {
-                    (1_u32, 1_u32)
-                } else {
-                    let w = (obj.settings & 0x0F) as u32 + 1;
-                    let h = (obj.settings >> 4) as u32 + 1;
-                    (w.max(1), h.max(1))
-                };
+            self.layer1.read(|layer| {
+                for (i, obj) in layer.objects.iter().enumerate() {
+                    let (w, h) = if obj.is_extended {
+                        (1_u32, 1_u32)
+                    } else {
+                        let w = (obj.settings & 0x0F) as u32 + 1;
+                        let h = (obj.settings >> 4) as u32 + 1;
+                        (w.max(1), h.max(1))
+                    };
 
-                let pos = origin + vec2(obj.x as f32 * tile_sz, obj.y as f32 * tile_sz);
-                let rect = Rect::from_min_size(pos, vec2(w as f32 * tile_sz, h as f32 * tile_sz));
-                if rect.max.x < view_rect.min.x
-                    || rect.min.x > view_rect.max.x
-                    || rect.max.y < view_rect.min.y
-                    || rect.min.y > view_rect.max.y
-                {
-                    continue;
-                }
-                let fill = obj_color(obj.id, obj.is_extended);
-                painter.rect_filled(rect, Rounding::same(2.0), fill);
-                painter.rect_stroke(rect, Rounding::same(2.0), Stroke::new(1.0, fill.linear_multiply(2.0)));
+                    let pos = origin + vec2(obj.x as f32 * tile_sz, obj.y as f32 * tile_sz);
+                    let rect = Rect::from_min_size(pos, vec2(w as f32 * tile_sz, h as f32 * tile_sz));
+                    if rect.max.x < view_rect.min.x
+                        || rect.min.x > view_rect.max.x
+                        || rect.max.y < view_rect.min.y
+                        || rect.min.y > view_rect.max.y
+                    {
+                        continue;
+                    }
 
-                if self.show_object_labels && z >= 0.9 {
-                    let label =
-                        if obj.is_extended { format!("E{:02X}", obj.extended_id) } else { format!("{:02X}", obj.id) };
-                    painter.text(
-                        rect.left_top() + vec2(2.0, 2.0),
-                        Align2::LEFT_TOP,
-                        label,
-                        FontId::monospace(9.0),
-                        Color32::BLACK,
-                    );
+                    let selected = self.selected_object_indices.contains(&i);
+                    let fill = obj_color(obj.id, obj.is_extended);
+                    painter.rect_filled(rect, Rounding::same(2.0), fill);
+                    painter.rect_stroke(rect, Rounding::same(2.0), Stroke::new(1.0, fill.linear_multiply(2.0)));
+
+                    if selected {
+                        painter.rect_stroke(
+                            rect.expand(1.0),
+                            Rounding::same(2.0),
+                            Stroke::new(2.0, Color32::from_rgb(255, 220, 0)),
+                        );
+                    }
+
+                    if self.show_object_labels && z >= 0.9 {
+                        let label = if obj.is_extended {
+                            format!("E{:02X}", obj.extended_id)
+                        } else {
+                            format!("{:02X}", obj.id)
+                        };
+                        painter.text(
+                            rect.left_top() + vec2(2.0, 2.0),
+                            Align2::LEFT_TOP,
+                            label,
+                            FontId::monospace(9.0),
+                            Color32::BLACK,
+                        );
+                    }
                 }
-            }
+            });
         }
 
         // ── Hover / click (tile granularity) ────────────────────
@@ -210,7 +231,11 @@ impl UiLevelEditor {
                     Rect::from_min_size(origin + vec2(tx as f32 * tile_sz, ty as f32 * tile_sz), Vec2::splat(tile_sz));
                 painter.rect_stroke(tile_rect, Rounding::ZERO, Stroke::new(1.0, Color32::WHITE));
 
-                if resp.clicked_by(egui::PointerButton::Primary) {
+                // Tile inspection click (only in Select mode with no object selected,
+                // or always when holding Alt for quick inspection)
+                let inspect_click = resp.clicked_by(egui::PointerButton::Primary)
+                    && (self.editing_mode == EditingMode::Select || ui.input(|i| i.modifiers.alt));
+                if inspect_click {
                     self.selected_tile = Some((tx as u32, ty as u32));
                 }
 
@@ -225,6 +250,34 @@ impl UiLevelEditor {
                 );
             }
         }
+
+        // ── Editing interaction (object select/place/delete) ───
+        self.handle_editing_interaction(&resp, origin, tile_sz);
+
+        // ── Keyboard shortcuts ─────────────────────────────────
+        ui.input_mut(|input| {
+            if input.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, Key::Z)) {
+                self.handle_undo();
+            }
+            if input.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, Key::Y)) {
+                self.handle_redo();
+            }
+            if input.key_pressed(Key::Delete) || input.key_pressed(Key::Backspace) {
+                self.delete_selected_objects();
+            }
+            if input.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::NONE, Key::Num1)) {
+                self.editing_mode = EditingMode::Select;
+            }
+            if input.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::NONE, Key::Num2)) {
+                self.editing_mode = EditingMode::Draw;
+            }
+            if input.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::NONE, Key::Num3)) {
+                self.editing_mode = EditingMode::Erase;
+            }
+            if input.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::NONE, Key::Num4)) {
+                self.editing_mode = EditingMode::Probe;
+            }
+        });
 
         // ── Selected tile highlight ────────────────────────────
         if let Some((x, y)) = self.selected_tile {

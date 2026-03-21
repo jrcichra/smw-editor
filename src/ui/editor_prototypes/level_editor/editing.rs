@@ -1,0 +1,118 @@
+use egui::Pos2;
+
+use super::{object_layer::EditableObject, UiLevelEditor};
+use crate::ui::editing_mode::EditingMode;
+
+impl UiLevelEditor {
+    pub(super) fn handle_editing_interaction(&mut self, resp: &egui::Response, origin: Pos2, tile_sz: f32) {
+        match self.editing_mode {
+            EditingMode::Select | EditingMode::Probe => {
+                if resp.clicked_by(egui::PointerButton::Primary) {
+                    if let Some(pos) = resp.hover_pos() {
+                        self.select_object_at(pos, origin, tile_sz);
+                    }
+                }
+            }
+            EditingMode::Erase => {
+                if resp.clicked_by(egui::PointerButton::Primary) {
+                    if let Some(pos) = resp.hover_pos() {
+                        self.erase_object_at(pos, origin, tile_sz);
+                    }
+                }
+            }
+            EditingMode::Draw => {
+                if resp.clicked_by(egui::PointerButton::Primary) {
+                    if let Some(pos) = resp.hover_pos() {
+                        self.place_object_at(pos, origin, tile_sz);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn object_at(&self, pos: Pos2, origin: Pos2, tile_sz: f32) -> Option<usize> {
+        let rel = (pos - origin) / tile_sz;
+        let tx = rel.x.floor();
+        let ty = rel.y.floor();
+
+        self.layer1.read(|layer| {
+            // Iterate in reverse so topmost (last-placed) objects are hit first.
+            for (i, obj) in layer.objects.iter().enumerate().rev() {
+                let w = if obj.is_extended { 1.0 } else { ((obj.settings & 0x0F) as f32) + 1.0 };
+                let h = if obj.is_extended { 1.0 } else { ((obj.settings >> 4) as f32) + 1.0 };
+                if tx >= obj.x as f32 && tx < obj.x as f32 + w && ty >= obj.y as f32 && ty < obj.y as f32 + h {
+                    return Some(i);
+                }
+            }
+            None
+        })
+    }
+
+    fn select_object_at(&mut self, pos: Pos2, origin: Pos2, tile_sz: f32) {
+        let idx = self.object_at(pos, origin, tile_sz);
+        self.selected_object_indices.clear();
+        if let Some(i) = idx {
+            self.selected_object_indices.insert(i);
+        }
+    }
+
+    fn erase_object_at(&mut self, pos: Pos2, origin: Pos2, tile_sz: f32) {
+        if let Some(idx) = self.object_at(pos, origin, tile_sz) {
+            self.layer1.write(|layer| {
+                layer.objects.remove(idx);
+            });
+            self.selected_object_indices.clear();
+        }
+    }
+
+    fn place_object_at(&mut self, pos: Pos2, origin: Pos2, tile_sz: f32) {
+        let rel = (pos - origin) / tile_sz;
+        let tx = rel.x.floor() as u32;
+        let ty = rel.y.floor() as u32;
+
+        let new_obj = EditableObject {
+            x: tx,
+            y: ty,
+            id: self.draw_object_id,
+            settings: self.draw_object_settings,
+            is_extended: false,
+            extended_id: 0,
+        };
+
+        let new_idx = self.layer1.read(|layer| layer.objects.len());
+        self.layer1.write(|layer| {
+            layer.objects.push(new_obj);
+        });
+        self.selected_object_indices.clear();
+        self.selected_object_indices.insert(new_idx);
+    }
+
+    pub(super) fn delete_selected_objects(&mut self) {
+        if self.selected_object_indices.is_empty() {
+            return;
+        }
+        // Collect indices first to avoid borrow conflict with write().
+        let indices: Vec<usize> = self.selected_object_indices.iter().copied().collect();
+        self.layer1.write(|layer| {
+            let mut keep = Vec::with_capacity(layer.objects.len());
+            for (i, obj) in layer.objects.drain(..).enumerate() {
+                if !indices.contains(&i) {
+                    keep.push(obj);
+                }
+            }
+            layer.objects = keep;
+        });
+        self.selected_object_indices.clear();
+    }
+
+    pub(super) fn handle_undo(&mut self) {
+        self.layer1.undo();
+        self.selected_object_indices.clear();
+    }
+
+    pub(super) fn handle_redo(&mut self) {
+        self.layer1.redo();
+        self.selected_object_indices.clear();
+    }
+}
