@@ -179,16 +179,6 @@ impl UiLevelEditor {
     /// Must produce the same index as `load_layer`'s reverse mapping.
     fn block_map_index(&mut self, block_x: u32, block_y: u32) -> u32 {
         let vertical = self.level_properties.is_vertical;
-
-        // Compute has_layer2 exactly as load_layer does (mode-based renderer check).
-        let has_layer2 = {
-            let mode = self.cpu.mem.load_u8(0x1925);
-            let renderer_table = self.cpu.mem.cart.resolve("CODE_058955").unwrap() + 9;
-            let renderer = self.cpu.mem.load_u24(renderer_table + (mode as u32) * 3);
-            let l2_renderers = [self.cpu.mem.cart.resolve("CODE_058B8D"), self.cpu.mem.cart.resolve("CODE_058C71")];
-            l2_renderers.contains(&Some(renderer))
-        };
-
         let scr_size = if vertical { 16 * 32 } else { 16 * 27 };
 
         // Convert block coords to pixel coords matching load_layer's format:
