@@ -58,8 +58,6 @@ impl LevelRenderer {
         self.gfx_bufs.upload_palette(gl, data);
     }
 
-    /// Read the Map16 block grid from WRAM (as filled by the real SNES level loader)
-    /// and build tile draw lists for layer1 and layer2.
     pub(super) fn upload_level(&mut self, gl: &Context, cpu: &mut Cpu) {
         if self.destroyed {
             return;
@@ -68,39 +66,52 @@ impl LevelRenderer {
         self.load_layer(gl, cpu, true);
     }
 
-    pub(super) fn upload_sprites(&mut self, gl: &Context, cpu: &mut Cpu) {
+    /// Build sprite tiles using:
+    ///   - Positions from the smwe-rom SpriteLayer (accurate ROM data)
+    ///   - Tile/palette from oam_map: sprite_id -> (tile_word, is_16x16)
+    ///     which was built by running exec_sprite_id per unique ID
+    pub(super) fn upload_sprites(
+        &mut self,
+        gl: &Context,
+        sprite_layer: &smwe_rom::level::SpriteLayer,
+        oam_map: &std::collections::HashMap<u8, (u16, bool)>,
+        vertical: bool,
+    ) {
         if self.destroyed {
             return;
         }
         let mut tiles = Vec::new();
-        for spr in (0..64).rev() {
-            let mut x = cpu.mem.load_u8(0x300 + spr * 4) as u32;
-            let mut y = cpu.mem.load_u8(0x301 + spr * 4) as u32;
-            if y >= 0xE0 {
-                continue;
-            }
-            x += cpu.mem.load_u16(0x1A) as u32;
-            y += cpu.mem.load_u16(0x1C) as u32;
-            let tile = cpu.mem.load_u16(0x302 + spr * 4);
-            let size = cpu.mem.load_u8(0x460 + spr);
-            if size & 0x01 != 0 {
-                if x > 0x80 {
-                    x = x.wrapping_sub(256);
-                } else {
-                    x = x.wrapping_add(256);
-                }
-            }
-            if size & 0x02 != 0 {
-                let (xn, xf) = if tile & 0x4000 == 0 { (0, 8) } else { (8, 0) };
-                let (yn, yf) = if tile & 0x8000 == 0 { (0, 8) } else { (8, 0) };
-                tiles.push(sp_tile(x.wrapping_add(xn), y.wrapping_add(yn), tile));
-                tiles.push(sp_tile(x.wrapping_add(xf), y.wrapping_add(yn), tile + 1));
-                tiles.push(sp_tile(x.wrapping_add(xn), y.wrapping_add(yf), tile + 16));
-                tiles.push(sp_tile(x.wrapping_add(xf), y.wrapping_add(yf), tile + 17));
+
+        for spr in &sprite_layer.sprites {
+            let id = spr.sprite_id();
+            let (tile_word, is_16x16) = match oam_map.get(&id) {
+                Some(&v) => v,
+                None => continue, // sprite wrote no OAM — skip
+            };
+
+            // Decode pixel position from ROM sprite data
+            let (x_tile, y_tile) = spr.xy_pos();
+            let screen = spr.screen_number() as u32;
+            let (x_px, y_px) = if vertical {
+                let sx = screen % 2;
+                let sy = screen / 2;
+                (sx * 256 + x_tile as u32 * 16, sy * 512 + y_tile as u32 * 16)
             } else {
-                tiles.push(sp_tile(x, y, tile));
+                (screen * 256 + x_tile as u32 * 16, y_tile as u32 * 16)
+            };
+
+            if is_16x16 {
+                let (xn, xf) = if tile_word & 0x4000 == 0 { (0u32, 8u32) } else { (8, 0) };
+                let (yn, yf) = if tile_word & 0x8000 == 0 { (0u32, 8u32) } else { (8, 0) };
+                tiles.push(sp_tile(x_px + xn, y_px + yn, tile_word));
+                tiles.push(sp_tile(x_px + xf, y_px + yn, tile_word + 1));
+                tiles.push(sp_tile(x_px + xn, y_px + yf, tile_word + 16));
+                tiles.push(sp_tile(x_px + xf, y_px + yf, tile_word + 17));
+            } else {
+                tiles.push(sp_tile(x_px, y_px, tile_word));
             }
         }
+
         self.sprites.set_tiles(gl, tiles);
     }
 
@@ -117,10 +128,8 @@ impl LevelRenderer {
         let map16_bank = cpu.mem.cart.resolve("Map16Common").expect("Cannot resolve Map16Common") & 0xFF0000;
         let map16_bg = cpu.mem.cart.resolve("Map16BGTiles").expect("Cannot resolve Map16BGTiles");
 
-        // 0x5B bit0 = layer1 vertical, bit1 = layer2 vertical
         let vertical = cpu.mem.load_u8(0x5B) & if bg { 2 } else { 1 } != 0;
 
-        // Does this level have a proper layer2 (background tilemap)?
         let has_layer2 = {
             let mode = cpu.mem.load_u8(0x1925);
             let renderer_table = cpu.mem.cart.resolve("CODE_058955").unwrap() + 9;
@@ -137,7 +146,6 @@ impl LevelRenderer {
         };
         let scr_size = if vertical { 16 * 32 } else { 16 * 27 };
 
-        // WRAM addresses where the level loader stores block IDs (lo byte / hi byte)
         let (blocks_lo_addr, blocks_hi_addr) = match (bg, has_layer2) {
             (true, true) => {
                 let offset = scr_len * scr_size;
@@ -166,14 +174,12 @@ impl LevelRenderer {
             let block_id = cpu.mem.load_u8(blocks_lo_addr + idx_adj) as u16
                 | (((cpu.mem.load_u8(blocks_hi_addr + idx_adj) as u16) & 0x01) << 8);
 
-            // Look up the Map16 block pointer in WRAM table at 0x0FBE
             let block_ptr = if bg && !has_layer2 {
                 block_id as u32 * 8 + map16_bg
             } else {
                 cpu.mem.load_u16(0x0FBE + block_id as u32 * 2) as u32 + map16_bank
             };
 
-            // Each Map16 block = 4 × 8x8 sub-tiles (UL, LL, UR, LR)
             for (tile_id, (off_x, off_y)) in (0..4).zip([(0u32, 0u32), (0, 8), (8, 0), (8, 8)]) {
                 let tile_id = cpu.mem.load_u16(block_ptr + tile_id * 2);
                 tiles.push(bg_tile(block_x + off_x, block_y + off_y, tile_id));

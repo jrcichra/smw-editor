@@ -213,6 +213,22 @@ pub fn exec_sprites(cpu: &mut Cpu<CheckedMem>) -> u64 {
     run_routines(cpu, &["CODE_01808C"], 20_000_000)
 }
 
+/// Run exec_sprite_id for a given sprite ID and return (tile_word, is_16x16).
+/// Scans all OAM slots for the first on-screen entry with a non-zero tile.
+/// Returns None if the sprite writes no OAM (e.g. bosses, generators).
+pub fn sprite_oam_info(cpu: &mut Cpu<CheckedMem>, id: u8) -> Option<(u16, bool)> {
+    exec_sprite_id(cpu, id);
+    for slot in 0..64u32 {
+        let y = cpu.mem.load_u8(0x301 + slot * 4);
+        let tile = cpu.mem.load_u16(0x302 + slot * 4);
+        let size = cpu.mem.load_u8(0x460 + slot);
+        if y < 0xE0 && tile != 0 {
+            return Some((tile, (size & 0x02) != 0));
+        }
+    }
+    None
+}
+
 pub fn decompress_sublevel(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
     let now = std::time::Instant::now();
     cpu.emulation = false;
@@ -314,24 +330,21 @@ pub fn load_overworld(cpu: &mut Cpu<CheckedMem>, submap: u8) -> u64 {
     const OW_VIEW_X: [u16; 7] = [0x0000, 0xFFEF, 0xFFEF, 0xFFEF, 0x00F0, 0x00F0, 0x00F0];
     const OW_VIEW_Y: [u16; 7] = [0x0000, 0xFFD8, 0x0080, 0x0128, 0xFFD8, 0x0080, 0x0128];
 
-    // The real game tracks the active player separately from each player's
-    // current submap. For editor previews, pin both players to the requested
-    // submap so overworld routines don't think they are on different maps.
-    cpu.mem.store(0x0DB3, 0x00); // PlayerTurnLvl = player 1
-    cpu.mem.store(0x0DD6, 0x00); // PlayerTurnOW = player 1 * 4
-    cpu.mem.store(0x1F11, submap); // OWPlayerSubmap[0]
-    cpu.mem.store(0x1F12, submap); // OWPlayerSubmap[1]
+    cpu.mem.store(0x0DB3, 0x00);
+    cpu.mem.store(0x0DD6, 0x00);
+    cpu.mem.store(0x1F11, submap);
+    cpu.mem.store(0x1F12, submap);
     let idx = submap as usize;
     let view_x = *OW_VIEW_X.get(idx).unwrap_or(&OW_VIEW_X[0]);
     let view_y = *OW_VIEW_Y.get(idx).unwrap_or(&OW_VIEW_Y[0]);
-    cpu.mem.store_u16(0x001A, view_x); // Layer1XPos
-    cpu.mem.store_u16(0x001C, view_y); // Layer1YPos
-    cpu.mem.store_u16(0x001E, view_x); // Layer2XPos
-    cpu.mem.store_u16(0x0020, view_y); // Layer2YPos
-    cpu.mem.store_u16(0x1462, view_x); // NextLayer1XPos
-    cpu.mem.store_u16(0x1464, view_y); // NextLayer1YPos
-    cpu.mem.store_u16(0x1466, view_x); // NextLayer2XPos
-    cpu.mem.store_u16(0x1468, view_y); // NextLayer2YPos
+    cpu.mem.store_u16(0x001A, view_x);
+    cpu.mem.store_u16(0x001C, view_y);
+    cpu.mem.store_u16(0x001E, view_x);
+    cpu.mem.store_u16(0x0020, view_y);
+    cpu.mem.store_u16(0x1462, view_x);
+    cpu.mem.store_u16(0x1464, view_y);
+    cpu.mem.store_u16(0x1466, view_x);
+    cpu.mem.store_u16(0x1468, view_y);
     cpu.mem.store(0x141A, 1);
 
     cpu.ill = false;
@@ -343,15 +356,15 @@ pub fn load_overworld(cpu: &mut Cpu<CheckedMem>, submap: u8) -> u64 {
 
     let mut addr = 0x2000u32;
     for symbol in ["CODE_04DC09", "DecompressOverworldL2", "UploadSpriteGFX"] {
-        cpu.mem.store(addr, 0x22); // JSL
+        cpu.mem.store(addr, 0x22);
         cpu.mem.store_u24(addr + 1, cpu.mem.cart.resolve(symbol).unwrap_or_else(|| panic!("no symbol: {symbol}")));
         addr += 4;
     }
-    cpu.mem.store(addr, 0xA0); // LDY #$14
+    cpu.mem.store(addr, 0xA0);
     cpu.mem.store(addr + 1, 0x14);
     addr += 2;
     for symbol in ["PrepareGraphicsFile", "CODE_00AD25", "CODE_00922F", "CODE_04D6E9"] {
-        cpu.mem.store(addr, 0x22); // JSL
+        cpu.mem.store(addr, 0x22);
         cpu.mem.store_u24(addr + 1, cpu.mem.cart.resolve(symbol).unwrap_or_else(|| panic!("no symbol: {symbol}")));
         addr += 4;
     }

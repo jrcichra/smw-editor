@@ -5,6 +5,7 @@ mod object_layer;
 mod properties;
 
 use std::{
+    collections::HashMap,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -37,8 +38,6 @@ impl UiLevelEditor {
     pub fn new(gl: Arc<glow::Context>, rom: Arc<SmwRom>, rom_path: PathBuf) -> Self {
         let level_renderer = Arc::new(Mutex::new(LevelRenderer::new(&gl)));
 
-        // Build the emulator ROM from the same file.
-        // SMC/SFC files have a 0x200-byte header we must skip (same as old project.rs).
         let raw = std::fs::read(&rom_path).expect("cannot read ROM for emulator");
         let rom_bytes = if raw.len() % 0x400 == 0x200 { raw[0x200..].to_vec() } else { raw };
         let mut emu_rom = EmuRom::new(rom_bytes);
@@ -89,33 +88,47 @@ impl UiLevelEditor {
             return;
         }
 
-        // Parse object layer / properties from smwe-rom (for the overlay / left panel)
-        {
+        let (sprite_layer, is_vertical) = {
             let level = &self.rom.levels[level_idx];
             self.level_properties = LevelProperties::from_level(level);
             self.layer1 = EditableObjectLayer::from_level(level);
-        }
+            (level.sprite_layer.clone(), level.secondary_header.vertical_level())
+        };
         self.offset = Vec2::ZERO;
 
-        // Run the actual SNES level decompressor in the emulator.
-        // This populates WRAM 0x7EC800/0x7FC800 with Map16 block IDs, exactly as
-        // the real game does — no hand-translated object routines needed.
+        // Decompress level — fills WRAM block maps, VRAM, and CGRAM.
         smwe_emu::emu::decompress_sublevel(&mut self.cpu, self.level_num);
 
-        // Run sprite init so OAM ($0300) is populated with tile/palette data for
-        // every sprite in the level — required before uploading sprite tiles.
-        smwe_emu::emu::exec_sprites(&mut self.cpu);
+        // Build a map of sprite_id -> (tile_word, is_16x16) by running
+        // exec_sprite_id for each unique sprite ID in the level. This gives
+        // us the correct tile/palette for each sprite type without relying
+        // on live OAM positions (which are emulator-fake).
+        let mut oam_map: HashMap<u8, (u16, bool)> = HashMap::new();
+        {
+            let mut unique_ids: Vec<u8> = sprite_layer.sprites.iter()
+                .map(|s| s.sprite_id())
+                .collect();
+            unique_ids.sort_unstable();
+            unique_ids.dedup();
 
-        // Upload GFX/palette (still sourced from smwe-rom, which is fine)
-        self.upload_gfx_palette();
+            for id in unique_ids {
+                if let Some(info) = smwe_emu::emu::sprite_oam_info(&mut self.cpu, id) {
+                    oam_map.insert(id, info);
+                }
+            }
 
-        // Upload tile layers and OAM sprite tiles in one lock.
+            // Re-run decompress after exec_sprite_id calls to restore clean VRAM/CGRAM
+            // (exec_sprite_id may disturb emulator state).
+            smwe_emu::emu::decompress_sublevel(&mut self.cpu, self.level_num);
+        }
+
+        // Upload CGRAM and VRAM from the clean post-decompress state.
         {
             let mut renderer = self.level_renderer.lock().expect("Cannot lock level_renderer");
+            renderer.upload_palette(&self.gl, &self.cpu.mem.cgram);
+            renderer.upload_gfx(&self.gl, &self.cpu.mem.vram);
             renderer.upload_level(&self.gl, &mut self.cpu);
-            // Upload OAM sprite tiles so sprites (e.g. Dragon Coin) render with
-            // the correct graphics and palette instead of a purple placeholder.
-            renderer.upload_sprites(&self.gl, &mut self.cpu);
+            renderer.upload_sprites(&self.gl, &sprite_layer, &oam_map, is_vertical);
         }
     }
 
@@ -124,14 +137,8 @@ impl UiLevelEditor {
         if level_idx >= self.rom.levels.len() {
             return;
         }
-        // ── CGRAM ──────────────────────────────────────────────────────────────
-        // The emulator runs LoadPalette + CODE_00922F so self.cpu.mem.cgram is
-        // already correct after decompress_sublevel.  Upload it directly.
-        self.level_renderer.lock().expect("Cannot lock level_renderer").upload_palette(&self.gl, &self.cpu.mem.cgram);
-
-        // ── VRAM ───────────────────────────────────────────────────────────────
-        // The emulator runs UploadSpriteGFX which fills self.cpu.mem.vram with
-        // the correct tile graphics for this level's tileset.  Upload directly.
-        self.level_renderer.lock().expect("Cannot lock level_renderer").upload_gfx(&self.gl, &self.cpu.mem.vram);
+        let mut renderer = self.level_renderer.lock().expect("Cannot lock level_renderer");
+        renderer.upload_palette(&self.gl, &self.cpu.mem.cgram);
+        renderer.upload_gfx(&self.gl, &self.cpu.mem.vram);
     }
 }
