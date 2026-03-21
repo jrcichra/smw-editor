@@ -225,7 +225,7 @@ impl UiWorldEditor {
         r.set_tiles(&self.gl, l1, l2);
 
         // Rebuild the tile picker from current VRAM
-        self.tile_picker.rebuild(&self.cpu.mem.vram, &self.cpu.mem.cgram);
+        self.tile_picker.rebuild(&self.cpu.mem.vram, &self.cpu.mem.cgram, VRAM_L1_TILEMAP_BASE, VRAM_L2_TILEMAP_BASE);
 
         self.offset = Vec2::ZERO;
         self.selected_tile = None;
@@ -348,21 +348,12 @@ impl UiWorldEditor {
                         let rel = pos - rect.min;
                         let px = rel.x / display_w * tex_size[0] as f32;
                         let py = rel.y / display_h * tex_size[1] as f32;
-                        if let Some(tile_num) = self.tile_picker.tile_at_pixel(px, py) {
+                        if let Some((tile_num, pal)) = self.tile_picker.tile_at_pixel(px, py) {
                             self.draw_tile_num = tile_num;
+                            self.draw_palette = pal;
                         }
                     }
                 }
-
-                // Highlight selected tile
-                let sel_col = (self.draw_tile_num as usize % 32) as f32;
-                let sel_row = (self.draw_tile_num as usize / 32) as f32;
-                let tile_screen = display_w / 32.0;
-                let sel_rect = Rect::from_min_size(
-                    rect.min + vec2(sel_col * tile_screen, sel_row * tile_screen),
-                    vec2(tile_screen, tile_screen),
-                );
-                ui.painter().rect_stroke(sel_rect, Rounding::ZERO, Stroke::new(2.0, Color32::YELLOW));
             }
 
             ui.separator();
