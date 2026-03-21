@@ -1,56 +1,64 @@
 # SMW Editor
 
-![Overworld Editor](assets/overworld.png)
-
 > [!NOTE]
 > This is an AI-generated community fork of the [original SMW Editor](https://github.com/SMW-Editor/smw-editor).
+
+![Overworld Editor](assets/overworld.png)
 
 SMW Editor is an open-source, multi-platform, modern alternative to Lunar Magic,
 providing all the necessary tools for SMW romhacking. It uses a built-in emulator
 to decompress and render graphics directly from the ROM, ensuring accurate
 visualization of vanilla SMW content.
 
-![Level Editor](assets/level_editor.png)
-
 ## Features
 
 ### Currently Functional
 
+- **Overworld Editor** — Browse and edit all 7 submaps rendered from composed VRAM
+  tilemaps. Paint tiles with a visual picker, erase, switch between L1/L2, and
+  inspect individual tiles with rendered previews.
 - **Level Editor** — View, navigate, and edit levels rendered via the emulator's
-  decompression routines. Supports zoom, grid overlay, object visualization,
-  and tile painting with a visual Map16 tile picker.
-- **Overworld Editor** — Browse all 7 submaps rendered from composed VRAM
-  tilemaps. Toggle layer 1/2, pan and zoom, and inspect individual tiles.
+  decompression routines. Paint blocks with a Map16 tile picker, erase objects,
+  switch between L1/L2, inspect tile contents, and undo/redo changes.
 - **Sprite Tile Editor** — Place, move, delete, flip, and copy/paste tiles on a
-  32×32 canvas with VRAM browser, palette selection, and full undo/redo.
+  32x32 canvas with VRAM browser, palette selection, and full undo/redo.
 - **Address Converter** — Convert between PC and SNES address spaces with
   LoROM/HiROM and header options.
 - **ROM Loading** — Parses standard SMW ROMs with internal header detection.
   Persists recent files between sessions.
 
-### Level Editor Controls
+### Editor Controls (Level & Overworld)
+
+Both editors share the same controls:
 
 | Key | Action |
 |-----|--------|
-| `1` | Select mode — click objects to select |
-| `2` | Draw mode — pick a block from the tile picker, click to paint |
-| `3` | Erase mode — click to delete objects |
+| `1` | Select mode — click to inspect tiles |
+| `2` | Draw mode — pick a tile from the picker, click to paint |
+| `3` | Erase mode — click to delete/blank tiles |
+| `Scroll wheel` | Zoom |
+| `Middle-mouse drag` | Pan |
+| `Shift` | Show grid overlay |
+| `Alt+click` | Inspect block ID at tile |
+
+Level editor additionally supports:
+
+| Key | Action |
+|-----|--------|
 | `4` | Probe mode — click to inspect objects |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / Redo |
 | `Delete` | Delete selected object |
-| Scroll wheel | Zoom |
-| Middle-mouse drag | Pan |
-| `Shift` | Show grid overlay |
-| `Alt+click` | Inspect block ID at tile |
+
+![Level Editor](assets/level_editor.png)
 
 ### In Development
 
 - Block editor UI (viewing and editing not yet implemented)
 - Level save/export to ROM
+- Overworld undo/redo
 
 ### Planned
 
-- Overworld editing (tile placement, event editing)
 - Block editor (custom block creation)
 - Graphics editor
 - ASM code editor
@@ -120,5 +128,3 @@ If you're looking to contribute, experience in any of the following is helpful:
 ## License
 
 This project is licensed under the MIT License.
-
-
