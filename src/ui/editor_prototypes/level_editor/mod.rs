@@ -4,6 +4,7 @@ mod left_panel;
 mod level_renderer;
 mod object_layer;
 mod properties;
+mod tile_picker;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -15,7 +16,10 @@ use egui::{CentralPanel, Frame, SidePanel, Ui, WidgetText, *};
 use smwe_emu::{emu::CheckedMem, rom::Rom as EmuRom, Cpu};
 use smwe_rom::SmwRom;
 
-use self::{level_renderer::LevelRenderer, object_layer::EditableObjectLayer, properties::LevelProperties};
+use self::{
+    level_renderer::LevelRenderer, object_layer::EditableObjectLayer, properties::LevelProperties,
+    tile_picker::TilePicker,
+};
 use crate::{
     ui::{editing_mode::EditingMode, tool::DockableEditorTool},
     undo::UndoableData,
@@ -37,12 +41,14 @@ pub struct UiLevelEditor {
 
     level_properties: LevelProperties,
     layer1: UndoableData<EditableObjectLayer>,
+    tile_picker: TilePicker,
 
     // Editing state
     editing_mode: EditingMode,
     selected_object_indices: HashSet<usize>,
     draw_object_id: u8,
     draw_object_settings: u8,
+    draw_block_id: u16,
 }
 
 impl UiLevelEditor {
@@ -69,10 +75,12 @@ impl UiLevelEditor {
             selected_tile: None,
             level_properties: LevelProperties::default(),
             layer1: UndoableData::new(EditableObjectLayer::default()),
+            tile_picker: TilePicker::new(),
             editing_mode: EditingMode::Select,
             selected_object_indices: HashSet::new(),
             draw_object_id: 0x00,
             draw_object_settings: 0x00,
+            draw_block_id: 0x25,
         };
         editor.load_level();
         editor
@@ -150,6 +158,10 @@ impl UiLevelEditor {
         renderer.upload_gfx(&self.gl, &self.cpu.mem.vram);
         renderer.upload_level(&self.gl, &mut self.cpu);
         renderer.upload_sprites(&self.gl, &sprite_layer, &oam_map, is_vertical);
+        drop(renderer);
+
+        // Rebuild the tile picker from the loaded level's tileset.
+        self.tile_picker.rebuild(&mut self.cpu);
     }
 
     #[allow(dead_code)]
@@ -161,6 +173,44 @@ impl UiLevelEditor {
         let renderer = self.level_renderer.lock().expect("Cannot lock level_renderer");
         renderer.upload_palette(&self.gl, &self.cpu.mem.cgram);
         renderer.upload_gfx(&self.gl, &self.cpu.mem.vram);
+    }
+
+    /// Write a block ID at the given tile coordinate into the WRAM block map.
+    fn set_block_id_at(&mut self, tile_x: u32, tile_y: u32, block_id: u16) {
+        let vertical = self.level_properties.is_vertical;
+        let has_layer2 = self.level_properties.has_layer2;
+
+        let bx = tile_x / 16;
+        let by = tile_y / 16;
+
+        let (scr_len, scr_size) = if vertical {
+            (if has_layer2 { 0x0E } else { 0x1C }, 16 * 32)
+        } else {
+            (if has_layer2 { 0x10 } else { 0x20 }, 16 * 27)
+        };
+
+        let (screen, sidx) = if vertical {
+            let sub_y = by / 32;
+            let sub_x = bx / 16;
+            let row = by % 32;
+            let col = bx % 16;
+            (sub_y * 2 + sub_x, row * 16 + col)
+        } else {
+            let screen = bx / scr_len as u32;
+            let col = bx % scr_len as u32;
+            let row = by;
+            (screen, row * scr_len as u32 + col)
+        };
+
+        let idx = screen * scr_size as u32 + sidx;
+        self.cpu.mem.store_u8(0x7EC800 + idx, (block_id & 0xFF) as u8);
+        self.cpu.mem.store_u8(0x7FC800 + idx, ((block_id >> 8) & 0x01) as u8);
+    }
+
+    /// Re-render the GL tiles from the current WRAM block map.
+    fn rebuild_tiles(&mut self) {
+        let mut renderer = self.level_renderer.lock().expect("Cannot lock level_renderer");
+        renderer.upload_level(&self.gl, &mut self.cpu);
     }
 
     /// Look up the L1 block ID at the given tile (pixel) coordinate by reading

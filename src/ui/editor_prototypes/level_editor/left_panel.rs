@@ -1,4 +1,4 @@
-use egui::{vec2, Color32, Slider, Ui};
+use egui::{vec2, Color32, Rect, Sense, Slider, Ui};
 use smwe_widgets::value_switcher::{ValueSwitcher, ValueSwitcherButtons};
 
 use super::UiLevelEditor;
@@ -50,15 +50,16 @@ impl UiLevelEditor {
             }
         });
 
-        // ── Draw mode object picker ────────────────────────
+        // ── Draw mode tile picker ──────────────────────────
         if self.editing_mode == EditingMode::Draw {
             ui.separator();
-            ui.label("Place object:");
+            ui.label("Paint block:");
             ui.horizontal(|ui| {
-                ui.label("ID:");
-                let mut id = self.draw_object_id as u16;
-                if ui.add(Slider::new(&mut id, 0..=0x3F).hexadecimal(2, false, false)).changed() {
-                    self.draw_object_id = id as u8;
+                ui.label(format!("Selected: {:#05X}", self.draw_block_id));
+                // Small inline slider for precise control
+                let mut bid = self.draw_block_id;
+                if ui.add(Slider::new(&mut bid, 0..=0x1FF).hexadecimal(3, false, false).show_value(false)).changed() {
+                    self.draw_block_id = bid;
                 }
             });
             ui.horizontal(|ui| {
@@ -76,6 +77,43 @@ impl UiLevelEditor {
                     self.draw_object_settings = ((h.saturating_sub(1) as u8) << 4) | (w.saturating_sub(1) as u8 & 0x0F);
                 }
             });
+
+            // Tile picker grid
+            let tex = self.tile_picker.texture(ui.ctx());
+            let tex_size = tex.size();
+            let display_w = ui.available_width().min(tex_size[0] as f32 * 2.0);
+            let display_h = display_w * (tex_size[1] as f32 / tex_size[0] as f32);
+            let (rect, resp) = ui.allocate_exact_size(vec2(display_w, display_h), Sense::click());
+            ui.painter().image(
+                tex.id(),
+                rect,
+                Rect::from_min_size(egui::pos2(0.0, 0.0), vec2(1.0, 1.0)),
+                Color32::WHITE,
+            );
+
+            // Click to select a block
+            if resp.clicked_by(egui::PointerButton::Primary) {
+                if let Some(pos) = resp.interact_pointer_pos() {
+                    let rel = pos - rect.min;
+                    let px = rel.x / display_w * tex_size[0] as f32;
+                    let py = rel.y / display_h * tex_size[1] as f32;
+                    if let Some(block_id) = self.tile_picker.block_at_pixel(px, py) {
+                        self.draw_block_id = block_id;
+                    }
+                }
+            }
+
+            // Highlight the selected block
+            let block_px = tex_size[0] as f32 / 16.0; // pixels per block in texture
+            let sel_col = (self.draw_block_id as usize % 16) as f32;
+            let sel_row = (self.draw_block_id as usize / 16) as f32;
+            let scale_x = display_w / tex_size[0] as f32;
+            let scale_y = display_h / tex_size[1] as f32;
+            let sel_rect = Rect::from_min_size(
+                rect.min + vec2(sel_col * block_px * scale_x, sel_row * block_px * scale_y),
+                vec2(block_px * scale_x, block_px * scale_y),
+            );
+            ui.painter().rect_stroke(sel_rect, egui::Rounding::ZERO, egui::Stroke::new(2.0, Color32::YELLOW));
         }
 
         ui.separator();

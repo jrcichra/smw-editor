@@ -59,10 +59,27 @@ impl UiLevelEditor {
 
     fn erase_object_at(&mut self, pos: Pos2, origin: Pos2, tile_sz: f32) {
         if let Some(idx) = self.object_at(pos, origin, tile_sz) {
+            // Read object bounds before deleting.
+            let (ox, oy, ow, oh) = self.layer1.read(|layer| {
+                let obj = &layer.objects[idx];
+                let w = if obj.is_extended { 1 } else { (obj.settings & 0x0F) + 1 };
+                let h = if obj.is_extended { 1 } else { (obj.settings >> 4) + 1 };
+                (obj.x, obj.y, w as u32, h as u32)
+            });
+
+            // Delete the object.
             self.layer1.write(|layer| {
                 layer.objects.remove(idx);
             });
             self.selected_object_indices.clear();
+
+            // Blank out the tiles.
+            for dy in 0..oh {
+                for dx in 0..ow {
+                    self.set_block_id_at(ox + dx, oy + dy, 0x25);
+                }
+            }
+            self.rebuild_tiles();
         }
     }
 
@@ -70,6 +87,10 @@ impl UiLevelEditor {
         let rel = (pos - origin) / tile_sz;
         let tx = rel.x.floor() as u32;
         let ty = rel.y.floor() as u32;
+
+        let w =
+            if self.draw_object_settings & 0x0F == 0 { 1_u32 } else { ((self.draw_object_settings & 0x0F) + 1) as u32 };
+        let h = if self.draw_object_settings >> 4 == 0 { 1_u32 } else { ((self.draw_object_settings >> 4) + 1) as u32 };
 
         let new_obj = EditableObject {
             x: tx,
@@ -86,13 +107,35 @@ impl UiLevelEditor {
         });
         self.selected_object_indices.clear();
         self.selected_object_indices.insert(new_idx);
+
+        // Write block IDs into the WRAM block map.
+        let block_id = self.draw_block_id;
+        for dy in 0..h {
+            for dx in 0..w {
+                self.set_block_id_at(tx + dx, ty + dy, block_id);
+            }
+        }
+        self.rebuild_tiles();
     }
 
     pub(super) fn delete_selected_objects(&mut self) {
         if self.selected_object_indices.is_empty() {
             return;
         }
-        // Collect indices first to avoid borrow conflict with write().
+        // Read object bounds before deleting.
+        let objects_to_blank: Vec<(u32, u32, u32, u32)> = self.layer1.read(|layer| {
+            self.selected_object_indices
+                .iter()
+                .filter_map(|&i| layer.objects.get(i))
+                .map(|obj| {
+                    let w = if obj.is_extended { 1 } else { (obj.settings & 0x0F) as u32 + 1 };
+                    let h = if obj.is_extended { 1 } else { (obj.settings >> 4) as u32 + 1 };
+                    (obj.x, obj.y, w, h)
+                })
+                .collect()
+        });
+
+        // Collect indices and delete objects.
         let indices: Vec<usize> = self.selected_object_indices.iter().copied().collect();
         self.layer1.write(|layer| {
             let mut keep = Vec::with_capacity(layer.objects.len());
@@ -104,6 +147,16 @@ impl UiLevelEditor {
             layer.objects = keep;
         });
         self.selected_object_indices.clear();
+
+        // Blank out the tiles.
+        for (ox, oy, w, h) in objects_to_blank {
+            for dy in 0..h {
+                for dx in 0..w {
+                    self.set_block_id_at(ox + dx, oy + dy, 0x25);
+                }
+            }
+        }
+        self.rebuild_tiles();
     }
 
     pub(super) fn handle_undo(&mut self) {
