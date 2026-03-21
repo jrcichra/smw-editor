@@ -376,12 +376,53 @@ impl UiWorldEditor {
                         }
                     }
                 }
+
+                // Highlight selected tile
+                if let Some((col, row)) = self.tile_picker.tile_grid_pos(self.draw_tile_num, self.draw_palette) {
+                    let tile_screen = display_w / (tex_size[0] as f32 / 16.0); // 16px per tile in texture
+                    let sel_rect = Rect::from_min_size(
+                        rect.min + vec2(col as f32 * tile_screen, row as f32 * tile_screen),
+                        vec2(tile_screen, tile_screen),
+                    );
+                    ui.painter().rect_stroke(sel_rect, egui::Rounding::ZERO, egui::Stroke::new(2.0, Color32::YELLOW));
+                }
             }
 
             ui.separator();
 
-            // Selected tile info
-            if let Some((x, y)) = self.selected_tile {
+            // ── Tile preview ────────────────────────────────────
+            // In draw mode, show the draw tile. Otherwise, show the selected tile.
+            let draw_mode = self.editing_mode == crate::ui::editing_mode::EditingMode::Draw;
+            if draw_mode {
+                ui.label(format!("Paint: {:#04X} pal {}", self.draw_tile_num, self.draw_palette));
+                let cache_key = (self.draw_tile_num as u32 | 0x100, self.draw_palette as u32);
+                if self.preview_for != Some(cache_key) {
+                    // Render a single 8×8 sub-tile as the draw preview
+                    let image = render_single_tile_preview(
+                        &self.cpu.mem.vram,
+                        &self.cpu.mem.cgram,
+                        self.draw_tile_num,
+                        self.draw_palette,
+                    );
+                    let handle = ui.ctx().load_texture(
+                        format!("ow_draw_preview_{}", self.draw_tile_num),
+                        image,
+                        egui::TextureOptions::NEAREST,
+                    );
+                    self.preview_texture = Some(handle);
+                    self.preview_for = Some(cache_key);
+                }
+                if let Some(ref tex) = self.preview_texture {
+                    let display_size = 64.0;
+                    let (rect, _) = ui.allocate_exact_size(vec2(display_size, display_size), egui::Sense::hover());
+                    ui.painter().image(
+                        tex.id(),
+                        rect,
+                        Rect::from_min_size(egui::pos2(0.0, 0.0), vec2(1.0, 1.0)),
+                        Color32::WHITE,
+                    );
+                }
+            } else if let Some((x, y)) = self.selected_tile {
                 ui.label(format!("Selected: ({x}, {y}) [L{}]", self.edit_layer));
                 let tilemap_base = if self.edit_layer == 2 { VRAM_L2_TILEMAP_BASE } else { VRAM_L1_TILEMAP_BASE };
                 let (crop_x, crop_y) = visible_map_crop(self.submap);
@@ -398,8 +439,8 @@ impl UiWorldEditor {
                     ui.monospace(format!("  flip x={flip_x} y={flip_y}"));
                 }
 
-                // Tile preview — render the 4 sub-tiles as a 16×16 block
-                if self.preview_for != Some((x, y)) {
+                let cache_key = ((x & 0xFFFF) | ((y & 0xFFFF) << 16), 0u32);
+                if self.preview_for != Some(cache_key) {
                     let image = render_ow_block_preview(
                         &self.cpu.mem.vram,
                         &self.cpu.mem.cgram,
@@ -411,7 +452,7 @@ impl UiWorldEditor {
                     let handle =
                         ui.ctx().load_texture(format!("ow_preview_{x}_{y}"), image, egui::TextureOptions::NEAREST);
                     self.preview_texture = Some(handle);
-                    self.preview_for = Some((x, y));
+                    self.preview_for = Some(cache_key);
                 }
                 if let Some(ref tex) = self.preview_texture {
                     let display_size = 64.0;
@@ -683,6 +724,57 @@ fn render_ow_block_preview(
                     pixels[off + 1] = g;
                     pixels[off + 2] = b;
                     pixels[off + 3] = 255;
+                }
+            }
+        }
+    }
+    egui::ColorImage::from_rgba_unmultiplied([16, 16], &pixels)
+}
+
+/// Render a single 8×8 VRAM tile as a 16×16 preview (2× nearest neighbor).
+fn render_single_tile_preview(vram: &[u8], cgram: &[u8], tile_num: u8, pal: u8) -> egui::ColorImage {
+    let mut pixels = vec![0u8; 16 * 16 * 4];
+    let tile_base = (tile_num as usize) * 32;
+    for ty in 0..8u32 {
+        for tx in 0..8u32 {
+            let row_off = tile_base + (ty as usize) * 2;
+            if row_off + 17 >= vram.len() {
+                continue;
+            }
+            let b0 = vram[row_off];
+            let b1 = vram[row_off + 1];
+            let b2 = vram[row_off + 16];
+            let b3 = vram[row_off + 17];
+            let bit = 7 - tx as usize;
+            let color_idx =
+                (((b0 >> bit) & 1) | (((b1 >> bit) & 1) << 1) | (((b2 >> bit) & 1) << 2) | (((b3 >> bit) & 1) << 3))
+                    as usize;
+            if color_idx == 0 {
+                continue;
+            }
+            let pal_idx = (pal as usize) * 16 + color_idx;
+            let off_color = pal_idx * 2;
+            if off_color + 1 >= cgram.len() {
+                continue;
+            }
+            let lo = cgram[off_color] as u16;
+            let hi = cgram[off_color + 1] as u16;
+            let rgb = lo | (hi << 8);
+            let r = ((rgb & 0x1F) << 3) as u8;
+            let g = (((rgb >> 5) & 0x1F) << 3) as u8;
+            let b = (((rgb >> 10) & 0x1F) << 3) as u8;
+            // 2× nearest neighbor
+            for dy in 0..2u32 {
+                for dx in 0..2u32 {
+                    let px = tx * 2 + dx;
+                    let py = ty * 2 + dy;
+                    let off = ((py as usize) * 16 + px as usize) * 4;
+                    if off + 3 < pixels.len() {
+                        pixels[off] = r;
+                        pixels[off + 1] = g;
+                        pixels[off + 2] = b;
+                        pixels[off + 3] = 255;
+                    }
                 }
             }
         }

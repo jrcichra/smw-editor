@@ -141,6 +141,13 @@ impl OwTilePicker {
             None
         }
     }
+    /// Get the grid column and row for a given tile number and palette.
+    pub fn tile_grid_pos(&self, tile_num: u8, palette: u8) -> Option<(usize, usize)> {
+        self.used_tiles
+            .iter()
+            .position(|(t, p)| *t == tile_num as u16 && *p == palette)
+            .map(|idx| (idx % COLS, idx / COLS))
+    }
 }
 
 fn tilemap_addr(base: usize, col: u32, row: u32) -> usize {

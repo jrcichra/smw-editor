@@ -153,32 +153,44 @@ impl UiLevelEditor {
 
         ui.separator();
 
-        // Selected tile info
+        // ── Tile preview ────────────────────────────────────
+        // In draw mode, show the draw block. Otherwise, show the selected tile.
+        let preview_block = if self.editing_mode == EditingMode::Draw {
+            Some(("Paint", self.draw_block_id, 0xFFFF_FFFF)) // sentinel for draw mode
+        } else if let Some((x, y)) = self.selected_tile {
+            self.block_id_at(x, y).map(|bid| ("Tile", bid, ((x & 0xFFF) | ((y & 0xFFF) << 12)) as u32))
+        } else {
+            None
+        };
+
+        if let Some((label, block_id, cache_key)) = preview_block {
+            ui.label(format!("{label}: {block_id:#05X}"));
+            if self.preview_for.map(|(x, y)| ((x as u32) | ((y as u32) << 16))) != Some(cache_key) {
+                let image = super::tile_picker::render_block_image(block_id, &mut self.cpu);
+                let handle =
+                    ui.ctx().load_texture(format!("block_preview_{cache_key}"), image, egui::TextureOptions::NEAREST);
+                self.preview_texture = Some(handle);
+                self.preview_for = Some((cache_key & 0xFFFF, cache_key >> 16));
+            }
+            if let Some(ref tex) = self.preview_texture {
+                let display_size = 64.0;
+                let (rect, _) = ui.allocate_exact_size(vec2(display_size, display_size), Sense::hover());
+                ui.painter().image(
+                    tex.id(),
+                    rect,
+                    Rect::from_min_size(egui::pos2(0.0, 0.0), vec2(1.0, 1.0)),
+                    Color32::WHITE,
+                );
+            }
+        }
+
+        // Selected tile details (position, screen)
         if let Some((x, y)) = self.selected_tile {
-            ui.label(format!("Tile: ({x}, {y}) [L{}]", self.edit_layer));
+            ui.monospace(format!("Pos: ({x}, {y}) [L{}]", self.edit_layer));
             if let Some(block_id) = self.block_id_at(x, y) {
-                ui.monospace(format!("  Block ID: {block_id:#04X}"));
+                ui.monospace(format!("  Block: {block_id:#04X}"));
                 let screen = if is_vertical { y / 512 } else { x / 256 };
                 ui.monospace(format!("  Screen: {screen:X}"));
-
-                // Tile preview
-                if self.preview_for != Some((x, y)) {
-                    let image = super::tile_picker::render_block_image(block_id, &mut self.cpu);
-                    let handle =
-                        ui.ctx().load_texture(format!("block_preview_{x}_{y}"), image, egui::TextureOptions::NEAREST);
-                    self.preview_texture = Some(handle);
-                    self.preview_for = Some((x, y));
-                }
-                if let Some(ref tex) = self.preview_texture {
-                    let display_size = 64.0;
-                    let (rect, _) = ui.allocate_exact_size(vec2(display_size, display_size), Sense::hover());
-                    ui.painter().image(
-                        tex.id(),
-                        rect,
-                        Rect::from_min_size(egui::pos2(0.0, 0.0), vec2(1.0, 1.0)),
-                        Color32::WHITE,
-                    );
-                }
             }
         }
 
