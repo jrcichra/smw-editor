@@ -255,9 +255,6 @@ impl UiWorldEditor {
                 self.load_submap();
             }
         });
-        if ui.button("Reload Submap").clicked() {
-            self.load_submap();
-        }
 
         ui.separator();
 
