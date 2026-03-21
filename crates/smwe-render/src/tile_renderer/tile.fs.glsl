@@ -16,12 +16,16 @@ layout(std140) uniform Color {
 out vec4 out_color;
 
 void main() {
-    int scale = g_params & 0xFF;
-    
     int tile_id = g_tile_id;
     int color_row = (g_params >> 8) & 0xF;
-    ivec2 icoord = ivec2(g_tex_coords) * 8 / int(scale * zoom);
-    
+
+    // scale_px = tile size in screen pixels = tile_size * zoom.
+    // g_tex_coords runs 0..(scale_px+1) due to the 1px gap-closing overdraw.
+    // Divide by scale_px to get a 0..1 UV, multiply by 8 for texel index,
+    // then clamp to 0-7 so the overdraw pixel replicates the edge texel.
+    float scale_px = float(g_params & 0xFF) * zoom;
+    ivec2 icoord = clamp(ivec2(g_tex_coords * 8.0 / scale_px), ivec2(0), ivec2(7));
+
     bool flip_x = (g_params & 0x4000) != 0;
     bool flip_y = (g_params & 0x8000) != 0;
     

@@ -97,7 +97,7 @@ impl UiLevelEditor {
             {
                 continue;
             }
-            painter.rect_stroke(scr_rect, Rounding::ZERO, Stroke::new(0.5, Color32::from_white_alpha(55)));
+            painter.rect_stroke(scr_rect, Rounding::ZERO, Stroke::new(0.5, Color32::from_white_alpha(25)));
             if z >= 0.8 {
                 painter.text(
                     scr_rect.min + vec2(3.0, 2.0),
