@@ -177,7 +177,7 @@ impl UiLevelEditor {
 
     /// Compute the WRAM block map index from block (tile) coordinates.
     /// Must produce the same index as `load_layer`'s reverse mapping.
-    fn block_map_index(&mut self, block_x: u32, block_y: u32) -> u32 {
+    fn block_map_index(&self, block_x: u32, block_y: u32) -> u32 {
         let vertical = self.level_properties.is_vertical;
         let scr_size = if vertical { 16 * 32 } else { 16 * 27 };
 
