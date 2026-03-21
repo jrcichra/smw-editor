@@ -31,12 +31,8 @@ use crate::ui::tool::DockableEditorTool;
 
 /// Game pixels per Map16 block (L1 tiles are 16×16 game pixels each).
 const MAP16_PX: f32 = 16.0;
-/// Game pixels per 8×8 BG tile (L2 tiles).
-const TILE_PX: f32 = 8.0;
 
 /// Visible viewport size used by the editor: 32×32 Map16 blocks = 512×512 pixels.
-const MAP16_COLS: u32 = 32;
-const MAP16_ROWS: u32 = 32;
 const SUBMAP_VIEW_X: i32 = 16;
 const SUBMAP_VIEW_Y: i32 = 40;
 const SUBMAP_VIEW_W: u32 = 224;
@@ -90,6 +86,7 @@ struct OverworldRenderer {
     layer1: TileRenderer,
     layer2: TileRenderer,
     gfx_bufs: GfxBuffers,
+    #[allow(dead_code)]
     offset: Vec2,
     destroyed: bool,
 }
@@ -345,7 +342,7 @@ impl UiWorldEditor {
             ui.painter().add(PaintCallback {
                 rect: view_rect,
                 callback: Arc::new(CallbackFn::new(move |_info, painter| {
-                    let mut r = renderer.lock().expect("Cannot lock overworld renderer");
+                    let r = renderer.lock().expect("Cannot lock overworld renderer");
                     r.paint(painter.gl(), screen_sz, gl_zoom, gl_offset, draw_l1, draw_l2);
                 })),
             });

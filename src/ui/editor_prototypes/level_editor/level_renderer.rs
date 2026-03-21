@@ -133,6 +133,7 @@ impl LevelRenderer {
     /// Render sprites directly from a raw OAM snapshot taken after exec_sprites().
     /// Since the camera starts at (0,0) after decompress_sublevel, OAM X/Y are
     /// already level-space pixel coordinates — no anchor math needed.
+    #[allow(dead_code)]
     pub(super) fn upload_sprites_oam(&mut self, gl: &Context, entries: &[RawOamEntry], _vertical: bool) {
         if self.destroyed {
             return;

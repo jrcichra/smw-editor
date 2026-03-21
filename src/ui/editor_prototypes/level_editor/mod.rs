@@ -136,6 +136,7 @@ impl UiLevelEditor {
         renderer.upload_sprites(&self.gl, &sprite_layer, &oam_map, is_vertical);
     }
 
+    #[allow(dead_code)]
     fn upload_gfx_palette(&self) {
         let level_idx = self.level_num as usize;
         if level_idx >= self.rom.levels.len() {
