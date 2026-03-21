@@ -52,6 +52,25 @@ impl UiLevelEditor {
             }
         });
 
+        // ── Layer selector ──────────────────────────────────
+        ui.horizontal(|ui| {
+            ui.label("Layer:");
+            let modes = [("L1", 1u8), ("L2", 2u8)];
+            for (label, layer) in modes {
+                let active = self.edit_layer == layer;
+                let fill = if active { Some(Color32::from_rgb(70, 130, 200)) } else { None };
+                let btn = egui::Button::new(label);
+                let btn = if let Some(f) = fill { btn.fill(f) } else { btn };
+                if ui.add(btn).clicked() {
+                    self.edit_layer = layer;
+                    self.preview_for = None; // Force preview refresh
+                }
+            }
+            if !self.level_properties.has_layer2 {
+                ui.weak("(no L2)");
+            }
+        });
+
         // ── Draw mode tile picker ──────────────────────────
         if self.editing_mode == EditingMode::Draw {
             ui.separator();
@@ -136,7 +155,7 @@ impl UiLevelEditor {
 
         // Selected tile info
         if let Some((x, y)) = self.selected_tile {
-            ui.label(format!("Tile: ({x}, {y})"));
+            ui.label(format!("Tile: ({x}, {y}) [L{}]", self.edit_layer));
             if let Some(block_id) = self.block_id_at(x, y) {
                 ui.monospace(format!("  Block ID: {block_id:#04X}"));
                 let screen = if is_vertical { y / 512 } else { x / 256 };

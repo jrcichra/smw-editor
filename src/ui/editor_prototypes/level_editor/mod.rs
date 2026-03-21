@@ -51,6 +51,7 @@ pub struct UiLevelEditor {
     draw_object_id: u8,
     draw_object_settings: u8,
     draw_block_id: u16,
+    edit_layer: u8, // 1 or 2
 }
 
 impl UiLevelEditor {
@@ -85,6 +86,7 @@ impl UiLevelEditor {
             draw_object_id: 0x00,
             draw_object_settings: 0x00,
             draw_block_id: 0x25,
+            edit_layer: 1,
         };
         editor.load_level();
         editor
@@ -213,11 +215,25 @@ impl UiLevelEditor {
         screen * scr_size as u32 + sidx
     }
 
+    /// Get the WRAM base addresses for the currently edited layer.
+    fn block_map_base(&self) -> (u32, u32) {
+        if self.edit_layer == 2 && self.level_properties.has_layer2 {
+            let vertical = self.level_properties.is_vertical;
+            let scr_len: u32 = if vertical { 0x0E } else { 0x10 };
+            let scr_size: u32 = if vertical { 16 * 32 } else { 16 * 27 };
+            let offset = scr_len * scr_size;
+            (0x7EC800 + offset, 0x7FC800 + offset)
+        } else {
+            (0x7EC800, 0x7FC800)
+        }
+    }
+
     /// Write a block ID at the given block coordinates into the WRAM block map.
     fn set_block_id_at(&mut self, block_x: u32, block_y: u32, block_id: u16) {
         let idx = self.block_map_index(block_x, block_y);
-        self.cpu.mem.store_u8(0x7EC800 + idx, (block_id & 0xFF) as u8);
-        self.cpu.mem.store_u8(0x7FC800 + idx, ((block_id >> 8) & 0x01) as u8);
+        let (lo_base, hi_base) = self.block_map_base();
+        self.cpu.mem.store_u8(lo_base + idx, (block_id & 0xFF) as u8);
+        self.cpu.mem.store_u8(hi_base + idx, ((block_id >> 8) & 0x01) as u8);
     }
 
     /// Re-render the GL tiles from the current WRAM block map.
@@ -226,12 +242,11 @@ impl UiLevelEditor {
         renderer.upload_level(&self.gl, &mut self.cpu);
     }
 
-    /// Look up the L1 block ID at the given block coordinates by reading
-    /// the WRAM block map populated during `decompress_sublevel`.
+    /// Look up the block ID at the given block coordinates by reading
+    /// the WRAM block map for the current edit layer.
     fn block_id_at(&mut self, block_x: u32, block_y: u32) -> Option<u16> {
         let idx = self.block_map_index(block_x, block_y);
-        let lo = 0x7EC800u32 + idx;
-        let hi = 0x7FC800u32 + idx;
-        Some(self.cpu.mem.load_u8(lo) as u16 | (((self.cpu.mem.load_u8(hi) as u16) & 0x01) << 8))
+        let (lo_base, hi_base) = self.block_map_base();
+        Some(self.cpu.mem.load_u8(lo_base + idx) as u16 | (((self.cpu.mem.load_u8(hi_base + idx) as u16) & 0x01) << 8))
     }
 }

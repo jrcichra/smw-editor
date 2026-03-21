@@ -170,6 +170,7 @@ pub struct UiWorldEditor {
     pub(super) draw_palette: u8,
     pub(super) draw_tile_attr: u8,
     pub(super) tile_picker: crate::ui::ow_tile_picker::OwTilePicker,
+    pub(super) edit_layer: u8, // 1 or 2
     preview_texture: Option<egui::TextureHandle>,
     preview_for: Option<(u32, u32)>,
 }
@@ -202,6 +203,7 @@ impl UiWorldEditor {
             draw_palette: 0,
             draw_tile_attr: 0x00,
             tile_picker: crate::ui::ow_tile_picker::OwTilePicker::new(),
+            edit_layer: 1,
             preview_texture: None,
             preview_for: None,
         };
@@ -311,6 +313,22 @@ impl UiWorldEditor {
                 }
             });
 
+            // ── Layer selector ────────────────────────────────────────
+            ui.horizontal(|ui| {
+                ui.label("Layer:");
+                let layers = [("L1", 1u8), ("L2", 2u8)];
+                for (label, layer) in layers {
+                    let active = self.edit_layer == layer;
+                    let fill = if active { Some(Color32::from_rgb(70, 130, 200)) } else { None };
+                    let btn = egui::Button::new(label);
+                    let btn = if let Some(f) = fill { btn.fill(f) } else { btn };
+                    if ui.add(btn).clicked() {
+                        self.edit_layer = layer;
+                        self.preview_texture = None; // Force preview refresh
+                    }
+                }
+            });
+
             // ── Draw mode tile picker ───────────────────────────────
             if self.editing_mode == crate::ui::editing_mode::EditingMode::Draw {
                 ui.separator();
@@ -364,8 +382,12 @@ impl UiWorldEditor {
 
             // Selected tile info
             if let Some((x, y)) = self.selected_tile {
-                ui.label(format!("Selected: ({x}, {y})"));
-                let addr = l1_vram_addr_for_map16(self.submap, x, y);
+                ui.label(format!("Selected: ({x}, {y}) [L{}]", self.edit_layer));
+                let tilemap_base = if self.edit_layer == 2 { VRAM_L2_TILEMAP_BASE } else { VRAM_L1_TILEMAP_BASE };
+                let (crop_x, crop_y) = visible_map_crop(self.submap);
+                let tile_x = (x * 16 + crop_x) / 8;
+                let tile_y = (y * 16 + crop_y) / 8;
+                let addr = tilemap_vram_addr(tilemap_base, tile_x, tile_y);
                 let sub0 = u16::from_le_bytes([self.cpu.mem.vram[addr], self.cpu.mem.vram[addr + 1]]);
                 let tile_num = (sub0 & 0x3FF) as u32;
                 let pal = ((sub0 >> 10) & 0x7) as u32;
@@ -378,7 +400,14 @@ impl UiWorldEditor {
 
                 // Tile preview — render the 4 sub-tiles as a 16×16 block
                 if self.preview_for != Some((x, y)) {
-                    let image = render_ow_block_preview(&self.cpu.mem.vram, &self.cpu.mem.cgram, self.submap, x, y);
+                    let image = render_ow_block_preview(
+                        &self.cpu.mem.vram,
+                        &self.cpu.mem.cgram,
+                        self.submap,
+                        x,
+                        y,
+                        tilemap_base,
+                    );
                     let handle =
                         ui.ctx().load_texture(format!("ow_preview_{x}_{y}"), image, egui::TextureOptions::NEAREST);
                     self.preview_texture = Some(handle);
@@ -587,8 +616,10 @@ fn activate_all_overworld_events(cpu: &mut Cpu) {
 }
 
 /// Render a 16×16 preview of the Map16 block at (map16_x, map16_y) by reading
-/// its 4 sub-tiles from the L1 VRAM tilemap.
-fn render_ow_block_preview(vram: &[u8], cgram: &[u8], submap: u8, map16_x: u32, map16_y: u32) -> egui::ColorImage {
+/// its 4 sub-tiles from the given VRAM tilemap.
+fn render_ow_block_preview(
+    vram: &[u8], cgram: &[u8], submap: u8, map16_x: u32, map16_y: u32, tilemap_base: usize,
+) -> egui::ColorImage {
     let (crop_x, crop_y) = visible_map_crop(submap);
     let base_tile_x = (map16_x * 16 + crop_x) / 8;
     let base_tile_y = (map16_y * 16 + crop_y) / 8;
@@ -598,7 +629,7 @@ fn render_ow_block_preview(vram: &[u8], cgram: &[u8], submap: u8, map16_x: u32, 
     for (dx, dy) in sub_positions {
         let tx = base_tile_x + dx;
         let ty = base_tile_y + dy;
-        let addr = tilemap_vram_addr(VRAM_L1_TILEMAP_BASE, tx, ty);
+        let addr = tilemap_vram_addr(tilemap_base, tx, ty);
         if addr + 1 >= vram.len() {
             continue;
         }
