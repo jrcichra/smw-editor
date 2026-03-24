@@ -404,12 +404,12 @@ impl UiWorldEditor {
                         self.draw_tile_num,
                         self.draw_palette,
                     );
-                    let handle = ui.ctx().load_texture(
-                        format!("ow_draw_preview_{}", self.draw_tile_num),
-                        image,
-                        egui::TextureOptions::NEAREST,
-                    );
-                    self.preview_texture = Some(handle);
+                    if let Some(ref mut handle) = self.preview_texture {
+                        handle.set(image, egui::TextureOptions::NEAREST);
+                    } else {
+                        self.preview_texture =
+                            Some(ui.ctx().load_texture("ow_preview", image, egui::TextureOptions::NEAREST));
+                    }
                     self.preview_for = Some(cache_key);
                 }
                 if let Some(ref tex) = self.preview_texture {
@@ -449,9 +449,12 @@ impl UiWorldEditor {
                         y,
                         tilemap_base,
                     );
-                    let handle =
-                        ui.ctx().load_texture(format!("ow_preview_{x}_{y}"), image, egui::TextureOptions::NEAREST);
-                    self.preview_texture = Some(handle);
+                    if let Some(ref mut handle) = self.preview_texture {
+                        handle.set(image, egui::TextureOptions::NEAREST);
+                    } else {
+                        self.preview_texture =
+                            Some(ui.ctx().load_texture("ow_preview", image, egui::TextureOptions::NEAREST));
+                    }
                     self.preview_for = Some(cache_key);
                 }
                 if let Some(ref tex) = self.preview_texture {

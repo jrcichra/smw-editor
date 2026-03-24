@@ -7,7 +7,7 @@ use crate::color::Abgr1555;
 #[derive(Copy, Clone, Debug)]
 pub struct GfxBuffers {
     pub palette_buf: Buffer,
-    pub vram_buf:    Buffer,
+    pub vram_buf: Buffer,
 }
 
 impl GfxBuffers {

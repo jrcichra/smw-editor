@@ -9,6 +9,7 @@ pub use self::{
     background::{BackgroundData, BackgroundTileID},
     headers::{PrimaryHeader, SecondaryHeader, SpriteHeader, PRIMARY_HEADER_SIZE, SPRITE_HEADER_SIZE},
     object_layer::ObjectLayer,
+    sprite_layer::SpriteInstance,
     sprite_layer::SpriteLayer,
 };
 use crate::{

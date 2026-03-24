@@ -12,19 +12,18 @@ pub struct PaletteRenderer {
 
 #[derive(Debug)]
 pub struct PaletteUniforms {
-    pub palette_buf:     Buffer,
+    pub palette_buf: Buffer,
     pub viewed_palettes: u32,
 }
 
 impl PaletteRenderer {
     pub fn new(gl: &Context) -> Self {
         let shader_sources = ShaderSources {
-            vertex_shader:   VERTEX_SHADER_SRC,
+            vertex_shader: VERTEX_SHADER_SRC,
             geometry_shader: None,
             fragment_shader: FRAGMENT_SHADER_SRC,
         };
-        let vertex_attribute =
-            GlVertexAttribute { index: 0, size: 1, data_type: INT, stride: 0, offset: 0 };
+        let vertex_attribute = GlVertexAttribute { index: 0, size: 1, data_type: INT, stride: 0, offset: 0 };
         let mut renderer = BasicRenderer::new(gl, shader_sources, vertex_attribute, TRIANGLE_STRIP);
 
         let vertices = vec![0b00, 0b10, 0b01, 0b11];

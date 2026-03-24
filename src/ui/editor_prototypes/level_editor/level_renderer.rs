@@ -37,6 +37,7 @@ impl LevelRenderer {
         self.destroyed = true;
     }
 
+    #[allow(dead_code)]
     pub(super) fn paint(&self, gl: &Context, screen_size: Vec2, zoom: f32) {
         if self.destroyed {
             return;
@@ -170,8 +171,6 @@ impl LevelRenderer {
     }
 
     fn load_layer(&mut self, gl: &Context, cpu: &mut Cpu, bg: bool) {
-        let mut tiles = Vec::new();
-
         let map16_bank = cpu.mem.cart.resolve("Map16Common").expect("Cannot resolve Map16Common") & 0xFF0000;
         let map16_bg = cpu.mem.cart.resolve("Map16BGTiles").expect("Cannot resolve Map16BGTiles");
         let vertical = cpu.mem.load_u8(0x5B) & if bg { 2 } else { 1 } != 0;
@@ -201,7 +200,8 @@ impl LevelRenderer {
             (false, _) => (0x7EC800, 0x7FC800),
         };
 
-        let len = if has_layer2 { 256 * 27 } else { 512 * 27 };
+        let len: u32 = if has_layer2 { 256 * 27 } else { 512 * 27 };
+        let mut tiles = Vec::with_capacity(len as usize * 4);
 
         for idx in 0..len {
             let (block_x, block_y) = if vertical {

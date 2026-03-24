@@ -3,7 +3,7 @@ use std::sync::Arc;
 use egui::{vec2, Align2, Color32, FontId, Key, PaintCallback, Rect, Rounding, Sense, Stroke, Ui, Vec2};
 use egui_glow::CallbackFn;
 
-use super::UiLevelEditor;
+use super::{sprite_editor, UiLevelEditor};
 use crate::ui::editing_mode::EditingMode;
 
 // Pixels per game tile at zoom=1
@@ -57,21 +57,20 @@ impl UiLevelEditor {
             painter.rect_filled(vis, Rounding::ZERO, bg.linear_multiply(1.15));
         }
 
-        // ── GL tile rendering (actual SNES graphics) ────────────
+        // ── Pre-rendered tile atlas display (no per-frame VRAM decoding) ──
         {
-            let level_renderer = Arc::clone(&self.level_renderer);
+            let atlas_tex = self.tile_atlas.texture_id();
+            let atlas_renderer = Arc::clone(&self.atlas_renderer);
             let ppp = ui.ctx().pixels_per_point();
-            let screen_size_px = view_rect.size() * ppp;
-            // The paint callback renders in view-local coordinates, so the GL
-            // offset must use the same local pan basis as the egui overlays.
+            let screen_w = view_rect.size().x * ppp;
+            let screen_h = view_rect.size().y * ppp;
             let gl_offset = self.offset;
             let gl_zoom = z * ppp;
             ui.painter().add(PaintCallback {
                 rect: view_rect,
                 callback: Arc::new(CallbackFn::new(move |_info, painter| {
-                    let mut r = level_renderer.lock().expect("Cannot lock level_renderer");
-                    r.set_offset(gl_offset);
-                    r.paint(painter.gl(), screen_size_px, gl_zoom);
+                    let r = atlas_renderer.lock().expect("Cannot lock atlas_renderer");
+                    r.paint(painter.gl(), atlas_tex, screen_w, screen_h, gl_offset.x, gl_offset.y, gl_zoom);
                 })),
             });
         }
@@ -278,6 +277,62 @@ impl UiLevelEditor {
                 self.editing_mode = EditingMode::Probe;
             }
         });
+
+        // ── Sprite overlay ────────────────────────────────────
+        if self.show_sprites {
+            // Read sprites once per frame (cheap byte parse, avoids duplicate work).
+            let sprites = sprite_editor::read_sprites_from_wram(&self.cpu.mem.wram);
+            let is_vertical = self.level_properties.is_vertical;
+            for (i, spr) in sprites.iter().enumerate() {
+                let (ax, ay) = sprite_editor::sprite_pixel_pos(spr, is_vertical);
+                let color = sprite_editor::sprite_color(spr.sprite_id());
+                let rect = Rect::from_min_size(origin + vec2(ax as f32 * z, ay as f32 * z), vec2(16.0 * z, 16.0 * z));
+                if rect.max.x >= view_rect.min.x
+                    && rect.min.x <= view_rect.max.x
+                    && rect.max.y >= view_rect.min.y
+                    && rect.min.y <= view_rect.max.y
+                {
+                    painter.rect_filled(rect, Rounding::same(2.0), color);
+                    painter.rect_stroke(rect, Rounding::same(2.0), Stroke::new(1.0, color.linear_multiply(2.0)));
+
+                    if self.selected_sprite == Some(i) {
+                        painter.rect_stroke(
+                            rect.expand(1.0),
+                            Rounding::same(2.0),
+                            Stroke::new(2.0, Color32::from_rgb(255, 100, 100)),
+                        );
+                    }
+
+                    if z >= 0.9 {
+                        painter.text(
+                            rect.left_top() + vec2(2.0, 2.0),
+                            Align2::LEFT_TOP,
+                            format!("SP:{:02X}", spr.sprite_id()),
+                            FontId::monospace(9.0),
+                            Color32::WHITE,
+                        );
+                    }
+                }
+            }
+
+            // Sprite interaction (right-click) — reuses the same sprite list
+            let sprite_changed = sprite_editor::handle_sprite_interaction(
+                &mut self.cpu.mem.wram,
+                &sprites,
+                &resp,
+                origin,
+                tile_sz,
+                is_vertical,
+                self.editing_mode,
+                &mut self.selected_sprite,
+                self.place_sprite_id,
+            );
+
+            // Re-upload sprites after edit
+            if sprite_changed {
+                self.upload_sprites_for_level();
+            }
+        }
 
         // ── Selected tile highlight ────────────────────────────
         if let Some((x, y)) = self.selected_tile {

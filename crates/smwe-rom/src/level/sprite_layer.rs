@@ -19,6 +19,31 @@ pub struct SpriteLayer {
 }
 
 impl SpriteInstance {
+    pub fn from_raw(bytes: [u8; SPRITE_INSTANCE_SIZE]) -> Self {
+        Self(bytes)
+    }
+
+    pub fn as_bytes(&self) -> &[u8; SPRITE_INSTANCE_SIZE] {
+        &self.0
+    }
+
+    pub fn new(id: u8, x_tile: u32, y_tile: u32, screen: u32, _vertical: bool) -> Self {
+        let mut bytes = [0u8; 3];
+        // Byte 2: sprite ID
+        bytes[2] = id;
+        // Byte 1: screen low nibble in bits 0-3, X tile in bits 4-7
+        let x_local = (x_tile % 16) as u8;
+        let screen_lo = (screen & 0x0F) as u8;
+        bytes[1] = (x_local << 4) | screen_lo;
+        // Byte 0: Y in bits 4-7 and bit 0, screen high bit in bit 1
+        let y_local = (y_tile % 32) as u8;
+        let y_hi = (y_local >> 4) & 1;
+        let y_lo = y_local & 0x0F;
+        let screen_hi = ((screen >> 4) & 1) as u8;
+        bytes[0] = (y_lo << 4) | (screen_hi << 1) | y_hi;
+        Self(bytes)
+    }
+
     pub fn xy_pos(&self) -> (u8, u8) {
         // yyyy---Y XXXX---- --------
         // xy_pos = (XXXX, Yyyyy)

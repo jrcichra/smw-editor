@@ -71,6 +71,34 @@ impl UiLevelEditor {
             }
         });
 
+        // ── Sprite controls ───────────────────────────────────
+        ui.checkbox(&mut self.show_sprites, "Show sprites");
+
+        if self.show_sprites && self.editing_mode == EditingMode::Draw {
+            ui.horizontal(|ui| {
+                ui.label("Place sprite:");
+                let mut sid = self.place_sprite_id as u16;
+                if ui.add(Slider::new(&mut sid, 0..=0xFF).hexadecimal(2, false, false)).changed() {
+                    self.place_sprite_id = sid as u8;
+                }
+            });
+            ui.label("Right-click to place/select sprites");
+        }
+
+        // Selected sprite info
+        if let Some(idx) = self.selected_sprite {
+            let sprites = super::sprite_editor::read_sprites_from_wram(&self.cpu.mem.wram);
+            if let Some(spr) = sprites.get(idx) {
+                ui.separator();
+                ui.label("Selected Sprite:");
+                ui.monospace(format!("  ID: {:02X}", spr.sprite_id()));
+                let (x, y) = spr.xy_pos();
+                let screen = spr.screen_number();
+                ui.monospace(format!("  Pos: ({}, {}) screen {}", x, y, screen));
+                ui.monospace(format!("  Extra: {:02b}", spr.extra_bits()));
+            }
+        }
+
         // ── Draw mode tile picker ──────────────────────────
         if self.editing_mode == EditingMode::Draw {
             ui.separator();
@@ -165,11 +193,14 @@ impl UiLevelEditor {
 
         if let Some((label, block_id, cache_key)) = preview_block {
             ui.label(format!("{label}: {block_id:#05X}"));
-            if self.preview_for.map(|(x, y)| ((x as u32) | ((y as u32) << 16))) != Some(cache_key) {
+            if self.preview_for.map(|(x, y)| (x as u32) | ((y as u32) << 16)) != Some(cache_key) {
                 let image = super::tile_picker::render_block_image(block_id, &mut self.cpu);
-                let handle =
-                    ui.ctx().load_texture(format!("block_preview_{cache_key}"), image, egui::TextureOptions::NEAREST);
-                self.preview_texture = Some(handle);
+                if let Some(ref mut handle) = self.preview_texture {
+                    handle.set(image, egui::TextureOptions::NEAREST);
+                } else {
+                    self.preview_texture =
+                        Some(ui.ctx().load_texture("level_preview", image, egui::TextureOptions::NEAREST));
+                }
                 self.preview_for = Some((cache_key & 0xFFFF, cache_key >> 16));
             }
             if let Some(ref tex) = self.preview_texture {
