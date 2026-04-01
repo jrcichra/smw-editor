@@ -99,8 +99,12 @@ impl UiLevelEditor {
                 }
             });
 
-            // Tile picker grid
-            let tex = self.tile_picker.texture(ui.ctx());
+            let bg_l2_mode = self.edit_layer == 2 && self.layer2_objects.is_none();
+            if bg_l2_mode {
+                ui.small("Layer 2 background mode uses background tile IDs and repeats across the background strip.");
+            }
+
+            let tex = if bg_l2_mode { self.bg_tile_picker.texture(ui.ctx()) } else { self.tile_picker.texture(ui.ctx()) };
             let tex_size = tex.size();
             let max_w = ui.available_width().min(300.0);
             let display_w = max_w.min(tex_size[0] as f32 * 2.0);
@@ -119,7 +123,12 @@ impl UiLevelEditor {
                     let rel = pos - rect.min;
                     let px = rel.x / display_w * tex_size[0] as f32;
                     let py = rel.y / display_h * tex_size[1] as f32;
-                    if let Some(block_id) = self.tile_picker.block_at_pixel(px, py) {
+                    let block_id = if bg_l2_mode {
+                        self.bg_tile_picker.block_at_pixel(px, py)
+                    } else {
+                        self.tile_picker.block_at_pixel(px, py)
+                    };
+                    if let Some(block_id) = block_id {
                         self.draw_block_id = block_id;
                     }
                 }
@@ -127,12 +136,17 @@ impl UiLevelEditor {
 
             // Highlight the selected block
             let block_px = tex_size[0] as f32 / 16.0; // pixels per block in texture
-            let sel_col = (self.draw_block_id as usize % 16) as f32;
-            let sel_row = (self.draw_block_id as usize / 16) as f32;
+            let (sel_col, sel_row) = if bg_l2_mode {
+                self.bg_tile_picker
+                    .block_grid_pos(self.draw_block_id.min(0xFF) as u8)
+                    .unwrap_or((self.draw_block_id as usize % 16, self.draw_block_id as usize / 16))
+            } else {
+                (self.draw_block_id as usize % 16, self.draw_block_id as usize / 16)
+            };
             let scale_x = display_w / tex_size[0] as f32;
             let scale_y = display_h / tex_size[1] as f32;
             let sel_rect = Rect::from_min_size(
-                rect.min + vec2(sel_col * block_px * scale_x, sel_row * block_px * scale_y),
+                rect.min + vec2(sel_col as f32 * block_px * scale_x, sel_row as f32 * block_px * scale_y),
                 vec2(block_px * scale_x, block_px * scale_y),
             );
             ui.painter().rect_stroke(sel_rect, egui::Rounding::ZERO, egui::Stroke::new(2.0, Color32::YELLOW));
@@ -166,7 +180,11 @@ impl UiLevelEditor {
         if let Some((label, block_id, cache_key)) = preview_block {
             ui.label(format!("{label}: {block_id:#05X}"));
             if self.preview_for.map(|(x, y)| (x as u32) | ((y as u32) << 16)) != Some(cache_key) {
-                let image = super::tile_picker::render_block_image(block_id, &mut self.cpu);
+                let image = if self.edit_layer == 2 && self.layer2_objects.is_none() {
+                    super::tile_picker::render_bg_block_image(block_id.min(0xFF) as u8, &mut self.cpu)
+                } else {
+                    super::tile_picker::render_block_image(block_id, &mut self.cpu)
+                };
                 let handle =
                     ui.ctx().load_texture(format!("block_preview_{cache_key}"), image, egui::TextureOptions::NEAREST);
                 self.preview_texture = Some(handle);

@@ -25,7 +25,7 @@ use smwe_rom::{
 use self::{
     background_layer::EditableBackgroundLayer,
     level_renderer::LevelRenderer, object_layer::EditableObjectLayer, properties::LevelProperties,
-    tile_picker::TilePicker,
+    tile_picker::{BgTilePicker, TilePicker},
 };
 use crate::{
     ui::{editing_mode::EditingMode, tool::DockableEditorTool},
@@ -51,6 +51,7 @@ pub struct UiLevelEditor {
     layer2_objects: Option<UndoableData<EditableObjectLayer>>,
     layer2_background: Option<UndoableData<EditableBackgroundLayer>>,
     tile_picker: TilePicker,
+    bg_tile_picker: BgTilePicker,
     preview_texture: Option<egui::TextureHandle>,
     preview_for: Option<(u32, u32)>,
 
@@ -90,6 +91,7 @@ impl UiLevelEditor {
             layer2_objects: None,
             layer2_background: None,
             tile_picker: TilePicker::new(),
+            bg_tile_picker: BgTilePicker::new(),
             preview_texture: None,
             preview_for: None,
             editing_mode: EditingMode::Select,
@@ -296,6 +298,7 @@ impl UiLevelEditor {
 
         // Rebuild the tile picker from the loaded level's tileset.
         self.tile_picker.rebuild(&mut self.cpu);
+        self.bg_tile_picker.rebuild(&mut self.cpu);
     }
 
     #[allow(dead_code)]

@@ -14,9 +14,18 @@ const BLOCK_PX: usize = 16;
 /// Width/height of the full tile picker texture.
 const TEX_W: usize = COLS * BLOCK_PX; // 256
 const TEX_H: usize = ROWS * BLOCK_PX; // 512
+const BG_NUM_BLOCKS: usize = 256;
+const BG_ROWS: usize = BG_NUM_BLOCKS / COLS; // 16
+const BG_TEX_H: usize = BG_ROWS * BLOCK_PX; // 256
 
 pub(super) struct TilePicker {
     pixels: Vec<u8>, // RGBA, TEX_W * TEX_H * 4
+    texture: Option<TextureHandle>,
+    dirty: bool,
+}
+
+pub(super) struct BgTilePicker {
+    pixels: Vec<u8>,
     texture: Option<TextureHandle>,
     dirty: bool,
 }
@@ -105,6 +114,68 @@ impl TilePicker {
     }
 }
 
+impl BgTilePicker {
+    pub fn new() -> Self {
+        Self { pixels: vec![0u8; TEX_W * BG_TEX_H * 4], texture: None, dirty: true }
+    }
+
+    pub fn rebuild(&mut self, cpu: &mut Cpu) {
+        self.pixels.fill(0);
+        let map16_bg = cpu.mem.cart.resolve("Map16BGTiles").unwrap_or(0);
+
+        for block_id in 0..BG_NUM_BLOCKS {
+            let col = block_id % COLS;
+            let row = block_id / COLS;
+            let x0 = (col * BLOCK_PX) as u32;
+            let y0 = (row * BLOCK_PX) as u32;
+            let block_ptr = map16_bg + block_id as u32 * 8;
+            let sub_offsets = [(0u32, 0u32), (0, 8), (8, 0), (8, 8)];
+            for (sub_i, (sx, sy)) in sub_offsets.into_iter().enumerate() {
+                let tile_word_addr = block_ptr + (sub_i as u32) * 2;
+                let lo = cpu.mem.cart.read(tile_word_addr).unwrap_or(0);
+                let hi = cpu.mem.cart.read(tile_word_addr + 1).unwrap_or(0);
+                let t = lo as u16 | ((hi as u16) << 8);
+                render_sub_tile(&cpu.mem.vram, &cpu.mem.cgram, t, x0 + sx, y0 + sy, &mut self.pixels, TEX_W);
+            }
+        }
+
+        self.dirty = true;
+    }
+
+    pub fn texture(&mut self, ctx: &egui::Context) -> TextureHandle {
+        if self.texture.is_none() {
+            let image = egui::ColorImage::from_rgba_unmultiplied([TEX_W, BG_TEX_H], &self.pixels);
+            let handle = ctx.load_texture("level_bg_tile_picker", image, egui::TextureOptions::NEAREST);
+            self.texture = Some(handle);
+            self.dirty = false;
+        }
+        if self.dirty {
+            let image = egui::ColorImage::from_rgba_unmultiplied([TEX_W, BG_TEX_H], &self.pixels);
+            self.texture.as_mut().unwrap().set(image, egui::TextureOptions::NEAREST);
+            self.dirty = false;
+        }
+        self.texture.as_ref().unwrap().clone()
+    }
+
+    pub fn block_at_pixel(&self, px: f32, py: f32) -> Option<u16> {
+        if px < 0.0 || py < 0.0 {
+            return None;
+        }
+        let col = (px as usize) / BLOCK_PX;
+        let row = (py as usize) / BLOCK_PX;
+        if col < COLS && row < BG_ROWS {
+            Some((row * COLS + col) as u16)
+        } else {
+            None
+        }
+    }
+
+    pub fn block_grid_pos(&self, block_id: u8) -> Option<(usize, usize)> {
+        let idx = block_id as usize;
+        (idx < BG_NUM_BLOCKS).then_some((idx % COLS, idx / COLS))
+    }
+}
+
 /// Decode a single 8×8 SNES 4bpp tile from VRAM and write RGBA pixels.
 fn render_sub_tile(vram: &[u8], cgram: &[u8], t: u16, x0: u32, y0: u32, pixels: &mut [u8], stride: usize) {
     let tile_num = (t & 0x3FF) as usize;
@@ -176,6 +247,21 @@ pub(super) fn render_block_image(block_id: u16, cpu: &mut Cpu) -> egui::ColorIma
             let t = lo as u16 | ((hi as u16) << 8);
             render_sub_tile(&cpu.mem.vram, &cpu.mem.cgram, t, sx, sy, &mut pixels, 16);
         }
+    }
+    egui::ColorImage::from_rgba_unmultiplied([16, 16], &pixels)
+}
+
+pub(super) fn render_bg_block_image(block_id: u8, cpu: &mut Cpu) -> egui::ColorImage {
+    let mut pixels = vec![0u8; 16 * 16 * 4];
+    let map16_bg = cpu.mem.cart.resolve("Map16BGTiles").unwrap_or(0);
+    let block_ptr = map16_bg + block_id as u32 * 8;
+    let sub_offsets = [(0u32, 0u32), (0, 8), (8, 0), (8, 8)];
+    for (sub_i, (sx, sy)) in sub_offsets.into_iter().enumerate() {
+        let tile_word_addr = block_ptr + (sub_i as u32) * 2;
+        let lo = cpu.mem.cart.read(tile_word_addr).unwrap_or(0);
+        let hi = cpu.mem.cart.read(tile_word_addr + 1).unwrap_or(0);
+        let t = lo as u16 | ((hi as u16) << 8);
+        render_sub_tile(&cpu.mem.vram, &cpu.mem.cgram, t, sx, sy, &mut pixels, 16);
     }
     egui::ColorImage::from_rgba_unmultiplied([16, 16], &pixels)
 }
