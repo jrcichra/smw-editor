@@ -1,3 +1,4 @@
+mod background_layer;
 mod central_panel;
 mod editing;
 mod left_panel;
@@ -14,9 +15,15 @@ use std::{
 
 use egui::{CentralPanel, Frame, SidePanel, Ui, WidgetText, *};
 use smwe_emu::{emu::CheckedMem, rom::Rom as EmuRom, Cpu};
-use smwe_rom::SmwRom;
+use smwe_rom::{
+    compression::lc_rle1,
+    level::{Layer2Data, PRIMARY_HEADER_SIZE},
+    snes_utils::addr::{AddrPc, AddrSnes},
+    SmwRom,
+};
 
 use self::{
+    background_layer::EditableBackgroundLayer,
     level_renderer::LevelRenderer, object_layer::EditableObjectLayer, properties::LevelProperties,
     tile_picker::TilePicker,
 };
@@ -41,6 +48,8 @@ pub struct UiLevelEditor {
 
     level_properties: LevelProperties,
     layer1: UndoableData<EditableObjectLayer>,
+    layer2_objects: Option<UndoableData<EditableObjectLayer>>,
+    layer2_background: Option<UndoableData<EditableBackgroundLayer>>,
     tile_picker: TilePicker,
     preview_texture: Option<egui::TextureHandle>,
     preview_for: Option<(u32, u32)>,
@@ -78,6 +87,8 @@ impl UiLevelEditor {
             selected_tile: None,
             level_properties: LevelProperties::default(),
             layer1: UndoableData::new(EditableObjectLayer::default()),
+            layer2_objects: None,
+            layer2_background: None,
             tile_picker: TilePicker::new(),
             preview_texture: None,
             preview_for: None,
@@ -107,10 +118,114 @@ impl DockableEditorTool for UiLevelEditor {
     fn on_closed(&mut self) {
         self.level_renderer.lock().unwrap().destroy(&self.gl);
     }
+
+    fn save_to_rom(&self, rom_bytes: &mut [u8], has_smc_header: bool) -> anyhow::Result<()> {
+        let level = self
+            .rom
+            .levels
+            .get(self.level_num as usize)
+            .ok_or_else(|| anyhow::anyhow!("Level {:03X} out of range", self.level_num))?;
+
+        let new_layer1 = self.layer1.read(|layer| layer.serialize_layer1_bytes(level.secondary_header.vertical_level()))?;
+        let old_layer1 = level.layer1.as_bytes();
+        if new_layer1.len() > old_layer1.len() {
+            anyhow::bail!(
+                "Level {:03X} layer 1 data grew from {} to {} bytes; repointing is not implemented yet",
+                self.level_num,
+                old_layer1.len(),
+                new_layer1.len()
+            );
+        }
+
+        let header_offset = usize::from(has_smc_header) * 0x200;
+        let pointer_table_pc = AddrPc::try_from_lorom(AddrSnes(0x05E000))?.as_index() + header_offset;
+        let pointer_off = pointer_table_pc + self.level_num as usize * 3;
+        let ptr_bytes = rom_bytes
+            .get(pointer_off..pointer_off + 3)
+            .ok_or_else(|| anyhow::anyhow!("Level {:03X} pointer table offset out of range", self.level_num))?;
+        let level_addr = u32::from_le_bytes([ptr_bytes[0], ptr_bytes[1], ptr_bytes[2], 0]);
+        let level_pc = AddrPc::try_from_lorom(AddrSnes(level_addr))?.as_index() + header_offset;
+        let layer1_start = level_pc + PRIMARY_HEADER_SIZE;
+        let layer1_end = layer1_start + old_layer1.len();
+        let layer1_dst = rom_bytes
+            .get_mut(layer1_start..layer1_end)
+            .ok_or_else(|| anyhow::anyhow!("Level {:03X} layer 1 write range out of bounds", self.level_num))?;
+
+        layer1_dst[..new_layer1.len()].copy_from_slice(&new_layer1);
+        layer1_dst[new_layer1.len()..].fill(0);
+
+        let layer2_ptr_table_pc = AddrPc::try_from_lorom(AddrSnes(0x05E600))?.as_index() + header_offset;
+        let layer2_ptr_off = layer2_ptr_table_pc + self.level_num as usize * 3;
+        let layer2_ptr_bytes = rom_bytes
+            .get(layer2_ptr_off..layer2_ptr_off + 3)
+            .ok_or_else(|| anyhow::anyhow!("Level {:03X} layer 2 pointer table offset out of range", self.level_num))?;
+        let layer2_addr_raw = u32::from_le_bytes([layer2_ptr_bytes[0], layer2_ptr_bytes[1], layer2_ptr_bytes[2], 0]);
+
+        match (&level.layer2, &self.layer2_objects, &self.layer2_background) {
+            (Layer2Data::Objects(objects), Some(layer2), _) => {
+                let new_layer2 = layer2.read(|layer| layer.serialize_layer1_bytes(level.secondary_header.vertical_level()))?;
+                let old_layer2 = objects.as_bytes();
+                if new_layer2.len() > old_layer2.len() {
+                    anyhow::bail!(
+                        "Level {:03X} layer 2 object data grew from {} to {} bytes; repointing is not implemented yet",
+                        self.level_num,
+                        old_layer2.len(),
+                        new_layer2.len()
+                    );
+                }
+                let layer2_pc = AddrPc::try_from_lorom(AddrSnes(layer2_addr_raw))?.as_index() + header_offset;
+                let start = layer2_pc + PRIMARY_HEADER_SIZE;
+                let end = start + old_layer2.len();
+                let dst = rom_bytes
+                    .get_mut(start..end)
+                    .ok_or_else(|| anyhow::anyhow!("Level {:03X} layer 2 object write range out of bounds", self.level_num))?;
+                dst[..new_layer2.len()].copy_from_slice(&new_layer2);
+                dst[new_layer2.len()..].fill(0);
+            }
+            (Layer2Data::Background(background), _, Some(layer2)) => {
+                let new_bg = layer2.read(|bg| bg.tile_ids.clone());
+                let compressed = lc_rle1::compress(&new_bg);
+                let old_size = background.compressed_size();
+                if compressed.len() > old_size {
+                    anyhow::bail!(
+                        "Level {:03X} layer 2 background data grew from {} to {} bytes; repointing is not implemented yet",
+                        self.level_num,
+                        old_size,
+                        compressed.len()
+                    );
+                }
+                let layer2_pc = AddrPc::try_from_lorom(AddrSnes((layer2_addr_raw & 0x00FFFF) | 0x0C0000))?.as_index()
+                    + header_offset;
+                let dst = rom_bytes
+                    .get_mut(layer2_pc..layer2_pc + old_size)
+                    .ok_or_else(|| anyhow::anyhow!("Level {:03X} layer 2 background write range out of bounds", self.level_num))?;
+                dst[..compressed.len()].copy_from_slice(&compressed);
+                dst[compressed.len()..].fill(0);
+            }
+            _ => {}
+        }
+        Ok(())
+    }
 }
 
 // Internals
 impl UiLevelEditor {
+    pub(super) fn editing_objects(&self) -> Option<&UndoableData<EditableObjectLayer>> {
+        if self.edit_layer == 2 {
+            self.layer2_objects.as_ref()
+        } else {
+            Some(&self.layer1)
+        }
+    }
+
+    pub(super) fn editing_objects_mut(&mut self) -> Option<&mut UndoableData<EditableObjectLayer>> {
+        if self.edit_layer == 2 {
+            self.layer2_objects.as_mut()
+        } else {
+            Some(&mut self.layer1)
+        }
+    }
+
     pub(super) fn load_level(&mut self) {
         let level_idx = self.level_num as usize;
         if level_idx >= self.rom.levels.len() {
@@ -123,6 +238,19 @@ impl UiLevelEditor {
             self.level_properties = LevelProperties::from_level(level);
             let layer1 = EditableObjectLayer::from_level(level);
             self.layer1 = UndoableData::new(layer1);
+            match &level.layer2 {
+                Layer2Data::Objects(objects) => {
+                    self.layer2_objects = Some(UndoableData::new(EditableObjectLayer::from_object_layer(
+                        objects,
+                        level.secondary_header.vertical_level(),
+                    )));
+                    self.layer2_background = None;
+                }
+                Layer2Data::Background(bg) => {
+                    self.layer2_objects = None;
+                    self.layer2_background = Some(UndoableData::new(EditableBackgroundLayer::new(bg.tile_ids().to_vec())));
+                }
+            }
             (level.sprite_layer.clone(), level.secondary_header.vertical_level())
         };
         self.offset = Vec2::ZERO;
@@ -212,17 +340,26 @@ impl UiLevelEditor {
             (screen, sidx)
         };
 
-        screen * scr_size as u32 + sidx
+        let idx = screen * scr_size as u32 + sidx;
+        if self.edit_layer == 2 && !self.level_properties.has_layer2 {
+            idx % (16 * 27 * 2)
+        } else {
+            idx
+        }
     }
 
     /// Get the WRAM base addresses for the currently edited layer.
     fn block_map_base(&self) -> (u32, u32) {
-        if self.edit_layer == 2 && self.level_properties.has_layer2 {
-            let vertical = self.level_properties.is_vertical;
-            let scr_len: u32 = if vertical { 0x0E } else { 0x10 };
-            let scr_size: u32 = if vertical { 16 * 32 } else { 16 * 27 };
-            let offset = scr_len * scr_size;
-            (0x7EC800 + offset, 0x7FC800 + offset)
+        if self.edit_layer == 2 {
+            if self.level_properties.has_layer2 {
+                let vertical = self.level_properties.is_vertical;
+                let scr_len: u32 = if vertical { 0x0E } else { 0x10 };
+                let scr_size: u32 = if vertical { 16 * 32 } else { 16 * 27 };
+                let offset = scr_len * scr_size;
+                (0x7EC800 + offset, 0x7FC800 + offset)
+            } else {
+                (0x7EB900, 0x7EBD00)
+            }
         } else {
             (0x7EC800, 0x7FC800)
         }

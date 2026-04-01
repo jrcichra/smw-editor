@@ -12,6 +12,7 @@ mod world_editor_editing;
 
 use std::{path::PathBuf, sync::Arc};
 
+use anyhow::Context as _;
 use eframe::{CreationContext, Frame};
 use egui::*;
 use egui_dock::{DockArea, DockState, Style as DockStyle};
@@ -157,32 +158,40 @@ impl UiMainWindow {
     }
 
     fn save_rom(&mut self, ctx: &Context) {
-        let rom: Option<Arc<SmwRom>> = ctx.data(|d| d.get_temp(Id::new("rom")));
         let Some(path) = &self.rom_path else {
             self.save_error = Some("No ROM path — open a ROM first.".into());
             return;
         };
-        let Some(_rom) = rom else {
+        let rom: Option<Arc<SmwRom>> = ctx.data(|d| d.get_temp(Id::new("rom")));
+        let Some(_) = rom else {
             self.save_error = Some("No ROM loaded.".into());
             return;
         };
-        // For now we copy the original file back to the same location as a no-op save.
-        // Actual byte-level patching of modified data will live here once editors can mutate.
-        match std::fs::copy(path, path) {
-            Ok(_) => log::info!("Saved ROM to {}", path.display()),
+        match self.write_rom_to_path(path, path) {
+            Ok(()) => {
+                if let Err(e) = self.reload_rom_into_context(ctx, path) {
+                    self.save_error = Some(format!("Saved ROM, but reload failed: {e}"));
+                } else {
+                    log::info!("Saved ROM to {}", path.display());
+                }
+            }
             Err(e) => self.save_error = Some(format!("Save failed: {e}")),
         }
     }
 
-    fn save_rom_as(&mut self, _ctx: &Context) {
+    fn save_rom_as(&mut self, ctx: &Context) {
         std::env::remove_var("DBUS_SESSION_BUS_ADDRESS");
         if let Some(dest) = rfd::FileDialog::new().add_filter("SNES ROM", &["smc", "sfc"]).save_file() {
             let Some(src) = &self.rom_path else {
                 return;
             };
-            match std::fs::copy(src, &dest) {
+            match self.write_rom_to_path(src, &dest) {
                 Ok(_) => {
                     log::info!("Saved ROM as {}", dest.display());
+                    if let Err(e) = self.reload_rom_into_context(ctx, &dest) {
+                        self.save_error = Some(format!("Saved ROM As, but reload failed: {e}"));
+                        return;
+                    }
                     self.rom_path = Some(dest);
                 }
                 Err(e) => self.save_error = Some(format!("Save As failed: {e}")),
@@ -271,5 +280,26 @@ impl UiMainWindow {
                 }
             });
         });
+    }
+
+    fn write_rom_to_path(&self, source_path: &std::path::Path, dest_path: &std::path::Path) -> anyhow::Result<()> {
+        let mut rom_bytes = std::fs::read(source_path)
+            .with_context(|| format!("Failed to read ROM from {}", source_path.display()))?;
+        let has_smc_header = rom_bytes.len() % 0x400 == 0x200;
+        for (_, tab) in self.dock_state.iter_all_tabs() {
+            tab.save_to_rom(&mut rom_bytes, has_smc_header)?;
+        }
+        std::fs::write(dest_path, rom_bytes)
+            .with_context(|| format!("Failed to write ROM to {}", dest_path.display()))?;
+        Ok(())
+    }
+
+    fn reload_rom_into_context(&self, ctx: &Context, path: &std::path::Path) -> anyhow::Result<()> {
+        let project = Project::new(path)?;
+        ctx.data_mut(|data| {
+            data.insert_temp(Project::project_title_id(), project.title.clone());
+            data.insert_temp(Project::rom_id(), Arc::clone(&project.rom));
+        });
+        Ok(())
     }
 }

@@ -165,7 +165,7 @@ impl UiLevelEditor {
 
         if let Some((label, block_id, cache_key)) = preview_block {
             ui.label(format!("{label}: {block_id:#05X}"));
-            if self.preview_for.map(|(x, y)| ((x as u32) | ((y as u32) << 16))) != Some(cache_key) {
+            if self.preview_for.map(|(x, y)| (x as u32) | ((y as u32) << 16)) != Some(cache_key) {
                 let image = super::tile_picker::render_block_image(block_id, &mut self.cpu);
                 let handle =
                     ui.ctx().load_texture(format!("block_preview_{cache_key}"), image, egui::TextureOptions::NEAREST);
@@ -200,7 +200,11 @@ impl UiLevelEditor {
             ui.label("Selected Object:");
 
             // Read object data first
-            let selected_data: Vec<_> = self.layer1.read(|layer| {
+            let Some(layer_data) = self.editing_objects() else {
+                ui.label("  No object-backed data on this layer");
+                return;
+            };
+            let selected_data: Vec<_> = layer_data.read(|layer| {
                 self.selected_object_indices.iter().filter_map(|&i| layer.objects.get(i).copied()).collect()
             });
 
@@ -253,7 +257,7 @@ impl UiLevelEditor {
                 if changed {
                     let indices: Vec<usize> = self.selected_object_indices.iter().copied().collect();
                     let idx = indices[0];
-                    self.layer1.write(|layer| {
+                    self.editing_objects_mut().expect("editable object layer missing").write(|layer| {
                         if let Some(obj) = layer.objects.get_mut(idx) {
                             obj.x = new_x as u32;
                             obj.y = new_y as u32;

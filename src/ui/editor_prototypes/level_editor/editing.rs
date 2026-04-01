@@ -36,7 +36,10 @@ impl UiLevelEditor {
         let tx = rel.x.floor();
         let ty = rel.y.floor();
 
-        self.layer1.read(|layer| {
+        let Some(layer_data) = self.editing_objects() else {
+            return None;
+        };
+        layer_data.read(|layer| {
             // Iterate in reverse so topmost (last-placed) objects are hit first.
             for (i, obj) in layer.objects.iter().enumerate().rev() {
                 let w = if obj.is_extended { 1.0 } else { ((obj.settings & 0x0F) as f32) + 1.0 };
@@ -58,9 +61,26 @@ impl UiLevelEditor {
     }
 
     fn erase_object_at(&mut self, pos: Pos2, origin: Pos2, tile_sz: f32) {
+        if self.edit_layer == 2 && self.layer2_objects.is_none() {
+            let rel = (pos - origin) / tile_sz;
+            let tx = rel.x.floor() as u32;
+            let ty = rel.y.floor() as u32;
+            let idx = self.block_map_index(tx, ty) as usize;
+            if let Some(bg) = &mut self.layer2_background {
+                bg.write(|layer| {
+                    if let Some(tile) = layer.tile_ids.get_mut(idx) {
+                        *tile = 0;
+                    }
+                });
+            }
+            self.set_block_id_at(tx, ty, 0);
+            self.rebuild_tiles();
+            return;
+        }
         if let Some(idx) = self.object_at(pos, origin, tile_sz) {
             // Read object bounds before deleting.
-            let (ox, oy, ow, oh) = self.layer1.read(|layer| {
+            let layer_data = self.editing_objects().expect("editable object layer missing");
+            let (ox, oy, ow, oh) = layer_data.read(|layer| {
                 let obj = &layer.objects[idx];
                 let w = if obj.is_extended { 1 } else { (obj.settings & 0x0F) + 1 };
                 let h = if obj.is_extended { 1 } else { (obj.settings >> 4) + 1 };
@@ -68,7 +88,7 @@ impl UiLevelEditor {
             });
 
             // Delete the object.
-            self.layer1.write(|layer| {
+            self.editing_objects_mut().expect("editable object layer missing").write(|layer| {
                 layer.objects.remove(idx);
             });
             self.selected_object_indices.clear();
@@ -88,6 +108,21 @@ impl UiLevelEditor {
         let tx = rel.x.floor() as u32;
         let ty = rel.y.floor() as u32;
 
+        if self.edit_layer == 2 && self.layer2_objects.is_none() {
+            let idx = self.block_map_index(tx, ty) as usize;
+            let draw_block = self.draw_block_id.min(0xFF) as u8;
+            if let Some(bg) = &mut self.layer2_background {
+                bg.write(|layer| {
+                    if let Some(tile) = layer.tile_ids.get_mut(idx) {
+                        *tile = draw_block;
+                    }
+                });
+                self.set_block_id_at(tx, ty, draw_block as u16);
+                self.rebuild_tiles();
+            }
+            return;
+        }
+
         let w =
             if self.draw_object_settings & 0x0F == 0 { 1_u32 } else { ((self.draw_object_settings & 0x0F) + 1) as u32 };
         let h = if self.draw_object_settings >> 4 == 0 { 1_u32 } else { ((self.draw_object_settings >> 4) + 1) as u32 };
@@ -101,8 +136,9 @@ impl UiLevelEditor {
             extended_id: 0,
         };
 
-        let new_idx = self.layer1.read(|layer| layer.objects.len());
-        self.layer1.write(|layer| {
+        let layer_data = self.editing_objects_mut().expect("editable object layer missing");
+        let new_idx = layer_data.read(|layer| layer.objects.len());
+        layer_data.write(|layer| {
             layer.objects.push(new_obj);
         });
         self.selected_object_indices.clear();
@@ -122,8 +158,12 @@ impl UiLevelEditor {
         if self.selected_object_indices.is_empty() {
             return;
         }
+        if self.edit_layer == 2 && self.layer2_objects.is_none() {
+            return;
+        }
         // Read object bounds before deleting.
-        let objects_to_blank: Vec<(u32, u32, u32, u32)> = self.layer1.read(|layer| {
+        let layer_data = self.editing_objects().expect("editable object layer missing");
+        let objects_to_blank: Vec<(u32, u32, u32, u32)> = layer_data.read(|layer| {
             self.selected_object_indices
                 .iter()
                 .filter_map(|&i| layer.objects.get(i))
@@ -137,7 +177,7 @@ impl UiLevelEditor {
 
         // Collect indices and delete objects.
         let indices: Vec<usize> = self.selected_object_indices.iter().copied().collect();
-        self.layer1.write(|layer| {
+        self.editing_objects_mut().expect("editable object layer missing").write(|layer| {
             let mut keep = Vec::with_capacity(layer.objects.len());
             for (i, obj) in layer.objects.drain(..).enumerate() {
                 if !indices.contains(&i) {
@@ -160,12 +200,20 @@ impl UiLevelEditor {
     }
 
     pub(super) fn handle_undo(&mut self) {
-        self.layer1.undo();
+        if let Some(layer) = self.editing_objects_mut() {
+            layer.undo();
+        } else if let Some(bg) = &mut self.layer2_background {
+            bg.undo();
+        }
         self.selected_object_indices.clear();
     }
 
     pub(super) fn handle_redo(&mut self) {
-        self.layer1.redo();
+        if let Some(layer) = self.editing_objects_mut() {
+            layer.redo();
+        } else if let Some(bg) = &mut self.layer2_background {
+            bg.redo();
+        }
         self.selected_object_indices.clear();
     }
 }

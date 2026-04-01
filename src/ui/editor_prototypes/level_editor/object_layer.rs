@@ -1,6 +1,7 @@
 #![allow(clippy::identity_op)]
 #![allow(dead_code)]
 
+use anyhow::{anyhow, bail, Result};
 use smwe_rom::{level::Level, objects::Object};
 
 use crate::undo::Undo;
@@ -8,7 +9,7 @@ use crate::undo::Undo;
 const SCREEN_WIDTH: u32 = 16;
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
-pub(super) struct EditableObject {
+pub(in crate::ui::editor_prototypes) struct EditableObject {
     pub x: u32,
     pub y: u32,
     pub id: u8,
@@ -18,7 +19,7 @@ pub(super) struct EditableObject {
 }
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
-pub(super) struct EditableExit {
+pub(in crate::ui::editor_prototypes) struct EditableExit {
     pub screen: u8,
     pub midway: bool,
     pub secondary: bool,
@@ -26,7 +27,7 @@ pub(super) struct EditableExit {
 }
 
 #[derive(Clone, Debug, Default)]
-pub(super) struct EditableObjectLayer {
+pub(in crate::ui::editor_prototypes) struct EditableObjectLayer {
     pub objects: Vec<EditableObject>,
     pub exits: Vec<EditableExit>,
 }
@@ -99,8 +100,11 @@ impl EditableExit {
 
 impl EditableObjectLayer {
     pub fn from_level(level: &Level) -> Self {
-        let is_vertical = level.secondary_header.vertical_level();
-        let raw_bytes = level.layer1.as_bytes();
+        Self::from_object_layer(&level.layer1, level.secondary_header.vertical_level())
+    }
+
+    pub fn from_object_layer(layer_src: &smwe_rom::level::ObjectLayer, is_vertical: bool) -> Self {
+        let raw_bytes = layer_src.as_bytes();
         let raw_objects = match Object::parse_from_layer(raw_bytes) {
             Some(objs) => objs,
             None => return Self::default(),
@@ -124,6 +128,120 @@ impl EditableObjectLayer {
             }
         }
         layer
+    }
+
+    pub fn serialize_layer1_bytes(&self, vertical_level: bool) -> Result<Vec<u8>> {
+        let mut bytes = Vec::with_capacity(self.objects.len() * 3 + self.exits.len() * 4 + 8);
+        let mut current_screen = 0u8;
+
+        for obj in &self.objects {
+            let (target_screen, raw_x, raw_y) = obj.screen_and_local_coords(vertical_level)?;
+            if target_screen != current_screen {
+                if target_screen == current_screen.saturating_add(1) {
+                    current_screen = target_screen;
+                    bytes.extend_from_slice(&obj.to_raw_bytes(true, raw_x, raw_y));
+                } else {
+                    bytes.extend_from_slice(&screen_jump_bytes(target_screen));
+                    current_screen = target_screen;
+                    bytes.extend_from_slice(&obj.to_raw_bytes(false, raw_x, raw_y));
+                }
+            } else {
+                bytes.extend_from_slice(&obj.to_raw_bytes(false, raw_x, raw_y));
+            }
+        }
+
+        for exit in &self.exits {
+            bytes.extend_from_slice(&exit.to_raw_bytes());
+        }
+
+        bytes.push(0xFF);
+        Ok(bytes)
+    }
+}
+
+impl EditableObject {
+    fn screen_and_local_coords(&self, vertical_level: bool) -> Result<(u8, u8, u8)> {
+        if vertical_level {
+            let screen = u8::try_from(self.y / SCREEN_WIDTH)
+                .map_err(|_| anyhow!("vertical object screen out of range: {}", self.y / SCREEN_WIDTH))?;
+            let raw_x = u8::try_from(self.y % SCREEN_WIDTH).unwrap();
+            let raw_y = u8::try_from(self.x).map_err(|_| anyhow!("vertical object x out of range: {}", self.x))?;
+            if raw_y > 0x1F {
+                bail!("vertical object x out of range for raw format: {}", self.x);
+            }
+            Ok((screen, raw_x, raw_y))
+        } else {
+            let screen = u8::try_from(self.x / SCREEN_WIDTH)
+                .map_err(|_| anyhow!("horizontal object screen out of range: {}", self.x / SCREEN_WIDTH))?;
+            let raw_x = u8::try_from(self.x % SCREEN_WIDTH).unwrap();
+            let raw_y = u8::try_from(self.y).map_err(|_| anyhow!("horizontal object y out of range: {}", self.y))?;
+            if raw_y > 0x1F {
+                bail!("horizontal object y out of range for raw format: {}", self.y);
+            }
+            Ok((screen, raw_x, raw_y))
+        }
+    }
+
+    fn to_raw_bytes(&self, new_screen: bool, raw_x: u8, raw_y: u8) -> [u8; 3] {
+        if self.is_extended {
+            [(u8::from(new_screen) << 7) | (raw_y & 0x1F), raw_x & 0x0F, self.extended_id]
+        } else {
+            [
+                (u8::from(new_screen) << 7) | ((self.id & 0x30) << 1) | (raw_y & 0x1F),
+                ((self.id & 0x0F) << 4) | (raw_x & 0x0F),
+                self.settings,
+            ]
+        }
+    }
+}
+
+impl EditableExit {
+    fn to_raw_bytes(self) -> [u8; 4] {
+        [
+            self.screen & 0x1F,
+            (u8::from(self.midway) << 3) | (u8::from(self.secondary) << 1) | ((self.id >> 8) as u8 & 0x01),
+            0,
+            self.id as u8,
+        ]
+    }
+}
+
+fn screen_jump_bytes(screen: u8) -> [u8; 3] {
+    [screen & 0x1F, 0, 1]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{EditableExit, EditableObject, EditableObjectLayer};
+
+    #[test]
+    fn serializes_horizontal_objects_and_exits() {
+        let layer = EditableObjectLayer {
+            objects: vec![
+                EditableObject { x: 0, y: 0, id: 0x12, settings: 0x34, is_extended: false, extended_id: 0 },
+                EditableObject { x: 17, y: 5, id: 0x2F, settings: 0x56, is_extended: false, extended_id: 0 },
+            ],
+            exits: vec![EditableExit { screen: 3, midway: false, secondary: false, id: 0x0123 }],
+        };
+
+        let bytes = layer.serialize_layer1_bytes(false).unwrap();
+
+        assert_eq!(bytes, vec![0x20, 0x20, 0x34, 0xC5, 0xF1, 0x56, 0x03, 0x01, 0x00, 0x23, 0xFF]);
+    }
+
+    #[test]
+    fn serializes_vertical_objects_with_screen_jump() {
+        let layer = EditableObjectLayer {
+            objects: vec![
+                EditableObject { x: 7, y: 18, id: 0x11, settings: 0xAA, is_extended: false, extended_id: 0 },
+                EditableObject { x: 9, y: 64, id: 0x22, settings: 0xBB, is_extended: false, extended_id: 0 },
+            ],
+            exits: vec![],
+        };
+
+        let bytes = layer.serialize_layer1_bytes(true).unwrap();
+
+        assert_eq!(bytes, vec![0xA7, 0x12, 0xAA, 0x04, 0x00, 0x01, 0x49, 0x20, 0xBB, 0xFF]);
     }
 }
 

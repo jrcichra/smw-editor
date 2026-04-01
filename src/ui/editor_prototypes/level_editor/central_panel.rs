@@ -111,7 +111,8 @@ impl UiLevelEditor {
         }
 
         // ── Draw exit markers (subtle gold badges over GL tiles) ───
-        self.layer1.read(|layer| {
+        if let Some(layer_data) = self.editing_objects() {
+            layer_data.read(|layer| {
             for exit in &layer.exits {
                 let sx = if props.is_vertical { 0 } else { exit.screen as u32 };
                 let sy = if props.is_vertical { exit.screen as u32 } else { 0 };
@@ -134,7 +135,8 @@ impl UiLevelEditor {
                     );
                 }
             }
-        });
+            });
+        }
 
         // ── Grid overlay ──────────────────────────────────────
         if self.always_show_grid || ui.input(|i| i.modifiers.shift_only()) {
@@ -170,7 +172,8 @@ impl UiLevelEditor {
                 }
             };
 
-            self.layer1.read(|layer| {
+            if let Some(layer_data) = self.editing_objects() {
+                layer_data.read(|layer| {
                 for (i, obj) in layer.objects.iter().enumerate() {
                     let (w, h) = if obj.is_extended {
                         (1_u32, 1_u32)
@@ -218,7 +221,8 @@ impl UiLevelEditor {
                         );
                     }
                 }
-            });
+                });
+            }
         }
 
         // ── Hover / click (tile granularity) ────────────────────

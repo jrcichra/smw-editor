@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use smwe_rom::level::Level;
+use smwe_rom::level::{Layer2Data, Level};
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct LevelProperties {
@@ -28,7 +28,7 @@ impl LevelProperties {
     pub fn from_level(level: &Level) -> Self {
         let h = &level.primary_header;
         let is_vertical = level.secondary_header.vertical_level();
-        let has_layer2 = true;
+        let has_layer2 = matches!(level.layer2, Layer2Data::Objects(_));
         Self {
             palette_bg: h.palette_bg(),
             level_length: h.level_length(),
