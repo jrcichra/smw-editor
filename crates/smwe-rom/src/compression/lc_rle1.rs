@@ -58,3 +58,42 @@ pub fn decompress(input: &[u8]) -> Result<(Vec<u8>, usize), DecompressionError> 
     let bytes_consumed = input.len() - in_it.len();
     Ok((output, bytes_consumed))
 }
+
+pub fn compress(input: &[u8]) -> Vec<u8> {
+    let mut output = Vec::new();
+    let mut i = 0usize;
+    while i < input.len() {
+        let run_len = count_run(input, i);
+        if run_len >= 2 {
+            let len = run_len.min(128);
+            output.push(0x80 | ((len - 1) as u8));
+            output.push(input[i]);
+            i += len;
+        } else {
+            let start = i;
+            i += 1;
+            while i < input.len() {
+                let run = count_run(input, i);
+                if run >= 2 || i - start >= 128 {
+                    break;
+                }
+                i += 1;
+            }
+            let len = i - start;
+            output.push((len - 1) as u8);
+            output.extend_from_slice(&input[start..start + len]);
+        }
+    }
+    output.push(0xFF);
+    output.push(0xFF);
+    output
+}
+
+fn count_run(input: &[u8], start: usize) -> usize {
+    let byte = input[start];
+    let mut len = 1usize;
+    while start + len < input.len() && input[start + len] == byte && len < 128 {
+        len += 1;
+    }
+    len
+}

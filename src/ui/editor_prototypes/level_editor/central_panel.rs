@@ -111,7 +111,8 @@ impl UiLevelEditor {
         }
 
         // ── Draw exit markers (subtle gold badges over GL tiles) ───
-        self.layer1.read(|layer| {
+        if let Some(layer_data) = self.editing_objects() {
+            layer_data.read(|layer| {
             for exit in &layer.exits {
                 let sx = if props.is_vertical { 0 } else { exit.screen as u32 };
                 let sy = if props.is_vertical { exit.screen as u32 } else { 0 };
@@ -134,7 +135,8 @@ impl UiLevelEditor {
                     );
                 }
             }
-        });
+            });
+        }
 
         // ── Grid overlay ──────────────────────────────────────
         if self.always_show_grid || ui.input(|i| i.modifiers.shift_only()) {
@@ -170,7 +172,8 @@ impl UiLevelEditor {
                 }
             };
 
-            self.layer1.read(|layer| {
+            if let Some(layer_data) = self.editing_objects() {
+                layer_data.read(|layer| {
                 for (i, obj) in layer.objects.iter().enumerate() {
                     let (w, h) = if obj.is_extended {
                         (1_u32, 1_u32)
@@ -218,7 +221,49 @@ impl UiLevelEditor {
                         );
                     }
                 }
-            });
+                });
+            }
+        }
+
+        if self.show_sprite_overlay || self.edit_sprites || !self.selected_sprite_indices.is_empty() {
+            let sprite_entries = self.sprites.read(|sprites| sprites.sprites.clone());
+            for (i, spr) in sprite_entries.iter().enumerate() {
+                    let (min_dx, min_dy, max_dx, max_dy) =
+                        self.sprite_pixel_bounds(spr.sprite_id).unwrap_or((0, 0, 16, 16));
+                    let pos = origin + vec2(spr.x as f32 * tile_sz + min_dx as f32 * z, spr.y as f32 * tile_sz + min_dy as f32 * z);
+                    let rect = Rect::from_min_size(
+                        pos,
+                        vec2((max_dx - min_dx) as f32 * z, (max_dy - min_dy) as f32 * z),
+                    );
+                    if rect.max.x < view_rect.min.x
+                        || rect.min.x > view_rect.max.x
+                        || rect.max.y < view_rect.min.y
+                        || rect.min.y > view_rect.max.y
+                    {
+                        continue;
+                    }
+                    let selected = self.selected_sprite_indices.contains(&i);
+                    let fill = if selected {
+                        Color32::from_rgba_unmultiplied(255, 120, 0, 50)
+                    } else {
+                        Color32::from_rgba_unmultiplied(255, 80, 80, 28)
+                    };
+                    painter.rect_filled(rect, Rounding::same(2.0), fill);
+                    painter.rect_stroke(rect, Rounding::same(2.0), Stroke::new(2.0, if selected {
+                        Color32::from_rgb(255, 120, 0)
+                    } else {
+                        Color32::from_rgb(255, 80, 80)
+                    }));
+                    if self.show_object_labels && z >= 0.9 {
+                        painter.text(
+                            rect.left_top() + vec2(2.0, 2.0),
+                            Align2::LEFT_TOP,
+                            format!("S{:02X}", spr.sprite_id),
+                            FontId::monospace(9.0),
+                            Color32::WHITE,
+                        );
+                    }
+            }
         }
 
         // ── Hover / click (tile granularity) ────────────────────

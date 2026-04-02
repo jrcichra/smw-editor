@@ -24,7 +24,11 @@ impl UiWorldEditor {
                         let rel = (pos - origin) / tile_sz;
                         let tx = rel.x.floor() as u32;
                         let ty = rel.y.floor() as u32;
-                        self.write_tile(tx, ty, 0x00, 0x00);
+                        if self.edit_layer == 1 {
+                            self.set_source_l1_tile_at_view(tx, ty, 0x00);
+                        } else {
+                            self.write_tile(tx, ty, 0x00, 0x00);
+                        }
                         self.rebuild_and_upload();
                     }
                 }
@@ -35,8 +39,12 @@ impl UiWorldEditor {
                         let rel = (pos - origin) / tile_sz;
                         let tx = rel.x.floor() as u32;
                         let ty = rel.y.floor() as u32;
-                        let t1 = (self.draw_palette << 2) | (self.draw_tile_attr & 0xC0);
-                        self.write_tile(tx, ty, self.draw_tile_num, t1);
+                        if self.edit_layer == 1 {
+                            self.set_source_l1_tile_at_view(tx, ty, self.draw_tile_num);
+                        } else {
+                            let t1 = (self.draw_palette << 2) | (self.draw_tile_attr & 0xC0);
+                            self.write_tile(tx, ty, self.draw_tile_num, t1);
+                        }
                         self.rebuild_and_upload();
                     }
                 }
@@ -47,6 +55,21 @@ impl UiWorldEditor {
 
     fn write_tile(&mut self, map16_x: u32, map16_y: u32, tile_num: u8, attr: u8) {
         let base = if self.edit_layer == 2 { VRAM_L2_TILEMAP_BASE } else { VRAM_L1_TILEMAP_BASE };
+        if self.edit_layer == 2 {
+            let addr = tilemap_vram_addr(base, map16_x, map16_y);
+            let word = u16::from_le_bytes([tile_num, attr]);
+            let idx = (addr.saturating_sub(VRAM_L2_TILEMAP_BASE)) / 2;
+            if let Some(slot) = self.source_layer2_words.get_mut(idx) {
+                *slot = word;
+            }
+            let wram_base = (0x7F4000 - 0x7E0000) as usize;
+            let wram_addr = wram_base + idx * 2;
+            if wram_addr + 1 < self.cpu.mem.wram.len() {
+                let [lo, hi] = word.to_le_bytes();
+                self.cpu.mem.wram[wram_addr] = lo;
+                self.cpu.mem.wram[wram_addr + 1] = hi;
+            }
+        }
         if base == VRAM_L2_TILEMAP_BASE {
             // L2 uses raw tile coords, no crop offset
             let addr = tilemap_vram_addr(base, map16_x, map16_y);
@@ -66,7 +89,7 @@ impl UiWorldEditor {
         }
     }
 
-    fn rebuild_and_upload(&mut self) {
+    pub(super) fn rebuild_and_upload(&mut self) {
         let l2_scroll_x = i16::from_le_bytes(self.cpu.mem.load_u16(0x001E).to_le_bytes()) as i32;
         let l2_scroll_y = i16::from_le_bytes(self.cpu.mem.load_u16(0x0020).to_le_bytes()) as i32;
         let l1 = build_bg_tiles(&self.cpu.mem.vram, VRAM_L1_TILEMAP_BASE, self.submap, l2_scroll_x, l2_scroll_y);
