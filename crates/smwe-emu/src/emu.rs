@@ -245,14 +245,14 @@ pub fn exec_sprite_id(cpu: &mut Cpu<CheckedMem>, id: u8) -> u64 {
     cpu.mem.store(0xE4, 0x80);
     cpu.mem.store(0x14D4, 0x00);
     cpu.mem.store(0x14E0, 0x00);
-    // Use the normal in-level sprite status so preview execution follows the
-    // same main path as gameplay. Several sprites branch on status before
-    // drawing; status 0x01 can take init/transform-only paths instead.
-    cpu.mem.store(0x14C8, 0x08);
+    // Start in "initialization" status and explicitly run the sprite's init
+    // routine before stepping the normal main routine. This matches the real
+    // game flow more closely than forcing status 0x08 up front.
+    cpu.mem.store(0x14C8, 0x01);
     cpu.y = 0;
     cpu.x = 0;
     clear_sprite_oam(cpu);
-    run_routines(cpu, &["InitSpriteTables", "CODE_01808C", "CODE_01808C"], 10_000_000)
+    run_routines(cpu, &["InitSpriteTables", "CallSpriteInit", "CODE_01808C"], 10_000_000)
 }
 
 pub fn exec_sprites(cpu: &mut Cpu<CheckedMem>) -> u64 {
