@@ -222,18 +222,20 @@ pub(super) fn preview_sprite_tileset(id: u8) -> Option<u8> {
         // Castle sprite tileset ($00,$01,$12,$03) provides GFX12/GFX03,
         // which these sprites need for a faithful vanilla preview.
         0x20 | 0x22 | 0x23 | 0x24 | 0x25 | 0x26 | 0x27 | 0x30 | 0x31 | 0x32 | 0xB3 | 0xB4 | 0xBC | 0xC4 => Some(1),
-        // Mushroom sprite tileset ($00,$01,$13,$05) covers Para-Goomba/Para-Bomb.
-        0x3F | 0x40 => Some(2),
+        // Mushroom sprite tileset ($00,$01,$13,$05) covers Para-Goomba/Para-Bomb
+        // and other sprites that need SP4=02/SP4=05.
+        0x3F | 0x40 | 0xC0 => Some(2),
         // Ghost House sprite tileset ($00,$01,$06,$11) covers Boo/Eerie-family sprites.
-        0x37 | 0x38 | 0x39 | 0x52 | 0x8D | 0xAF | 0xC5 => Some(7),
+        0x37 | 0x38 | 0x39 | 0x52 | 0x8D | 0xAE | 0xAF | 0xB0 | 0xC5 | 0xCB | 0xE2 | 0xE3 => Some(7),
         // Water sprite tileset ($00,$01,$13,$06) covers dolphins and Torpedo Ted.
-        0x41 | 0x42 | 0x43 | 0x44 => Some(4),
+        0x3A | 0x3B | 0x3C | 0x3D | 0x41 | 0x42 | 0x43 | 0x44 | 0xC2 | 0xC3 | 0xCA | 0xCF | 0xD0 => Some(4),
         // Pokey sprite tileset ($00,$01,$13,$09) covers Diggin' Chuck / Volcano Lotus.
         0x46 | 0x48 | 0x99 => Some(5),
-        // Underground sprite tileset ($00,$01,$13,$04) covers Monty Mole and jumping piranhas.
-        0x4D | 0x4E | 0x4F | 0x50 => Some(3),
+        // Underground sprite tileset ($00,$01,$13,$04) covers Monty Mole,
+        // jumping piranhas, and Swooper.
+        0x4D | 0x4E | 0x4F | 0x50 | 0xBE => Some(3),
         // Banzai Bill sprite tileset ($00,$01,$13,$20).
-        0x9F => Some(8),
+        0x9F | 0xBF | 0xB7 | 0xB8 | 0xBA => Some(8),
         _ => None,
     }
 }
@@ -264,6 +266,9 @@ mod tests {
         assert_eq!(preview_sprite_tileset(0x3F), Some(2));
         assert_eq!(preview_sprite_tileset(0x37), Some(7));
         assert_eq!(preview_sprite_tileset(0x41), Some(4));
+        assert_eq!(preview_sprite_tileset(0xBE), Some(3));
+        assert_eq!(preview_sprite_tileset(0xC2), Some(4));
+        assert_eq!(preview_sprite_tileset(0xC5), Some(7));
         assert_eq!(preview_sprite_tileset(0x0F), None);
     }
 }
