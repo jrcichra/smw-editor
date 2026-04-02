@@ -215,18 +215,26 @@ pub fn fetch_anim_frame(cpu: &mut Cpu<CheckedMem>) -> u64 {
     run_routines(cpu, &["CODE_05BB39", "CODE_00A390"], 20_000_000)
 }
 
+pub fn upload_sprite_tileset(cpu: &mut Cpu<CheckedMem>, sprite_tileset: u8) -> u64 {
+    cpu.mem.store(0x192B, sprite_tileset);
+    run_routines(cpu, &["UploadSpriteGFX"], 20_000_000)
+}
+
 pub fn exec_sprite_id(cpu: &mut Cpu<CheckedMem>, id: u8) -> u64 {
     cpu.mem.store(0x9E, id);
     cpu.mem.store(0x1A, 0x00);
     cpu.mem.store(0x1C, 0x00);
     cpu.mem.store(0xD8, 0x80);
     cpu.mem.store(0xE4, 0x80);
+    cpu.mem.store(0x14D4, 0x00);
+    cpu.mem.store(0x14E0, 0x00);
     for i in 0..12 {
         cpu.mem.store(0x14C8 + i, 0);
     }
     cpu.mem.store(0x14C8, 1);
     cpu.y = 0;
     cpu.x = 0;
+    clear_sprite_oam(cpu);
     run_routines(cpu, &["InitSpriteTables", "CODE_01808C", "CODE_01808C"], 10_000_000)
 }
 
@@ -254,11 +262,20 @@ pub fn sprite_oam_tiles(cpu: &mut Cpu<CheckedMem>, id: u8) -> Vec<SpriteOamTile>
     const ANCHOR_Y: i32 = 0x80;
 
     exec_sprite_id(cpu, id);
-    // Extra ticks for sprites that draw on later frames
+    let mut best_tiles = collect_sprite_oam_tiles(cpu, ANCHOR_X, ANCHOR_Y);
+    // Sample a few additional clean frames and keep the strongest frame.
     for _ in 0..4 {
+        clear_sprite_oam(cpu);
         exec_sprites(cpu);
+        let frame_tiles = collect_sprite_oam_tiles(cpu, ANCHOR_X, ANCHOR_Y);
+        if score_sprite_frame(&frame_tiles) > score_sprite_frame(&best_tiles) {
+            best_tiles = frame_tiles;
+        }
     }
+    best_tiles
+}
 
+fn collect_sprite_oam_tiles(cpu: &mut Cpu<CheckedMem>, anchor_x: i32, anchor_y: i32) -> Vec<SpriteOamTile> {
     let mut tiles = Vec::new();
     for slot in 0..64u32 {
         let raw_x = cpu.mem.load_u8(0x300 + slot * 4) as i32;
@@ -269,14 +286,48 @@ pub fn sprite_oam_tiles(cpu: &mut Cpu<CheckedMem>, id: u8) -> Vec<SpriteOamTile>
             continue;
         }
 
+        let has_gfx = if (size & 0x02) != 0 {
+            let base = ((tile & 0x01FF) as usize) + 0x600;
+            [base, base + 1, base + 16, base + 17].into_iter().any(|tile_idx| tile_has_nonzero_gfx(&cpu.mem.vram, tile_idx))
+        } else {
+            let tile_idx = ((tile & 0x01FF) as usize) + 0x600;
+            tile_has_nonzero_gfx(&cpu.mem.vram, tile_idx)
+        };
+        if !has_gfx {
+            continue;
+        }
+
         tiles.push(SpriteOamTile {
-            dx: raw_x - ANCHOR_X,
-            dy: raw_y - ANCHOR_Y,
+            dx: raw_x - anchor_x,
+            dy: raw_y - anchor_y,
             tile_word: tile,
             is_16x16: (size & 0x02) != 0,
         });
     }
     tiles
+}
+
+fn score_sprite_frame(tiles: &[SpriteOamTile]) -> i32 {
+    let mut score = 0;
+    for tile in tiles {
+        score += if tile.is_16x16 { 4 } else { 1 };
+    }
+    score
+}
+
+fn tile_has_nonzero_gfx(vram: &[u8], tile_idx: usize) -> bool {
+    let off = tile_idx * 32;
+    off + 32 <= vram.len() && vram[off..off + 32].iter().any(|&b| b != 0)
+}
+
+fn clear_sprite_oam(cpu: &mut Cpu<CheckedMem>) {
+    for slot in 0..64u32 {
+        cpu.mem.store(0x300 + slot * 4, 0);
+        cpu.mem.store(0x301 + slot * 4, 0xF0);
+        cpu.mem.store(0x302 + slot * 4, 0);
+        cpu.mem.store(0x303 + slot * 4, 0);
+        cpu.mem.store(0x460 + slot, 0);
+    }
 }
 
 /// A single OAM entry as written by the SNES sprite engine.

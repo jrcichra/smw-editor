@@ -434,9 +434,27 @@ impl UiLevelEditor {
             return tex.clone();
         }
 
-        let sprite_tiles = self.sprite_oam_tiles(sprite_id);
         let mut cpu = self.cpu.clone();
-        let image = super::tile_picker::render_sprite_preview_image(&sprite_tiles, &mut cpu);
+        let sprite_tiles = self.sprite_oam_tiles(sprite_id);
+        let mut image = super::tile_picker::render_sprite_preview_image(&sprite_tiles, &mut cpu);
+        let mut best_score = score_sprite_preview(&image);
+
+        // If the current level's sprite GFX set produces a weak preview,
+        // search the vanilla sprite tilesets using the real UploadSpriteGFX path.
+        if best_score < 220 {
+            for tileset in 0u8..=15 {
+                let mut cpu_try = self.cpu.clone();
+                smwe_emu::emu::upload_sprite_tileset(&mut cpu_try, tileset);
+                let tiles_try = smwe_emu::emu::sprite_oam_tiles(&mut cpu_try, sprite_id);
+                let image_try = super::tile_picker::render_sprite_preview_image(&tiles_try, &mut cpu_try);
+                let score_try = score_sprite_preview(&image_try);
+                if score_try > best_score {
+                    best_score = score_try;
+                    image = image_try;
+                }
+            }
+        }
+
         let handle = ctx.load_texture(
             format!("level_sprite_preview_{:03X}_{sprite_id:02X}", self.level_num),
             image,
@@ -445,4 +463,86 @@ impl UiLevelEditor {
         self.sprite_preview_textures.insert(sprite_id, handle.clone());
         handle
     }
+}
+
+fn score_sprite_preview(image: &egui::ColorImage) -> i32 {
+    let [w, h] = image.size;
+    let mut min_x = w;
+    let mut min_y = h;
+    let mut max_x = 0usize;
+    let mut max_y = 0usize;
+    let mut opaque = 0i32;
+    let mut distinct = std::collections::BTreeSet::new();
+    let mut mask = vec![false; w * h];
+
+    for y in 0..h {
+        for x in 0..w {
+            let px = image.pixels[y * w + x];
+            if px.a() == 0 {
+                continue;
+            }
+            opaque += 1;
+            mask[y * w + x] = true;
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+            distinct.insert((px.r(), px.g(), px.b()));
+        }
+    }
+
+    if opaque == 0 {
+        return -10_000;
+    }
+
+    let area = ((max_x - min_x + 1) * (max_y - min_y + 1)) as i32;
+    let density = opaque * 100 / area.max(1);
+    let color_bonus = (distinct.len().min(16) as i32) * 8;
+    let largest_component = largest_opaque_component(&mask, w, h) as i32;
+    let component_penalty = (opaque - largest_component).max(0) * 3;
+    let fullness_penalty = if area > ((w * h) as i32 * 3 / 4) { area / 3 } else { 0 };
+    opaque + density + color_bonus + largest_component * 2 - component_penalty - area / 8 - fullness_penalty
+}
+
+fn largest_opaque_component(mask: &[bool], w: usize, h: usize) -> usize {
+    let mut seen = vec![false; mask.len()];
+    let mut best = 0usize;
+    let mut stack = Vec::new();
+
+    for y in 0..h {
+        for x in 0..w {
+            let idx = y * w + x;
+            if !mask[idx] || seen[idx] {
+                continue;
+            }
+
+            seen[idx] = true;
+            stack.push((x, y));
+            let mut size = 0usize;
+
+            while let Some((cx, cy)) = stack.pop() {
+                size += 1;
+                for (nx, ny) in [
+                    (cx.wrapping_sub(1), cy),
+                    (cx + 1, cy),
+                    (cx, cy.wrapping_sub(1)),
+                    (cx, cy + 1),
+                ] {
+                    if nx >= w || ny >= h {
+                        continue;
+                    }
+                    let nidx = ny * w + nx;
+                    if !mask[nidx] || seen[nidx] {
+                        continue;
+                    }
+                    seen[nidx] = true;
+                    stack.push((nx, ny));
+                }
+            }
+
+            best = best.max(size);
+        }
+    }
+
+    best
 }
