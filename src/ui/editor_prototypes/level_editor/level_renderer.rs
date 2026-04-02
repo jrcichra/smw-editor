@@ -9,6 +9,8 @@ use smwe_render::{
     tile_renderer::{Tile, TileRenderer, TileUniforms},
 };
 
+use super::sprite_layer::EditableSprite;
+
 #[allow(dead_code)]
 #[derive(Debug)]
 pub(super) struct LevelRenderer {
@@ -76,6 +78,7 @@ impl LevelRenderer {
     /// (x=0xD0, y=0x80). We apply those offsets to the ROM-decoded pixel position
     /// so every tile of multi-tile sprites (Wiggler body, Dragon Coin frame) is
     /// placed correctly relative to the sprite's actual in-level position.
+    #[allow(dead_code)]
     pub(super) fn upload_sprites(
         &mut self, gl: &Context, sprite_layer: &smwe_rom::level::SpriteLayer,
         oam_map: &std::collections::HashMap<u8, Vec<SpriteOamTile>>, vertical: bool,
@@ -115,6 +118,48 @@ impl LevelRenderer {
                     // Preserve attribute bits (palette, flip, priority); only increment
                     // the 9-bit tile number field. Adding to the raw u16 would corrupt
                     // the attribute byte whenever the tile number wraps past 0x100.
+                    let attr = t & 0xFE00;
+                    let base = t & 0x01FF;
+                    tiles.push(sp_tile(px + xn, py + yn, attr | (base & 0x1FF)));
+                    tiles.push(sp_tile(px + xf, py + yn, attr | ((base + 1) & 0x1FF)));
+                    tiles.push(sp_tile(px + xn, py + yf, attr | ((base + 16) & 0x1FF)));
+                    tiles.push(sp_tile(px + xf, py + yf, attr | ((base + 17) & 0x1FF)));
+                } else {
+                    tiles.push(sp_tile(px, py, t));
+                }
+            }
+        }
+
+        self.sprites.set_tiles(gl, tiles);
+    }
+
+    pub(super) fn upload_editable_sprites(
+        &mut self, gl: &Context, sprite_layer: &[EditableSprite],
+        oam_map: &std::collections::HashMap<u8, Vec<SpriteOamTile>>, _vertical: bool,
+    ) {
+        if self.destroyed {
+            return;
+        }
+        let mut tiles = Vec::new();
+
+        for spr in sprite_layer {
+            let id = spr.sprite_id;
+            let oam_tiles = match oam_map.get(&id) {
+                Some(v) if !v.is_empty() => v,
+                _ => continue,
+            };
+
+            let anchor_x = spr.x as i32 * 16;
+            let anchor_y = spr.y as i32 * 16;
+
+            for oam in oam_tiles {
+                let px = (anchor_x + oam.dx) as u32;
+                let py = (anchor_y + oam.dy) as u32;
+                let t = oam.tile_word;
+
+                if oam.is_16x16 {
+                    let (xn, xf) = if t & 0x4000 == 0 { (0u32, 8u32) } else { (8, 0) };
+                    let (yn, yf) = if t & 0x8000 == 0 { (0u32, 8u32) } else { (8, 0) };
                     let attr = t & 0xFE00;
                     let base = t & 0x01FF;
                     tiles.push(sp_tile(px + xn, py + yn, attr | (base & 0x1FF)));

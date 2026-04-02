@@ -5,6 +5,8 @@ mod left_panel;
 mod level_renderer;
 mod object_layer;
 mod properties;
+mod sprite_catalog;
+mod sprite_layer;
 mod tile_picker;
 
 use std::{
@@ -14,7 +16,11 @@ use std::{
 };
 
 use egui::{CentralPanel, Frame, SidePanel, Ui, WidgetText, *};
-use smwe_emu::{emu::CheckedMem, rom::Rom as EmuRom, Cpu};
+use smwe_emu::{
+    emu::{CheckedMem, SpriteOamTile},
+    rom::Rom as EmuRom,
+    Cpu,
+};
 use smwe_rom::{
     compression::lc_rle1,
     level::{Layer2Data, PRIMARY_HEADER_SIZE},
@@ -25,6 +31,7 @@ use smwe_rom::{
 use self::{
     background_layer::EditableBackgroundLayer,
     level_renderer::LevelRenderer, object_layer::EditableObjectLayer, properties::LevelProperties,
+    sprite_layer::EditableSpriteLayer,
     tile_picker::{BgTilePicker, TilePicker},
 };
 use crate::{
@@ -43,6 +50,7 @@ pub struct UiLevelEditor {
     zoom: f32,
     always_show_grid: bool,
     show_object_overlay: bool,
+    show_sprite_overlay: bool,
     show_object_labels: bool,
     selected_tile: Option<(u32, u32)>,
 
@@ -50,18 +58,26 @@ pub struct UiLevelEditor {
     layer1: UndoableData<EditableObjectLayer>,
     layer2_objects: Option<UndoableData<EditableObjectLayer>>,
     layer2_background: Option<UndoableData<EditableBackgroundLayer>>,
+    sprites: UndoableData<EditableSpriteLayer>,
     tile_picker: TilePicker,
     bg_tile_picker: BgTilePicker,
+    sprite_search: String,
+    sprite_preview_textures: HashMap<u8, egui::TextureHandle>,
+    sprite_oam_cache: HashMap<u8, Vec<SpriteOamTile>>,
     preview_texture: Option<egui::TextureHandle>,
     preview_for: Option<(u32, u32)>,
 
     // Editing state
     editing_mode: EditingMode,
     selected_object_indices: HashSet<usize>,
+    selected_sprite_indices: HashSet<usize>,
     draw_object_id: u8,
     draw_object_settings: u8,
     draw_block_id: u16,
+    draw_sprite_id: u8,
+    draw_sprite_extra_bits: u8,
     edit_layer: u8, // 1 or 2
+    edit_sprites: bool,
 }
 
 impl UiLevelEditor {
@@ -84,22 +100,31 @@ impl UiLevelEditor {
             zoom: 1.0,
             always_show_grid: false,
             show_object_overlay: false,
+            show_sprite_overlay: true,
             show_object_labels: true,
             selected_tile: None,
             level_properties: LevelProperties::default(),
             layer1: UndoableData::new(EditableObjectLayer::default()),
             layer2_objects: None,
             layer2_background: None,
+            sprites: UndoableData::new(EditableSpriteLayer::default()),
             tile_picker: TilePicker::new(),
             bg_tile_picker: BgTilePicker::new(),
+            sprite_search: String::new(),
+            sprite_preview_textures: HashMap::new(),
+            sprite_oam_cache: HashMap::new(),
             preview_texture: None,
             preview_for: None,
             editing_mode: EditingMode::Select,
             selected_object_indices: HashSet::new(),
+            selected_sprite_indices: HashSet::new(),
             draw_object_id: 0x00,
             draw_object_settings: 0x00,
             draw_block_id: 0x25,
+            draw_sprite_id: 0x00,
+            draw_sprite_extra_bits: 0x00,
             edit_layer: 1,
+            edit_sprites: false,
         };
         editor.load_level();
         editor
@@ -155,6 +180,31 @@ impl DockableEditorTool for UiLevelEditor {
 
         layer1_dst[..new_layer1.len()].copy_from_slice(&new_layer1);
         layer1_dst[new_layer1.len()..].fill(0);
+
+        let sprite_data_old = level.sprite_layer.as_bytes();
+        let sprite_new = self.sprites.read(|sprites| sprites.serialize_bytes(level.secondary_header.vertical_level()))?;
+        if sprite_new.len() > sprite_data_old.len() {
+            anyhow::bail!(
+                "Level {:03X} sprite data grew from {} to {} bytes; repointing is not implemented yet",
+                self.level_num,
+                sprite_data_old.len(),
+                sprite_new.len()
+            );
+        }
+        let sprite_ptr_table_pc = AddrPc::try_from_lorom(AddrSnes(0x05EC00))?.as_index() + header_offset;
+        let sprite_ptr_off = sprite_ptr_table_pc + self.level_num as usize * 2;
+        let sprite_ptr = rom_bytes
+            .get(sprite_ptr_off..sprite_ptr_off + 2)
+            .ok_or_else(|| anyhow::anyhow!("Level {:03X} sprite pointer table offset out of range", self.level_num))?;
+        let sprite_addr = u16::from_le_bytes([sprite_ptr[0], sprite_ptr[1]]) as u32 | 0x070000;
+        let sprite_pc = AddrPc::try_from_lorom(AddrSnes(sprite_addr))?.as_index() + header_offset;
+        let sprite_data_start = sprite_pc + 1;
+        let sprite_data_end = sprite_data_start + sprite_data_old.len();
+        let sprite_dst = rom_bytes
+            .get_mut(sprite_data_start..sprite_data_end)
+            .ok_or_else(|| anyhow::anyhow!("Level {:03X} sprite write range out of bounds", self.level_num))?;
+        sprite_dst[..sprite_new.len()].copy_from_slice(&sprite_new);
+        sprite_dst[sprite_new.len()..].fill(0);
 
         let layer2_ptr_table_pc = AddrPc::try_from_lorom(AddrSnes(0x05E600))?.as_index() + header_offset;
         let layer2_ptr_off = layer2_ptr_table_pc + self.level_num as usize * 3;
@@ -240,6 +290,7 @@ impl UiLevelEditor {
             self.level_properties = LevelProperties::from_level(level);
             let layer1 = EditableObjectLayer::from_level(level);
             self.layer1 = UndoableData::new(layer1);
+            self.sprites = UndoableData::new(EditableSpriteLayer::from_level(level));
             match &level.layer2 {
                 Layer2Data::Objects(objects) => {
                     self.layer2_objects = Some(UndoableData::new(EditableObjectLayer::from_object_layer(
@@ -258,6 +309,9 @@ impl UiLevelEditor {
         self.offset = Vec2::ZERO;
         self.selected_tile = None;
         self.selected_object_indices.clear();
+        self.selected_sprite_indices.clear();
+        self.sprite_preview_textures.clear();
+        self.sprite_oam_cache.clear();
 
         // Reset emulator RAM before loading the new level so no state leaks
         // from the previously loaded level (stale sprite tables, VRAM, etc.).
@@ -272,7 +326,7 @@ impl UiLevelEditor {
         // For each unique sprite ID, clone the clean post-decompress CPU state,
         // run exec_sprite_id on the clone (so state never accumulates between IDs),
         // and collect the OAM tiles the sprite emits relative to the anchor point.
-        let mut oam_map: HashMap<u8, Vec<smwe_emu::emu::SpriteOamTile>> = HashMap::new();
+        let mut oam_map: HashMap<u8, Vec<SpriteOamTile>> = HashMap::new();
         {
             let mut unique_ids: Vec<u8> = sprite_layer.sprites.iter().map(|s| s.sprite_id()).collect();
             unique_ids.sort_unstable();
@@ -287,13 +341,19 @@ impl UiLevelEditor {
                 }
             }
         }
+        self.sprite_oam_cache = oam_map.clone();
 
         // Upload palette + GFX from the clean post-decompress state, then tiles.
         let mut renderer = self.level_renderer.lock().expect("Cannot lock level_renderer");
         renderer.upload_palette(&self.gl, &self.cpu.mem.cgram);
         renderer.upload_gfx(&self.gl, &self.cpu.mem.vram);
         renderer.upload_level(&self.gl, &mut self.cpu);
-        renderer.upload_sprites(&self.gl, &sprite_layer, &oam_map, is_vertical);
+        renderer.upload_editable_sprites(
+            &self.gl,
+            &self.sprites.read(|sprites| sprites.sprites.clone()),
+            &oam_map,
+            is_vertical,
+        );
         drop(renderer);
 
         // Rebuild the tile picker from the loaded level's tileset.
@@ -310,6 +370,61 @@ impl UiLevelEditor {
         let renderer = self.level_renderer.lock().expect("Cannot lock level_renderer");
         renderer.upload_palette(&self.gl, &self.cpu.mem.cgram);
         renderer.upload_gfx(&self.gl, &self.cpu.mem.vram);
+    }
+
+    pub(super) fn rebuild_sprite_tiles(&mut self) {
+        let level_idx = self.level_num as usize;
+        if level_idx >= self.rom.levels.len() {
+            return;
+        }
+        let is_vertical = self.rom.levels[level_idx].secondary_header.vertical_level();
+        let mut unique_ids: Vec<u8> = self.sprites.read(|sprites| sprites.sprites.iter().map(|s| s.sprite_id).collect());
+        unique_ids.sort_unstable();
+        unique_ids.dedup();
+
+        let mut oam_map: HashMap<u8, Vec<SpriteOamTile>> = HashMap::new();
+        for id in unique_ids {
+            let mut cpu_clone = self.cpu.clone();
+            let tiles = smwe_emu::emu::sprite_oam_tiles(&mut cpu_clone, id);
+            if !tiles.is_empty() {
+                oam_map.insert(id, tiles);
+            }
+        }
+        self.sprite_oam_cache = oam_map.clone();
+
+        let sprite_entries = self.sprites.read(|sprites| sprites.sprites.clone());
+        let mut renderer = self.level_renderer.lock().expect("Cannot lock level_renderer");
+        renderer.upload_editable_sprites(&self.gl, &sprite_entries, &oam_map, is_vertical);
+    }
+
+    pub(super) fn sprite_oam_tiles(&mut self, sprite_id: u8) -> Vec<SpriteOamTile> {
+        if let Some(tiles) = self.sprite_oam_cache.get(&sprite_id) {
+            return tiles.clone();
+        }
+        let mut cpu_clone = self.cpu.clone();
+        let tiles = smwe_emu::emu::sprite_oam_tiles(&mut cpu_clone, sprite_id);
+        self.sprite_oam_cache.insert(sprite_id, tiles.clone());
+        tiles
+    }
+
+    pub(super) fn sprite_pixel_bounds(&mut self, sprite_id: u8) -> Option<(i32, i32, i32, i32)> {
+        let tiles = self.sprite_oam_tiles(sprite_id);
+        if tiles.is_empty() {
+            return None;
+        }
+
+        let mut min_x = i32::MAX;
+        let mut min_y = i32::MAX;
+        let mut max_x = i32::MIN;
+        let mut max_y = i32::MIN;
+        for tile in &tiles {
+            let size = if tile.is_16x16 { 16 } else { 8 };
+            min_x = min_x.min(tile.dx);
+            min_y = min_y.min(tile.dy);
+            max_x = max_x.max(tile.dx + size);
+            max_y = max_y.max(tile.dy + size);
+        }
+        Some((min_x, min_y, max_x, max_y))
     }
 
     /// Compute the WRAM block map index from block (tile) coordinates.

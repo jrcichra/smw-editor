@@ -1,5 +1,5 @@
 use egui::TextureHandle;
-use smwe_emu::Cpu;
+use smwe_emu::{emu::SpriteOamTile, Cpu};
 
 /// Number of Map16 blocks in the tileset (9-bit IDs: 0-511).
 const NUM_BLOCKS: usize = 512;
@@ -264,4 +264,131 @@ pub(super) fn render_bg_block_image(block_id: u8, cpu: &mut Cpu) -> egui::ColorI
         render_sub_tile(&cpu.mem.vram, &cpu.mem.cgram, t, sx, sy, &mut pixels, 16);
     }
     egui::ColorImage::from_rgba_unmultiplied([16, 16], &pixels)
+}
+
+pub(super) fn render_sprite_preview_image(sprite_tiles: &[SpriteOamTile], cpu: &mut Cpu) -> egui::ColorImage {
+    const PREVIEW_SIZE: usize = 48;
+
+    if sprite_tiles.is_empty() {
+        return egui::ColorImage::from_rgba_unmultiplied([1, 1], &[0, 0, 0, 0]);
+    }
+
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
+    for tile in sprite_tiles {
+        let tile_size = if tile.is_16x16 { 16 } else { 8 };
+        min_x = min_x.min(tile.dx);
+        min_y = min_y.min(tile.dy);
+        max_x = max_x.max(tile.dx + tile_size);
+        max_y = max_y.max(tile.dy + tile_size);
+    }
+
+    let sprite_w = (max_x - min_x).max(1) as usize;
+    let sprite_h = (max_y - min_y).max(1) as usize;
+    let origin_x = ((PREVIEW_SIZE.saturating_sub(sprite_w)) / 2) as i32 - min_x;
+    let origin_y = ((PREVIEW_SIZE.saturating_sub(sprite_h)) / 2) as i32 - min_y;
+
+    let mut pixels = vec![0u8; PREVIEW_SIZE * PREVIEW_SIZE * 4];
+    for tile in sprite_tiles {
+        let dx = origin_x + tile.dx;
+        let dy = origin_y + tile.dy;
+        let t = tile.tile_word;
+
+        if tile.is_16x16 {
+            let (xn, xf) = if t & 0x4000 == 0 { (0u32, 8u32) } else { (8, 0) };
+            let (yn, yf) = if t & 0x8000 == 0 { (0u32, 8u32) } else { (8, 0) };
+            let attr = t & 0xFE00;
+            let base = t & 0x01FF;
+            render_signed_sub_tile(&cpu.mem.vram, &cpu.mem.cgram, attr | (base & 0x1FF), dx + xn as i32, dy + yn as i32, &mut pixels, PREVIEW_SIZE);
+            render_signed_sub_tile(
+                &cpu.mem.vram,
+                &cpu.mem.cgram,
+                attr | ((base + 1) & 0x1FF),
+                dx + xf as i32,
+                dy + yn as i32,
+                &mut pixels,
+                PREVIEW_SIZE,
+            );
+            render_signed_sub_tile(
+                &cpu.mem.vram,
+                &cpu.mem.cgram,
+                attr | ((base + 16) & 0x1FF),
+                dx + xn as i32,
+                dy + yf as i32,
+                &mut pixels,
+                PREVIEW_SIZE,
+            );
+            render_signed_sub_tile(
+                &cpu.mem.vram,
+                &cpu.mem.cgram,
+                attr | ((base + 17) & 0x1FF),
+                dx + xf as i32,
+                dy + yf as i32,
+                &mut pixels,
+                PREVIEW_SIZE,
+            );
+        } else {
+            render_signed_sub_tile(&cpu.mem.vram, &cpu.mem.cgram, t, dx, dy, &mut pixels, PREVIEW_SIZE);
+        }
+    }
+
+    egui::ColorImage::from_rgba_unmultiplied([PREVIEW_SIZE, PREVIEW_SIZE], &pixels)
+}
+
+fn render_signed_sub_tile(vram: &[u8], cgram: &[u8], t: u16, x0: i32, y0: i32, pixels: &mut [u8], stride: usize) {
+    let tile_num = (t & 0x3FF) as usize;
+    let pal = ((t >> 10) & 0x7) as usize;
+    let flip_x = (t & 0x4000) != 0;
+    let flip_y = (t & 0x8000) != 0;
+
+    let tile_base = tile_num * 32;
+    for ty in 0..8i32 {
+        for tx in 0..8i32 {
+            let px = if flip_x { 7 - tx } else { tx };
+            let py = if flip_y { 7 - ty } else { ty };
+            let row_off = tile_base + (py as usize) * 2;
+            if row_off + 17 >= vram.len() {
+                continue;
+            }
+            let b0 = vram[row_off];
+            let b1 = vram[row_off + 1];
+            let b2 = vram[row_off + 16];
+            let b3 = vram[row_off + 17];
+            let bit = 7 - px as usize;
+            let color_idx =
+                (((b0 >> bit) & 1) | (((b1 >> bit) & 1) << 1) | (((b2 >> bit) & 1) << 2) | (((b3 >> bit) & 1) << 3))
+                    as usize;
+            if color_idx == 0 {
+                continue;
+            }
+
+            let pal_idx = pal * 16 + color_idx;
+            let off_color = pal_idx * 2;
+            if off_color + 1 >= cgram.len() {
+                continue;
+            }
+            let lo = cgram[off_color] as u16;
+            let hi = cgram[off_color + 1] as u16;
+            let rgb = lo | (hi << 8);
+
+            let r = ((rgb & 0x1F) << 3) as u8;
+            let g = (((rgb >> 5) & 0x1F) << 3) as u8;
+            let b = (((rgb >> 10) & 0x1F) << 3) as u8;
+
+            let px_abs = x0 + tx;
+            let py_abs = y0 + ty;
+            if px_abs < 0 || py_abs < 0 {
+                continue;
+            }
+            let off = ((py_abs as usize) * stride + px_abs as usize) * 4;
+            if off + 3 < pixels.len() {
+                pixels[off] = r;
+                pixels[off + 1] = g;
+                pixels[off + 2] = b;
+                pixels[off + 3] = 255;
+            }
+        }
+    }
 }

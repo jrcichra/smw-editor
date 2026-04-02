@@ -5,6 +5,33 @@ use crate::ui::editing_mode::EditingMode;
 
 impl UiLevelEditor {
     pub(super) fn handle_editing_interaction(&mut self, resp: &egui::Response, origin: Pos2, tile_sz: f32) {
+        if self.edit_sprites {
+            match self.editing_mode {
+                EditingMode::Select | EditingMode::Probe => {
+                    if resp.clicked_by(egui::PointerButton::Primary) {
+                        if let Some(pos) = resp.hover_pos() {
+                            self.select_sprite_at(pos, origin, tile_sz);
+                        }
+                    }
+                }
+                EditingMode::Erase => {
+                    if resp.clicked_by(egui::PointerButton::Primary) {
+                        if let Some(pos) = resp.hover_pos() {
+                            self.erase_sprite_at(pos, origin, tile_sz);
+                        }
+                    }
+                }
+                EditingMode::Draw => {
+                    if resp.clicked_by(egui::PointerButton::Primary) {
+                        if let Some(pos) = resp.hover_pos() {
+                            self.place_sprite_at(pos, origin, tile_sz);
+                        }
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
         match self.editing_mode {
             EditingMode::Select | EditingMode::Probe => {
                 if resp.clicked_by(egui::PointerButton::Primary) {
@@ -29,6 +56,58 @@ impl UiLevelEditor {
             }
             _ => {}
         }
+    }
+
+    fn sprite_at(&mut self, pos: Pos2, origin: Pos2, _tile_sz: f32) -> Option<usize> {
+        let rel_px = (pos - origin) / self.zoom;
+        let sprite_entries = self.sprites.read(|sprites| sprites.sprites.clone());
+        for (i, spr) in sprite_entries.iter().enumerate().rev() {
+            let (min_dx, min_dy, max_dx, max_dy) = self.sprite_pixel_bounds(spr.sprite_id).unwrap_or((0, 0, 16, 16));
+            let left = spr.x as f32 * 16.0 + min_dx as f32;
+            let top = spr.y as f32 * 16.0 + min_dy as f32;
+            let right = spr.x as f32 * 16.0 + max_dx as f32;
+            let bottom = spr.y as f32 * 16.0 + max_dy as f32;
+            if rel_px.x >= left && rel_px.x < right && rel_px.y >= top && rel_px.y < bottom {
+                return Some(i);
+            }
+        }
+        None
+    }
+
+    fn select_sprite_at(&mut self, pos: Pos2, origin: Pos2, tile_sz: f32) {
+        let idx = self.sprite_at(pos, origin, tile_sz);
+        self.selected_sprite_indices.clear();
+        if let Some(i) = idx {
+            self.selected_sprite_indices.insert(i);
+        }
+    }
+
+    fn erase_sprite_at(&mut self, pos: Pos2, origin: Pos2, tile_sz: f32) {
+        if let Some(idx) = self.sprite_at(pos, origin, tile_sz) {
+            self.sprites.write(|sprites| {
+                sprites.sprites.remove(idx);
+            });
+            self.selected_sprite_indices.clear();
+            self.rebuild_sprite_tiles();
+        }
+    }
+
+    fn place_sprite_at(&mut self, pos: Pos2, origin: Pos2, tile_sz: f32) {
+        let rel = (pos - origin) / tile_sz;
+        let tx = rel.x.floor() as u32;
+        let ty = rel.y.floor() as u32;
+        let new_idx = self.sprites.read(|sprites| sprites.sprites.len());
+        self.sprites.write(|sprites| {
+            sprites.sprites.push(super::sprite_layer::EditableSprite {
+                x: tx,
+                y: ty,
+                sprite_id: self.draw_sprite_id,
+                extra_bits: self.draw_sprite_extra_bits,
+            });
+        });
+        self.selected_sprite_indices.clear();
+        self.selected_sprite_indices.insert(new_idx);
+        self.rebuild_sprite_tiles();
     }
 
     fn object_at(&self, pos: Pos2, origin: Pos2, tile_sz: f32) -> Option<usize> {
@@ -155,6 +234,24 @@ impl UiLevelEditor {
     }
 
     pub(super) fn delete_selected_objects(&mut self) {
+        if self.edit_sprites {
+            if self.selected_sprite_indices.is_empty() {
+                return;
+            }
+            let indices: Vec<usize> = self.selected_sprite_indices.iter().copied().collect();
+            self.sprites.write(|sprites| {
+                let mut keep = Vec::with_capacity(sprites.sprites.len());
+                for (i, spr) in sprites.sprites.drain(..).enumerate() {
+                    if !indices.contains(&i) {
+                        keep.push(spr);
+                    }
+                }
+                sprites.sprites = keep;
+            });
+            self.selected_sprite_indices.clear();
+            self.rebuild_sprite_tiles();
+            return;
+        }
         if self.selected_object_indices.is_empty() {
             return;
         }
@@ -200,6 +297,12 @@ impl UiLevelEditor {
     }
 
     pub(super) fn handle_undo(&mut self) {
+        if self.edit_sprites {
+            self.sprites.undo();
+            self.selected_sprite_indices.clear();
+            self.rebuild_sprite_tiles();
+            return;
+        }
         if let Some(layer) = self.editing_objects_mut() {
             layer.undo();
         } else if let Some(bg) = &mut self.layer2_background {
@@ -209,6 +312,12 @@ impl UiLevelEditor {
     }
 
     pub(super) fn handle_redo(&mut self) {
+        if self.edit_sprites {
+            self.sprites.redo();
+            self.selected_sprite_indices.clear();
+            self.rebuild_sprite_tiles();
+            return;
+        }
         if let Some(layer) = self.editing_objects_mut() {
             layer.redo();
         } else if let Some(bg) = &mut self.layer2_background {
