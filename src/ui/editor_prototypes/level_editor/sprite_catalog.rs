@@ -217,9 +217,30 @@ pub(super) fn sprite_matches_search(id: u8, query: &str) -> bool {
     hex.contains(&q) || name.to_ascii_lowercase().contains(&q)
 }
 
+pub(super) fn preview_sprite_tileset(id: u8) -> Option<u8> {
+    match id {
+        // Castle sprite tileset ($00,$01,$12,$03) provides GFX12/GFX03,
+        // which these sprites need for a faithful vanilla preview.
+        0x20 | 0x22 | 0x23 | 0x24 | 0x25 | 0x26 | 0x27 | 0x30 | 0x31 | 0x32 | 0xB3 | 0xB4 | 0xBC | 0xC4 => Some(1),
+        // Mushroom sprite tileset ($00,$01,$13,$05) covers Para-Goomba/Para-Bomb.
+        0x3F | 0x40 => Some(2),
+        // Ghost House sprite tileset ($00,$01,$06,$11) covers Boo/Eerie-family sprites.
+        0x37 | 0x38 | 0x39 | 0x52 | 0x8D | 0xAF | 0xC5 => Some(7),
+        // Water sprite tileset ($00,$01,$13,$06) covers dolphins and Torpedo Ted.
+        0x41 | 0x42 | 0x43 | 0x44 => Some(4),
+        // Pokey sprite tileset ($00,$01,$13,$09) covers Diggin' Chuck / Volcano Lotus.
+        0x46 | 0x48 | 0x99 => Some(5),
+        // Underground sprite tileset ($00,$01,$13,$04) covers Monty Mole and jumping piranhas.
+        0x4D | 0x4E | 0x4F | 0x50 => Some(3),
+        // Banzai Bill sprite tileset ($00,$01,$13,$20).
+        0x9F => Some(8),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{sprite_matches_search, sprite_name};
+    use super::{preview_sprite_tileset, sprite_matches_search, sprite_name};
 
     #[test]
     fn names_cover_common_sprites() {
@@ -233,5 +254,16 @@ mod tests {
         assert!(sprite_matches_search(0xAB, "rex"));
         assert!(sprite_matches_search(0xAB, "ab"));
         assert!(!sprite_matches_search(0xAB, "goomba"));
+    }
+
+    #[test]
+    fn preview_tileset_covers_problem_ids() {
+        assert_eq!(preview_sprite_tileset(0x20), Some(1));
+        assert_eq!(preview_sprite_tileset(0x22), Some(1));
+        assert_eq!(preview_sprite_tileset(0x26), Some(1));
+        assert_eq!(preview_sprite_tileset(0x3F), Some(2));
+        assert_eq!(preview_sprite_tileset(0x37), Some(7));
+        assert_eq!(preview_sprite_tileset(0x41), Some(4));
+        assert_eq!(preview_sprite_tileset(0x0F), None);
     }
 }

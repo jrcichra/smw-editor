@@ -434,13 +434,23 @@ impl UiLevelEditor {
             return tex.clone();
         }
 
-        let mut cpu = self.cpu.clone();
-        let sprite_tiles = self.sprite_oam_tiles(sprite_id);
-        let mut image = super::tile_picker::render_sprite_preview_image(&sprite_tiles, &mut cpu);
-        let mut best_score = score_sprite_preview(&image);
+        let (mut image, mut best_score) = if let Some(preferred_tileset) = super::sprite_catalog::preview_sprite_tileset(sprite_id) {
+            let mut cpu_pref = self.cpu.clone();
+            smwe_emu::emu::upload_sprite_tileset(&mut cpu_pref, preferred_tileset);
+            let tiles_pref = smwe_emu::emu::sprite_oam_tiles(&mut cpu_pref, sprite_id);
+            let image_pref = super::tile_picker::render_sprite_preview_image(&tiles_pref, &mut cpu_pref);
+            let score_pref = score_sprite_preview(&image_pref);
+            (image_pref, score_pref)
+        } else {
+            let mut cpu = self.cpu.clone();
+            let sprite_tiles = self.sprite_oam_tiles(sprite_id);
+            let image = super::tile_picker::render_sprite_preview_image(&sprite_tiles, &mut cpu);
+            let score = score_sprite_preview(&image);
+            (image, score)
+        };
 
-        // If the current level's sprite GFX set produces a weak preview,
-        // search the vanilla sprite tilesets using the real UploadSpriteGFX path.
+        // If the initial preview is weak, search the vanilla sprite tilesets
+        // using the real UploadSpriteGFX path.
         if best_score < 220 {
             for tileset in 0u8..=15 {
                 let mut cpu_try = self.cpu.clone();
@@ -453,6 +463,10 @@ impl UiLevelEditor {
                     image = image_try;
                 }
             }
+        }
+
+        if best_score < 260 {
+            image = super::tile_picker::render_sprite_fallback_image(48);
         }
 
         let handle = ctx.load_texture(

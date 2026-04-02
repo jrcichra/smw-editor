@@ -426,3 +426,7 @@ fn sprite_preview_fallback_image(size: usize) -> egui::ColorImage {
     }
     egui::ColorImage::from_rgba_unmultiplied([size, size], &pixels)
 }
+
+pub(super) fn render_sprite_fallback_image(size: usize) -> egui::ColorImage {
+    sprite_preview_fallback_image(size)
+}

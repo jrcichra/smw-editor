@@ -220,7 +220,24 @@ pub fn upload_sprite_tileset(cpu: &mut Cpu<CheckedMem>, sprite_tileset: u8) -> u
     run_routines(cpu, &["UploadSpriteGFX"], 20_000_000)
 }
 
+fn clear_sprite_preview_state(cpu: &mut Cpu<CheckedMem>) {
+    const SLOT_COUNT: u32 = 12;
+    const SPRITE_TABLE_BASES: &[u32] = &[
+        0x009E, 0x00AA, 0x00B6, 0x00C2, 0x00D8, 0x00E4, 0x14C8, 0x14D4, 0x14E0, 0x14EC, 0x14F8, 0x1504, 0x1510,
+        0x151C, 0x1528, 0x1534, 0x1540, 0x154C, 0x1558, 0x1564, 0x1570, 0x157C, 0x1588, 0x1594, 0x15A0, 0x15AC,
+        0x15B8, 0x15C4, 0x15D0, 0x15DC, 0x15EA, 0x15F6, 0x1602, 0x160E, 0x161A, 0x1626, 0x1632, 0x163E, 0x164A,
+        0x1656, 0x1662, 0x166E, 0x167A, 0x1686, 0x187B,
+    ];
+
+    for &base in SPRITE_TABLE_BASES {
+        for slot in 0..SLOT_COUNT {
+            cpu.mem.store(base + slot, 0);
+        }
+    }
+}
+
 pub fn exec_sprite_id(cpu: &mut Cpu<CheckedMem>, id: u8) -> u64 {
+    clear_sprite_preview_state(cpu);
     cpu.mem.store(0x9E, id);
     cpu.mem.store(0x1A, 0x00);
     cpu.mem.store(0x1C, 0x00);
@@ -228,10 +245,10 @@ pub fn exec_sprite_id(cpu: &mut Cpu<CheckedMem>, id: u8) -> u64 {
     cpu.mem.store(0xE4, 0x80);
     cpu.mem.store(0x14D4, 0x00);
     cpu.mem.store(0x14E0, 0x00);
-    for i in 0..12 {
-        cpu.mem.store(0x14C8 + i, 0);
-    }
-    cpu.mem.store(0x14C8, 1);
+    // Use the normal in-level sprite status so preview execution follows the
+    // same main path as gameplay. Several sprites branch on status before
+    // drawing; status 0x01 can take init/transform-only paths instead.
+    cpu.mem.store(0x14C8, 0x08);
     cpu.y = 0;
     cpu.x = 0;
     clear_sprite_oam(cpu);
