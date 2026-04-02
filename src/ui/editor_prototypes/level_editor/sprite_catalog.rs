@@ -219,23 +219,29 @@ pub(super) fn sprite_matches_search(id: u8, query: &str) -> bool {
 
 pub(super) fn preview_sprite_tileset(id: u8) -> Option<u8> {
     match id {
-        // Castle sprite tileset ($00,$01,$12,$03) provides GFX12/GFX03,
-        // which these sprites need for a faithful vanilla preview.
-        0x20 | 0x22 | 0x23 | 0x24 | 0x25 | 0x26 | 0x27 | 0x30 | 0x31 | 0x32 | 0xB3 | 0xB4 | 0xBC | 0xC4 => Some(1),
-        // Mushroom sprite tileset ($00,$01,$13,$05) covers Para-Goomba/Para-Bomb
-        // and other sprites that need SP4=02/SP4=05.
-        0x3F | 0x40 | 0xC0 => Some(2),
-        // Ghost House sprite tileset ($00,$01,$06,$11) covers Boo/Eerie-family sprites.
-        0x37 | 0x38 | 0x39 | 0x52 | 0x8D | 0xAE | 0xAF | 0xB0 | 0xC5 | 0xCB | 0xE2 | 0xE3 => Some(7),
-        // Water sprite tileset ($00,$01,$13,$06) covers dolphins and Torpedo Ted.
-        0x3A | 0x3B | 0x3C | 0x3D | 0x41 | 0x42 | 0x43 | 0x44 | 0xC2 | 0xC3 | 0xCA | 0xCF | 0xD0 => Some(4),
-        // Pokey sprite tileset ($00,$01,$13,$09) covers Diggin' Chuck / Volcano Lotus.
-        0x46 | 0x48 | 0x99 => Some(5),
-        // Underground sprite tileset ($00,$01,$13,$04) covers Monty Mole,
-        // jumping piranhas, and Swooper.
-        0x4D | 0x4E | 0x4F | 0x50 | 0xBE => Some(3),
-        // Banzai Bill sprite tileset ($00,$01,$13,$20).
-        0x9F | 0xBF | 0xB7 | 0xB8 | 0xBA => Some(8),
+        // Forest sprite tileset ($00,$01,$13,$02): SP3=13 / SP4=02 family.
+        0x0D | 0x13 | 0x14 | 0x1D | 0x1E | 0x2C | 0x3F | 0x40 | 0x49 | 0x4B => Some(0),
+        // Castle sprite tileset ($00,$01,$12,$03): SP3=12 / SP4=03 family.
+        0x1F | 0x20 | 0x22 | 0x23 | 0x24 | 0x25 | 0x26 | 0x27 | 0x30 | 0x31 | 0x32 | 0x54 | 0xAC | 0xAD | 0xB2
+        | 0xB3 | 0xB4 | 0xB6 | 0xBB | 0xBC => Some(1),
+        // Mushroom sprite tileset ($00,$01,$13,$05): SP4=05 family.
+        0x46 | 0x48 | 0x4A | 0x55 | 0x56 | 0x57 | 0x58 | 0x5C | 0x5D | 0x5E | 0x5F | 0x64 | 0xC0 => Some(2),
+        // Underground sprite tileset ($00,$01,$13,$04): SP4=04 family.
+        0x11 | 0x1B | 0x2A | 0x2E | 0x4F | 0x50 | 0x61 | 0xBE => Some(3),
+        // Water sprite tileset ($00,$01,$13,$06): SP4=06 family.
+        0x3A | 0x3B | 0x3C | 0x3D | 0x41 | 0x42 | 0x43 | 0x44 | 0xC2 | 0xC3 => Some(4),
+        // Pokey sprite tileset ($00,$01,$13,$09): SP4=09 family.
+        0x2B | 0x4D | 0x4E | 0x91 | 0x92 | 0x93 | 0x94 | 0x95 | 0x96 | 0x97 | 0x98 | 0x99 | 0x9A => Some(5),
+        // Ghost House sprite tileset ($00,$01,$06,$11): SP4=11 family.
+        0x28 | 0x37 | 0x38 | 0x39 | 0x52 | 0x8D | 0xAE | 0xAF | 0xB0 | 0xC5 => Some(7),
+        // Banzai Bill sprite tileset ($00,$01,$13,$20): SP4=20 family.
+        0x9F | 0xAB | 0xB7 | 0xB8 | 0xBA | 0xBF => Some(8),
+        // Switch Palace sprite tileset ($00,$01,$0D,$14): SP3=0D family.
+        0x60 => Some(11),
+        // Wendy/Lemmy sprite tileset ($00,$01,$0A,$22): SP3=0A family.
+        0x29 => Some(13),
+        // Ninji sprite tileset ($00,$01,$13,$0E): SP4=0E family.
+        0x51 | 0xC6 => Some(14),
         _ => None,
     }
 }
@@ -260,15 +266,20 @@ mod tests {
 
     #[test]
     fn preview_tileset_covers_problem_ids() {
+        assert_eq!(preview_sprite_tileset(0x0D), Some(0));
         assert_eq!(preview_sprite_tileset(0x20), Some(1));
         assert_eq!(preview_sprite_tileset(0x22), Some(1));
         assert_eq!(preview_sprite_tileset(0x26), Some(1));
-        assert_eq!(preview_sprite_tileset(0x3F), Some(2));
+        assert_eq!(preview_sprite_tileset(0x3F), Some(0));
         assert_eq!(preview_sprite_tileset(0x37), Some(7));
         assert_eq!(preview_sprite_tileset(0x41), Some(4));
+        assert_eq!(preview_sprite_tileset(0x46), Some(2));
         assert_eq!(preview_sprite_tileset(0xBE), Some(3));
         assert_eq!(preview_sprite_tileset(0xC2), Some(4));
         assert_eq!(preview_sprite_tileset(0xC5), Some(7));
+        assert_eq!(preview_sprite_tileset(0x60), Some(11));
+        assert_eq!(preview_sprite_tileset(0x29), Some(13));
+        assert_eq!(preview_sprite_tileset(0x51), Some(14));
         assert_eq!(preview_sprite_tileset(0x0F), None);
     }
 }

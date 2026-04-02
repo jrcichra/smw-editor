@@ -267,10 +267,11 @@ pub(super) fn render_bg_block_image(block_id: u8, cpu: &mut Cpu) -> egui::ColorI
 }
 
 pub(super) fn render_sprite_preview_image(sprite_tiles: &[SpriteOamTile], cpu: &mut Cpu) -> egui::ColorImage {
-    const PREVIEW_SIZE: usize = 48;
+    const MIN_PREVIEW_SIZE: usize = 48;
+    const MAX_PREVIEW_SIZE: usize = 96;
 
     if sprite_tiles.is_empty() {
-        return sprite_preview_fallback_image(PREVIEW_SIZE);
+        return sprite_preview_fallback_image(MIN_PREVIEW_SIZE);
     }
 
     let mut min_x = i32::MAX;
@@ -287,10 +288,11 @@ pub(super) fn render_sprite_preview_image(sprite_tiles: &[SpriteOamTile], cpu: &
 
     let sprite_w = (max_x - min_x).max(1) as usize;
     let sprite_h = (max_y - min_y).max(1) as usize;
-    let origin_x = ((PREVIEW_SIZE.saturating_sub(sprite_w)) / 2) as i32 - min_x;
-    let origin_y = ((PREVIEW_SIZE.saturating_sub(sprite_h)) / 2) as i32 - min_y;
+    let preview_size = (sprite_w.max(sprite_h) + 16).clamp(MIN_PREVIEW_SIZE, MAX_PREVIEW_SIZE);
+    let origin_x = ((preview_size.saturating_sub(sprite_w)) / 2) as i32 - min_x;
+    let origin_y = ((preview_size.saturating_sub(sprite_h)) / 2) as i32 - min_y;
 
-    let mut pixels = vec![0u8; PREVIEW_SIZE * PREVIEW_SIZE * 4];
+    let mut pixels = vec![0u8; preview_size * preview_size * 4];
     for tile in sprite_tiles {
         let dx = origin_x + tile.dx;
         let dy = origin_y + tile.dy;
@@ -308,7 +310,7 @@ pub(super) fn render_sprite_preview_image(sprite_tiles: &[SpriteOamTile], cpu: &
                 dx + xn as i32,
                 dy + yn as i32,
                 &mut pixels,
-                PREVIEW_SIZE,
+                preview_size,
             );
             render_signed_sprite_sub_tile(
                 &cpu.mem.vram,
@@ -317,7 +319,7 @@ pub(super) fn render_sprite_preview_image(sprite_tiles: &[SpriteOamTile], cpu: &
                 dx + xf as i32,
                 dy + yn as i32,
                 &mut pixels,
-                PREVIEW_SIZE,
+                preview_size,
             );
             render_signed_sprite_sub_tile(
                 &cpu.mem.vram,
@@ -326,7 +328,7 @@ pub(super) fn render_sprite_preview_image(sprite_tiles: &[SpriteOamTile], cpu: &
                 dx + xn as i32,
                 dy + yf as i32,
                 &mut pixels,
-                PREVIEW_SIZE,
+                preview_size,
             );
             render_signed_sprite_sub_tile(
                 &cpu.mem.vram,
@@ -335,17 +337,17 @@ pub(super) fn render_sprite_preview_image(sprite_tiles: &[SpriteOamTile], cpu: &
                 dx + xf as i32,
                 dy + yf as i32,
                 &mut pixels,
-                PREVIEW_SIZE,
+                preview_size,
             );
         } else {
-            render_signed_sprite_sub_tile(&cpu.mem.vram, &cpu.mem.cgram, t, dx, dy, &mut pixels, PREVIEW_SIZE);
+            render_signed_sprite_sub_tile(&cpu.mem.vram, &cpu.mem.cgram, t, dx, dy, &mut pixels, preview_size);
         }
     }
 
     if pixels.chunks_exact(4).all(|px| px[3] == 0) {
-        sprite_preview_fallback_image(PREVIEW_SIZE)
+        sprite_preview_fallback_image(preview_size)
     } else {
-        egui::ColorImage::from_rgba_unmultiplied([PREVIEW_SIZE, PREVIEW_SIZE], &pixels)
+        egui::ColorImage::from_rgba_unmultiplied([preview_size, preview_size], &pixels)
     }
 }
 

@@ -107,27 +107,7 @@ impl LevelRenderer {
             };
 
             // Emit each OAM tile at anchor + its emulator-derived offset
-            for oam in oam_tiles {
-                let px = (anchor_x + oam.dx) as u32;
-                let py = (anchor_y + oam.dy) as u32;
-                let t = oam.tile_word;
-
-                if oam.is_16x16 {
-                    let (xn, xf) = if t & 0x4000 == 0 { (0u32, 8u32) } else { (8, 0) };
-                    let (yn, yf) = if t & 0x8000 == 0 { (0u32, 8u32) } else { (8, 0) };
-                    // Preserve attribute bits (palette, flip, priority); only increment
-                    // the 9-bit tile number field. Adding to the raw u16 would corrupt
-                    // the attribute byte whenever the tile number wraps past 0x100.
-                    let attr = t & 0xFE00;
-                    let base = t & 0x01FF;
-                    tiles.push(sp_tile(px + xn, py + yn, attr | (base & 0x1FF)));
-                    tiles.push(sp_tile(px + xf, py + yn, attr | ((base + 1) & 0x1FF)));
-                    tiles.push(sp_tile(px + xn, py + yf, attr | ((base + 16) & 0x1FF)));
-                    tiles.push(sp_tile(px + xf, py + yf, attr | ((base + 17) & 0x1FF)));
-                } else {
-                    tiles.push(sp_tile(px, py, t));
-                }
-            }
+            push_sprite_oam_tiles(&mut tiles, anchor_x, anchor_y, oam_tiles);
         }
 
         self.sprites.set_tiles(gl, tiles);
@@ -152,24 +132,7 @@ impl LevelRenderer {
             let anchor_x = spr.x as i32 * 16;
             let anchor_y = spr.y as i32 * 16;
 
-            for oam in oam_tiles {
-                let px = (anchor_x + oam.dx) as u32;
-                let py = (anchor_y + oam.dy) as u32;
-                let t = oam.tile_word;
-
-                if oam.is_16x16 {
-                    let (xn, xf) = if t & 0x4000 == 0 { (0u32, 8u32) } else { (8, 0) };
-                    let (yn, yf) = if t & 0x8000 == 0 { (0u32, 8u32) } else { (8, 0) };
-                    let attr = t & 0xFE00;
-                    let base = t & 0x01FF;
-                    tiles.push(sp_tile(px + xn, py + yn, attr | (base & 0x1FF)));
-                    tiles.push(sp_tile(px + xf, py + yn, attr | ((base + 1) & 0x1FF)));
-                    tiles.push(sp_tile(px + xn, py + yf, attr | ((base + 16) & 0x1FF)));
-                    tiles.push(sp_tile(px + xf, py + yf, attr | ((base + 17) & 0x1FF)));
-                } else {
-                    tiles.push(sp_tile(px, py, t));
-                }
-            }
+            push_sprite_oam_tiles(&mut tiles, anchor_x, anchor_y, oam_tiles);
         }
 
         self.sprites.set_tiles(gl, tiles);
@@ -300,4 +263,32 @@ fn sp_tile(x: u32, y: u32, t: u16) -> Tile {
     let pal = ((t >> 9) & 0x7) + 8;
     let params = scale | (pal << 8) | (t & 0xC000);
     Tile([x, y, tile, params])
+}
+
+fn push_sprite_oam_tiles(tiles: &mut Vec<Tile>, anchor_x: i32, anchor_y: i32, oam_tiles: &[SpriteOamTile]) {
+    for oam in oam_tiles {
+        let px = anchor_x + oam.dx;
+        let py = anchor_y + oam.dy;
+        let t = oam.tile_word;
+
+        if oam.is_16x16 {
+            let (xn, xf) = if t & 0x4000 == 0 { (0i32, 8i32) } else { (8, 0) };
+            let (yn, yf) = if t & 0x8000 == 0 { (0i32, 8i32) } else { (8, 0) };
+            let attr = t & 0xFE00;
+            let base = t & 0x01FF;
+            push_sp_tile_if_visible(tiles, px + xn, py + yn, attr | (base & 0x1FF));
+            push_sp_tile_if_visible(tiles, px + xf, py + yn, attr | ((base + 1) & 0x1FF));
+            push_sp_tile_if_visible(tiles, px + xn, py + yf, attr | ((base + 16) & 0x1FF));
+            push_sp_tile_if_visible(tiles, px + xf, py + yf, attr | ((base + 17) & 0x1FF));
+        } else {
+            push_sp_tile_if_visible(tiles, px, py, t);
+        }
+    }
+}
+
+fn push_sp_tile_if_visible(tiles: &mut Vec<Tile>, x: i32, y: i32, t: u16) {
+    if x < 0 || y < 0 {
+        return;
+    }
+    tiles.push(sp_tile(x as u32, y as u32, t));
 }
