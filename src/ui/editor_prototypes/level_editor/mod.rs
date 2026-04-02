@@ -172,6 +172,10 @@ impl DockableEditorTool for UiLevelEditor {
             .ok_or_else(|| anyhow::anyhow!("Level {:03X} pointer table offset out of range", self.level_num))?;
         let level_addr = u32::from_le_bytes([ptr_bytes[0], ptr_bytes[1], ptr_bytes[2], 0]);
         let level_pc = AddrPc::try_from_lorom(AddrSnes(level_addr))?.as_index() + header_offset;
+        let header_dst = rom_bytes
+            .get_mut(level_pc..level_pc + PRIMARY_HEADER_SIZE)
+            .ok_or_else(|| anyhow::anyhow!("Level {:03X} header write range out of bounds", self.level_num))?;
+        header_dst[2] = (header_dst[2] & 0xF0) | (self.level_properties.sprite_gfx & 0x0F);
         let layer1_start = level_pc + PRIMARY_HEADER_SIZE;
         let layer1_end = layer1_start + old_layer1.len();
         let layer1_dst = rom_bytes
@@ -333,9 +337,7 @@ impl UiLevelEditor {
             unique_ids.dedup();
 
             for id in unique_ids {
-                // Clone gives each ID a pristine post-decompress environment.
-                let mut cpu_clone = self.cpu.clone();
-                let tiles = smwe_emu::emu::sprite_oam_tiles(&mut cpu_clone, id);
+                let tiles = self.compute_sprite_oam_tiles(id);
                 if !tiles.is_empty() {
                     oam_map.insert(id, tiles);
                 }
@@ -384,8 +386,7 @@ impl UiLevelEditor {
 
         let mut oam_map: HashMap<u8, Vec<SpriteOamTile>> = HashMap::new();
         for id in unique_ids {
-            let mut cpu_clone = self.cpu.clone();
-            let tiles = smwe_emu::emu::sprite_oam_tiles(&mut cpu_clone, id);
+            let tiles = self.compute_sprite_oam_tiles(id);
             if !tiles.is_empty() {
                 oam_map.insert(id, tiles);
             }
@@ -397,14 +398,33 @@ impl UiLevelEditor {
         renderer.upload_editable_sprites(&self.gl, &sprite_entries, &oam_map, is_vertical);
     }
 
+    pub(super) fn refresh_sprite_gfx(&mut self) {
+        smwe_emu::emu::upload_sprite_tileset(&mut self.cpu, self.level_properties.sprite_gfx);
+        self.sprite_preview_textures.clear();
+        self.sprite_oam_cache.clear();
+        {
+            let renderer = self.level_renderer.lock().expect("Cannot lock level_renderer");
+            renderer.upload_gfx(&self.gl, &self.cpu.mem.vram);
+            renderer.upload_palette(&self.gl, &self.cpu.mem.cgram);
+        }
+        self.rebuild_sprite_tiles();
+    }
+
     pub(super) fn sprite_oam_tiles(&mut self, sprite_id: u8) -> Vec<SpriteOamTile> {
         if let Some(tiles) = self.sprite_oam_cache.get(&sprite_id) {
             return tiles.clone();
         }
-        let mut cpu_clone = self.cpu.clone();
-        let tiles = smwe_emu::emu::sprite_oam_tiles(&mut cpu_clone, sprite_id);
+        let tiles = self.compute_sprite_oam_tiles(sprite_id);
         self.sprite_oam_cache.insert(sprite_id, tiles.clone());
         tiles
+    }
+
+    fn compute_sprite_oam_tiles(&self, sprite_id: u8) -> Vec<SpriteOamTile> {
+        let mut cpu_clone = self.cpu.clone();
+        if let Some(tileset) = sprite_catalog::preview_sprite_tileset(sprite_id) {
+            smwe_emu::emu::upload_sprite_tileset(&mut cpu_clone, tileset);
+        }
+        smwe_emu::emu::sprite_oam_tiles(&mut cpu_clone, sprite_id)
     }
 
     pub(super) fn sprite_pixel_bounds(&mut self, sprite_id: u8) -> Option<(i32, i32, i32, i32)> {

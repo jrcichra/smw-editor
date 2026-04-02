@@ -110,6 +110,18 @@ impl UiLevelEditor {
                     self.draw_sprite_extra_bits = extra as u8;
                 }
             });
+            if let Some(required_tileset) = super::sprite_catalog::preview_sprite_tileset(self.draw_sprite_id) {
+                let current_tileset = self.level_properties.sprite_gfx;
+                if current_tileset != required_tileset {
+                    ui.colored_label(
+                        Color32::from_rgb(220, 170, 80),
+                        format!(
+                            "Current level sprite GFX is {:X}, but this sprite previews with vanilla tileset {:X}. In-level graphics will look wrong until the level sprite GFX/header matches.",
+                            current_tileset, required_tileset
+                        ),
+                    );
+                }
+            }
             ui.add(egui::TextEdit::singleline(&mut self.sprite_search).hint_text("Search sprites"));
             self.sprite_picker(ui);
         } else if self.editing_mode == EditingMode::Draw {
@@ -195,8 +207,16 @@ impl UiLevelEditor {
         ui.separator();
         ui.label(format!("Level {:03X}", self.level_num));
         let is_vertical = {
-            let props = &self.level_properties;
-            ui.label(format!("Mode: {:02X}  GFX: {:X}", props.level_mode, props.fg_bg_gfx));
+            let props = self.level_properties;
+            ui.label(format!("Mode: {:02X}  FG/BG GFX: {:X}", props.level_mode, props.fg_bg_gfx));
+            let mut sprite_gfx = props.sprite_gfx as u16;
+            ui.horizontal(|ui| {
+                ui.label("Sprite GFX:");
+                if ui.add(Slider::new(&mut sprite_gfx, 0..=0x0F).hexadecimal(1, false, false)).changed() {
+                    self.level_properties.sprite_gfx = sprite_gfx as u8;
+                    self.refresh_sprite_gfx();
+                }
+            });
             ui.label(format!("Music: {}  Timer: {}", props.music, props.timer));
             ui.label(if props.is_vertical { "Vertical" } else { "Horizontal" });
             ui.label(format!("Screens: {}", props.num_screens()));
