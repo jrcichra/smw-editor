@@ -301,8 +301,16 @@ pub(super) fn render_sprite_preview_image(sprite_tiles: &[SpriteOamTile], cpu: &
             let (yn, yf) = if t & 0x8000 == 0 { (0u32, 8u32) } else { (8, 0) };
             let attr = t & 0xFE00;
             let base = t & 0x01FF;
-            render_signed_sub_tile(&cpu.mem.vram, &cpu.mem.cgram, attr | (base & 0x1FF), dx + xn as i32, dy + yn as i32, &mut pixels, PREVIEW_SIZE);
-            render_signed_sub_tile(
+            render_signed_sprite_sub_tile(
+                &cpu.mem.vram,
+                &cpu.mem.cgram,
+                attr | (base & 0x1FF),
+                dx + xn as i32,
+                dy + yn as i32,
+                &mut pixels,
+                PREVIEW_SIZE,
+            );
+            render_signed_sprite_sub_tile(
                 &cpu.mem.vram,
                 &cpu.mem.cgram,
                 attr | ((base + 1) & 0x1FF),
@@ -311,7 +319,7 @@ pub(super) fn render_sprite_preview_image(sprite_tiles: &[SpriteOamTile], cpu: &
                 &mut pixels,
                 PREVIEW_SIZE,
             );
-            render_signed_sub_tile(
+            render_signed_sprite_sub_tile(
                 &cpu.mem.vram,
                 &cpu.mem.cgram,
                 attr | ((base + 16) & 0x1FF),
@@ -320,7 +328,7 @@ pub(super) fn render_sprite_preview_image(sprite_tiles: &[SpriteOamTile], cpu: &
                 &mut pixels,
                 PREVIEW_SIZE,
             );
-            render_signed_sub_tile(
+            render_signed_sprite_sub_tile(
                 &cpu.mem.vram,
                 &cpu.mem.cgram,
                 attr | ((base + 17) & 0x1FF),
@@ -330,7 +338,7 @@ pub(super) fn render_sprite_preview_image(sprite_tiles: &[SpriteOamTile], cpu: &
                 PREVIEW_SIZE,
             );
         } else {
-            render_signed_sub_tile(&cpu.mem.vram, &cpu.mem.cgram, t, dx, dy, &mut pixels, PREVIEW_SIZE);
+            render_signed_sprite_sub_tile(&cpu.mem.vram, &cpu.mem.cgram, t, dx, dy, &mut pixels, PREVIEW_SIZE);
         }
     }
 
@@ -341,9 +349,9 @@ pub(super) fn render_sprite_preview_image(sprite_tiles: &[SpriteOamTile], cpu: &
     }
 }
 
-fn render_signed_sub_tile(vram: &[u8], cgram: &[u8], t: u16, x0: i32, y0: i32, pixels: &mut [u8], stride: usize) {
-    let tile_num = (t & 0x3FF) as usize;
-    let pal = ((t >> 10) & 0x7) as usize;
+fn render_signed_sprite_sub_tile(vram: &[u8], cgram: &[u8], t: u16, x0: i32, y0: i32, pixels: &mut [u8], stride: usize) {
+    let tile_num = ((t & 0x01FF) as usize) + 0x600;
+    let pal = (((t >> 9) & 0x7) as usize) + 8;
     let flip_x = (t & 0x4000) != 0;
     let flip_y = (t & 0x8000) != 0;
 
