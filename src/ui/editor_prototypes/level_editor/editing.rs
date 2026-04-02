@@ -94,13 +94,16 @@ impl UiLevelEditor {
 
     fn place_sprite_at(&mut self, pos: Pos2, origin: Pos2, tile_sz: f32) {
         let rel = (pos - origin) / tile_sz;
-        let tx = rel.x.floor() as u32;
-        let ty = rel.y.floor() as u32;
+        let target_px_x = rel.x.floor() * 16.0;
+        let target_px_y = rel.y.floor() * 16.0;
+        let (min_dx, min_dy, _, _) = self.sprite_pixel_bounds(self.draw_sprite_id).unwrap_or((0, 0, 16, 16));
+        let anchor_x = ((target_px_x - min_dx as f32) / 16.0).round().max(0.0) as u32;
+        let anchor_y = ((target_px_y - min_dy as f32) / 16.0).round().max(0.0) as u32;
         let new_idx = self.sprites.read(|sprites| sprites.sprites.len());
         self.sprites.write(|sprites| {
             sprites.sprites.push(super::sprite_layer::EditableSprite {
-                x: tx,
-                y: ty,
+                x: anchor_x,
+                y: anchor_y,
                 sprite_id: self.draw_sprite_id,
                 extra_bits: self.draw_sprite_extra_bits,
             });

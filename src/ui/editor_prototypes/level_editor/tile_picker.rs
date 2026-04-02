@@ -270,7 +270,7 @@ pub(super) fn render_sprite_preview_image(sprite_tiles: &[SpriteOamTile], cpu: &
     const PREVIEW_SIZE: usize = 48;
 
     if sprite_tiles.is_empty() {
-        return egui::ColorImage::from_rgba_unmultiplied([1, 1], &[0, 0, 0, 0]);
+        return sprite_preview_fallback_image(PREVIEW_SIZE);
     }
 
     let mut min_x = i32::MAX;
@@ -334,7 +334,11 @@ pub(super) fn render_sprite_preview_image(sprite_tiles: &[SpriteOamTile], cpu: &
         }
     }
 
-    egui::ColorImage::from_rgba_unmultiplied([PREVIEW_SIZE, PREVIEW_SIZE], &pixels)
+    if pixels.chunks_exact(4).all(|px| px[3] == 0) {
+        sprite_preview_fallback_image(PREVIEW_SIZE)
+    } else {
+        egui::ColorImage::from_rgba_unmultiplied([PREVIEW_SIZE, PREVIEW_SIZE], &pixels)
+    }
 }
 
 fn render_signed_sub_tile(vram: &[u8], cgram: &[u8], t: u16, x0: i32, y0: i32, pixels: &mut [u8], stride: usize) {
@@ -391,4 +395,26 @@ fn render_signed_sub_tile(vram: &[u8], cgram: &[u8], t: u16, x0: i32, y0: i32, p
             }
         }
     }
+}
+
+fn sprite_preview_fallback_image(size: usize) -> egui::ColorImage {
+    let mut pixels = vec![0u8; size * size * 4];
+    for y in 0..size {
+        for x in 0..size {
+            let off = (y * size + x) * 4;
+            let border = x < 2 || y < 2 || x >= size - 2 || y >= size - 2;
+            let accent = x == y || x + y == size - 1;
+            let shade = if border {
+                [220, 170, 40, 255]
+            } else if accent {
+                [120, 120, 120, 255]
+            } else if ((x / 6) + (y / 6)) % 2 == 0 {
+                [52, 52, 52, 255]
+            } else {
+                [82, 82, 82, 255]
+            };
+            pixels[off..off + 4].copy_from_slice(&shade);
+        }
+    }
+    egui::ColorImage::from_rgba_unmultiplied([size, size], &pixels)
 }
