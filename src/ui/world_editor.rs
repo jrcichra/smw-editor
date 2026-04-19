@@ -336,18 +336,6 @@ impl UiWorldEditor {
         self.apply_source_l1_tile_to_vram(map16_x, map16_y, tile_id);
     }
 
-    fn overlay_source_layer1_to_vram(&mut self) {
-        for row in 0..32u32 {
-            for col in 0..32u32 {
-                let idx = self.source_l1_offset() + ow_l1_addr(col, row);
-                let Some(&tile_id) = self.source_layer1_tiles.get(idx) else {
-                    continue;
-                };
-                self.write_source_l1_block_words(col, row, tile_id);
-            }
-        }
-    }
-
     fn apply_source_l1_tile_to_vram(&mut self, map16_x: u32, map16_y: u32, tile_id: u8) {
         let (crop_x, crop_y) = visible_map_crop(self.submap);
         let src_col = ((map16_x * 16 + crop_x) / 16) as u32;

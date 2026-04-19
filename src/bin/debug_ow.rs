@@ -310,7 +310,7 @@ fn convert_3bpp_to_4bpp(data_3bpp: &[u8]) -> Vec<u8> {
 
     for tile_idx in 0..num_tiles {
         let tile_offset_3bpp = tile_idx * 24;
-        let tile_offset_4bpp = tile_idx * 32;
+        let _tile_offset_4bpp = tile_idx * 32;
 
         // Copy bitplanes 0-1 (bytes 0-15)
         for i in 0..16 {

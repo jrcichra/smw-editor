@@ -32,7 +32,7 @@ use smwe_rom::{
 use self::{
     background_layer::EditableBackgroundLayer,
     level_renderer::LevelRenderer, object_layer::EditableObjectLayer, properties::LevelProperties,
-    sprite_layer::{EditableSprite, EditableSpriteLayer},
+    sprite_layer::EditableSpriteLayer,
     tile_picker::{BgTilePicker, TilePicker},
 };
 use crate::{

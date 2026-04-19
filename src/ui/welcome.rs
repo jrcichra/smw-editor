@@ -2,8 +2,6 @@ use std::path::PathBuf;
 
 use egui::*;
 
-use crate::project::Project;
-
 /// Returns the path of a recent ROM the user clicked on, if any.
 pub fn draw_welcome(ui: &mut Ui, open_requested: &mut bool) -> Option<PathBuf> {
     let mut chosen_recent: Option<PathBuf> = None;
