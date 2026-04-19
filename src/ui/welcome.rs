@@ -1,10 +1,12 @@
-use std::sync::Arc;
+use std::path::PathBuf;
 
 use egui::*;
 
 use crate::project::Project;
 
-pub fn draw_welcome(ui: &mut Ui, open_requested: &mut bool) {
+/// Returns the path of a recent ROM the user clicked on, if any.
+pub fn draw_welcome(ui: &mut Ui, open_requested: &mut bool) -> Option<PathBuf> {
+    let mut chosen_recent: Option<PathBuf> = None;
     let total_h = ui.available_height();
     ui.add_space((total_h * 0.08).max(20.0));
 
@@ -52,22 +54,7 @@ pub fn draw_welcome(ui: &mut Ui, open_requested: &mut bool) {
                 }
             }
             if let Some(path) = chosen {
-                // Load the ROM directly — UiMainWindow will handle it via the rom egui data store.
-                match Project::new(&path) {
-                    Ok(project) => {
-                        Project::add_to_recent(&path);
-                        ui.data_mut(|data| {
-                            data.insert_temp(Project::project_title_id(), project.title.clone());
-                            data.insert_temp(Project::rom_id(), Arc::clone(&project.rom));
-                            data.insert_temp(Id::new("rom_path"), path.to_string_lossy().into_owned());
-                        });
-                    }
-                    Err(e) => {
-                        log::error!("Failed to open recent ROM: {e}");
-                        // Open the file browser so the user can pick a replacement.
-                        *open_requested = true;
-                    }
-                }
+                chosen_recent = Some(path);
             }
         }
 
@@ -102,4 +89,5 @@ pub fn draw_welcome(ui: &mut Ui, open_requested: &mut bool) {
             }
         });
     });
+    chosen_recent
 }

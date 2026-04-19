@@ -104,10 +104,13 @@ impl eframe::App for UiMainWindow {
         if rom.is_none() && self.dock_state.iter_all_tabs().count() == 0 {
             CentralPanel::default().show(ctx, |ui| {
                 let mut open_requested = false;
-                welcome::draw_welcome(ui, &mut open_requested);
+                let chosen = welcome::draw_welcome(ui, &mut open_requested);
                 if open_requested {
                     self.open_dialog = FileDialog::new();
                     self.open_dialog.select_file();
+                }
+                if let Some(path) = chosen {
+                    self.load_rom_from_path(ctx, path);
                 }
             });
         } else {

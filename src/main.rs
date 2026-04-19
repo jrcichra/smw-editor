@@ -22,7 +22,7 @@ fn main() -> eframe::Result<()> {
         return run_nogui(&args);
     }
 
-    let project = dev_open_rom();
+    let project = seed_recent_rom();
     let native_options = NativeOptions {
         renderer: Renderer::Glow,
         viewport: ViewportBuilder::default().with_min_inner_size(vec2(1280., 720.)),
@@ -167,19 +167,15 @@ fn parse_level_arg(value: &str) -> Option<u16> {
     }
 }
 
-fn dev_open_rom() -> Option<ProjectRef> {
+/// Adds the ROM found via args/env/default-path to the recent list without
+/// fully parsing it. Returns None — the welcome screen is always shown.
+fn seed_recent_rom() -> Option<ProjectRef> {
     let rom_path = resolve_rom_path(&env::args().collect::<Vec<_>>())?;
-
-    log::info!("Opening ROM from: {rom_path}");
-    let project = Project::new(&rom_path)
-        .map_err(|e| {
-            log::error!("Cannot create project: {e}");
-            e
-        })
-        .ok()?;
-
-    Project::add_to_recent(std::path::Path::new(&rom_path));
-    Some(Rc::new(RefCell::new(project)))
+    let path = std::path::Path::new(&rom_path);
+    if path.exists() {
+        Project::add_to_recent(path);
+    }
+    None
 }
 
 fn resolve_rom_path(args: &[String]) -> Option<String> {
