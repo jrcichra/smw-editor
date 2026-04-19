@@ -40,8 +40,6 @@ pub struct UiMainWindow {
     rom_path: Option<PathBuf>,
     /// Set when a Save error needs to be shown.
     save_error: Option<String>,
-    /// True when a ROM was pre-loaded at startup and we still need to open the default editor tab.
-    pending_initial_editor: bool,
     /// In-egui file dialog for Open ROM.
     open_dialog: FileDialog,
     /// In-egui file dialog for Save As.
@@ -56,15 +54,8 @@ impl UiMainWindow {
         cc.egui_ctx.set_visuals(Visuals::dark());
 
         let mut rom_path = None;
-        let mut pending_initial_editor = false;
         if let Some(project) = project {
-            cc.egui_ctx.data_mut(|data| {
-                let project = project.borrow();
-                data.insert_temp(Project::project_title_id(), project.title.clone());
-                data.insert_temp(Project::rom_id(), Arc::clone(&project.rom));
-            });
             rom_path = Some(project.borrow().path.clone());
-            pending_initial_editor = true;
         }
 
         let mut dock_style = DockStyle::from_egui(&cc.egui_ctx.style());
@@ -76,7 +67,6 @@ impl UiMainWindow {
             dock_state: DockState::new(vec![]),
             rom_path,
             save_error: None,
-            pending_initial_editor,
             open_dialog: FileDialog::new(),
             save_as_dialog: FileDialog::new(),
         }
@@ -86,21 +76,6 @@ impl UiMainWindow {
 impl eframe::App for UiMainWindow {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
         let rom: Option<Arc<SmwRom>> = ctx.data(|data| data.get_temp(Id::new("rom")));
-
-        // Open the level editor automatically whenever a ROM just became available
-        // and there are no tabs yet (startup pre-load OR direct recent-file click).
-        if self.pending_initial_editor
-            || (rom.is_some() && self.dock_state.iter_all_tabs().count() == 0)
-        {
-            self.pending_initial_editor = false;
-            if let Some(ref rom) = rom {
-                let path = self.rom_path.clone().unwrap_or_default();
-                match UiLevelEditor::new(Arc::clone(&self.gl), Arc::clone(rom), path) {
-                    Ok(editor) => self.open_tool(editor),
-                    Err(e) => self.save_error = Some(format!("Failed to open level editor: {e}")),
-                }
-            }
-        }
 
         // Menu bar always on top.
         self.main_menu_bar(ctx, rom.as_ref());
