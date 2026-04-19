@@ -20,7 +20,7 @@ use egui_phosphor::Variant;
 use smwe_rom::SmwRom;
 
 use crate::{
-    project::{Project, ProjectRef},
+    project::Project,
     ui::{
         dev_utils::address_converter::UiAddressConverter,
         editor_prototypes::{
@@ -47,16 +47,11 @@ pub struct UiMainWindow {
 }
 
 impl UiMainWindow {
-    pub fn new(project: Option<ProjectRef>, cc: &CreationContext) -> Self {
+    pub fn new(cc: &CreationContext) -> Self {
         let mut fonts = FontDefinitions::default();
         egui_phosphor::add_to_fonts(&mut fonts, Variant::Regular);
         cc.egui_ctx.set_fonts(fonts);
         cc.egui_ctx.set_visuals(Visuals::dark());
-
-        let mut rom_path = None;
-        if let Some(project) = project {
-            rom_path = Some(project.borrow().path.clone());
-        }
 
         let mut dock_style = DockStyle::from_egui(&cc.egui_ctx.style());
         dock_style.tab.tab_body.inner_margin = Margin::ZERO;
@@ -65,7 +60,7 @@ impl UiMainWindow {
             gl: Arc::clone(cc.gl.as_ref().expect("must use the glow renderer")),
             dock_style,
             dock_state: DockState::new(vec![]),
-            rom_path,
+            rom_path: None,
             save_error: None,
             open_dialog: FileDialog::new(),
             save_as_dialog: FileDialog::new(),

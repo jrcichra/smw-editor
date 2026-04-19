@@ -1,9 +1,9 @@
-use std::{cell::RefCell, env, rc::Rc};
+use std::env;
 
 use eframe::{NativeOptions, Renderer};
 use egui::{vec2, ViewportBuilder};
 use smw_editor::{
-    project::{Project, ProjectRef},
+    project::Project,
     ui::UiMainWindow,
 };
 
@@ -22,13 +22,12 @@ fn main() -> eframe::Result<()> {
         return run_nogui(&args);
     }
 
-    let project = seed_recent_rom();
     let native_options = NativeOptions {
         renderer: Renderer::Glow,
         viewport: ViewportBuilder::default().with_min_inner_size(vec2(1280., 720.)),
         ..NativeOptions::default()
     };
-    eframe::run_native("SMW Editor v0.1.0", native_options, Box::new(|cc| Box::new(UiMainWindow::new(project, cc))))
+    eframe::run_native("SMW Editor v0.1.0", native_options, Box::new(|cc| Box::new(UiMainWindow::new(cc))))
 }
 
 fn run_nogui(args: &[String]) -> eframe::Result<()> {
@@ -167,16 +166,6 @@ fn parse_level_arg(value: &str) -> Option<u16> {
     }
 }
 
-/// Adds the ROM found via args/env/default-path to the recent list without
-/// fully parsing it. Returns None — the welcome screen is always shown.
-fn seed_recent_rom() -> Option<ProjectRef> {
-    let rom_path = resolve_rom_path(&env::args().collect::<Vec<_>>())?;
-    let path = std::path::Path::new(&rom_path);
-    if path.exists() {
-        Project::add_to_recent(path);
-    }
-    None
-}
 
 fn resolve_rom_path(args: &[String]) -> Option<String> {
     if let Some(arg) = args.iter().find_map(|a| a.strip_prefix("--rom=")) {
@@ -188,10 +177,6 @@ fn resolve_rom_path(args: &[String]) -> Option<String> {
         if !p.is_empty() {
             return Some(p);
         }
-    }
-    let default = std::path::Path::new("smw.smc");
-    if default.exists() {
-        return Some(default.display().to_string());
     }
     None
 }
