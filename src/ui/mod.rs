@@ -44,6 +44,8 @@ pub struct UiMainWindow {
     save_error: Option<String>,
     /// True when a ROM was pre-loaded at startup and we still need to open the default editor tab.
     pending_initial_editor: bool,
+    /// When Some, show the egui "Save As" dialog with the contained path string.
+    save_as_dialog: Option<String>,
 }
 
 impl UiMainWindow {
@@ -76,6 +78,7 @@ impl UiMainWindow {
             rom_path,
             save_error: None,
             pending_initial_editor,
+            save_as_dialog: None,
         }
     }
 }
@@ -101,6 +104,9 @@ impl eframe::App for UiMainWindow {
 
         // Menu bar always on top.
         self.main_menu_bar(ctx, rom.as_ref());
+
+        // Save As dialog (egui-native, no native file picker needed).
+        self.show_save_as_dialog(ctx);
 
         // Save error toast.
         if let Some(err) = &self.save_error.clone() {
@@ -185,13 +191,60 @@ impl UiMainWindow {
         }
     }
 
-    fn save_rom_as(&mut self, ctx: &Context) {
-        std::env::remove_var("DBUS_SESSION_BUS_ADDRESS");
-        if let Some(dest) = rfd::FileDialog::new().add_filter("SNES ROM", &["smc", "sfc"]).save_file() {
-            let Some(src) = &self.rom_path else {
+    fn save_rom_as(&mut self) {
+        // Populate the dialog with the current path as a starting suggestion.
+        let initial = self
+            .rom_path
+            .as_deref()
+            .and_then(|p| p.to_str())
+            .unwrap_or("")
+            .to_string();
+        self.save_as_dialog = Some(initial);
+    }
+
+    fn show_save_as_dialog(&mut self, ctx: &Context) {
+        let Some(ref mut path_str) = self.save_as_dialog else {
+            return;
+        };
+
+        let mut open = true;
+        let mut confirmed = false;
+        let mut cancelled = false;
+
+        Window::new("Save ROM As")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label("Destination path:");
+                let response = ui.add(
+                    TextEdit::singleline(path_str)
+                        .desired_width(400.0)
+                        .hint_text("/path/to/output.smc"),
+                );
+                // Auto-focus the text field on first show.
+                response.request_focus();
+
+                ui.horizontal(|ui| {
+                    if ui.button("Save").clicked()
+                        || (ui.input(|i| i.key_pressed(Key::Enter)) && !path_str.is_empty())
+                    {
+                        confirmed = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        cancelled = true;
+                    }
+                });
+            });
+
+        if confirmed {
+            let dest = PathBuf::from(path_str.clone());
+            self.save_as_dialog = None;
+            let Some(src) = self.rom_path.clone() else {
                 return;
             };
-            match self.write_rom_to_path(src, &dest) {
+            match self.write_rom_to_path(&src, &dest) {
                 Ok(_) => {
                     log::info!("Saved ROM as {}", dest.display());
                     if let Err(e) = self.reload_rom_into_context(ctx, &dest) {
@@ -202,6 +255,8 @@ impl UiMainWindow {
                 }
                 Err(e) => self.save_error = Some(format!("Save As failed: {e}")),
             }
+        } else if !open || cancelled {
+            self.save_as_dialog = None;
         }
     }
 
@@ -228,8 +283,7 @@ impl UiMainWindow {
                             ui.close_menu();
                         }
                         if ui.button("Save ROM As...").clicked() {
-                            let ctx2 = ctx.clone();
-                            self.save_rom_as(&ctx2);
+                            self.save_rom_as();
                             ui.close_menu();
                         }
                     });
