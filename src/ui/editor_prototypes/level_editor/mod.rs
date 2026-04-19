@@ -488,9 +488,16 @@ impl UiLevelEditor {
         renderer.upload_palette(&self.gl, &self.cpu.mem.cgram);
         renderer.upload_gfx(&self.gl, &self.cpu.mem.vram);
         renderer.upload_level(&self.gl, &mut self.cpu, &self.rom, self.level_properties.fg_bg_gfx);
+        let sprite_list = self.sprites.read(|sprites| sprites.sprites.clone());
+        log::info!("Uploading {} sprites to renderer. OAM map has entries for: {:?}",
+            sprite_list.len(),
+            oam_map.keys().collect::<Vec<_>>());
+        for (i, spr) in sprite_list.iter().enumerate() {
+            log::info!("  Sprite {}: ID=0x{:02X}, pos=({},{})", i, spr.sprite_id, spr.x, spr.y);
+        }
         renderer.upload_editable_sprites(
             &self.gl,
-            &self.sprites.read(|sprites| sprites.sprites.clone()),
+            &sprite_list,
             &oam_map,
             is_vertical,
         );
@@ -559,12 +566,10 @@ impl UiLevelEditor {
 
     fn compute_sprite_oam_tiles(&self, sprite_id: u8) -> Vec<SpriteOamTile> {
         let mut cpu_clone = self.cpu.clone();
-        // Use Green Yoshi (0x35) as the visual for Mario spawn point (0xFE)
-        let render_id = if sprite_id == 0xFE { 0x35 } else { sprite_id };
-        if let Some(tileset) = sprite_catalog::preview_sprite_tileset(render_id) {
+        if let Some(tileset) = sprite_catalog::preview_sprite_tileset(sprite_id) {
             smwe_emu::emu::upload_sprite_tileset(&mut cpu_clone, tileset);
         }
-        smwe_emu::emu::sprite_oam_tiles(&mut cpu_clone, render_id)
+        smwe_emu::emu::sprite_oam_tiles(&mut cpu_clone, sprite_id)
     }
 
     pub(super) fn sprite_pixel_bounds(&mut self, sprite_id: u8) -> Option<(i32, i32, i32, i32)> {
@@ -690,12 +695,13 @@ impl UiLevelEditor {
             entrance_y
         };
 
-        // Create or update Mario as an editor-only visual marker (0xFE)
+        // Create or update Mario as an editor-only visual marker (0xFF)
         self.sprites.write(|sprites| {
-            if let Some(mario) = sprites.sprites.iter_mut().find(|s| s.sprite_id == 0xFE) {
+            if let Some(mario) = sprites.sprites.iter_mut().find(|s| s.sprite_id == 0xFF) {
                 // Move existing Mario to entrance
                 mario.x = abs_x;
                 mario.y = abs_y;
+                log::info!("Updated Mario spawn marker at ({}, {})", abs_x, abs_y);
             } else {
                 // Create Mario at entrance if not present
                 sprites.sprites.insert(0, EditableSprite {
@@ -704,6 +710,7 @@ impl UiLevelEditor {
                     sprite_id: 0xFE,
                     extra_bits: 0,
                 });
+                log::info!("Created Mario spawn marker at ({}, {}). Total sprites: {}", abs_x, abs_y, sprites.sprites.len());
             }
         });
     }
