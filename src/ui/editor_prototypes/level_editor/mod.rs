@@ -473,11 +473,12 @@ impl UiLevelEditor {
             }
         }
 
-        // Ensure Mario (sprite 0x00) has OAM data even if not in original ROM
-        if !oam_map.contains_key(&0x00) {
-            let tiles = self.compute_sprite_oam_tiles(0x00);
+        // Ensure Mario spawn marker (0xFF) has OAM data
+        if !oam_map.contains_key(&0xFF) {
+            // Use Green Yoshi (0x35) graphics for Mario spawn point
+            let tiles = self.compute_sprite_oam_tiles(0x35);
             if !tiles.is_empty() {
-                oam_map.insert(0x00, tiles);
+                oam_map.insert(0xFF, tiles);
             }
         }
 
