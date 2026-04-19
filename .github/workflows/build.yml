@@ -72,11 +72,11 @@ jobs:
           cp target/${{ matrix.target }}/release/smw-editor AppDir/usr/bin/
 
           mkdir -p AppDir/usr/share/applications
-          printf '[Desktop Entry]\nName=SMW Editor\nExec=smw-editor\nType=Application\nCategories=Game;\n' \
-            > AppDir/usr/share/applications/smw-editor.desktop
+          printf '[Desktop Entry]\nName=SMW Editor\nExec=smw-editor\nType=Application\nCategories=Game;\nIcon=smw-editor\n' > AppDir/usr/share/applications/smw-editor.desktop
 
-          printf '#!/bin/sh\nHERE="$(dirname "$(readlink -f "$0")")"\nexport LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"\nexec "${HERE}/usr/bin/smw-editor" "$@"\n' \
-            > AppDir/AppRun
+          cp AppDir/usr/share/applications/smw-editor.desktop AppDir/smw-editor.desktop
+
+          printf '#!/bin/sh\nHERE="$(dirname "$(readlink -f "$0")")"\nexport LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"\nexec "${HERE}/usr/bin/smw-editor" "$@"\n' > AppDir/AppRun
           chmod +x AppDir/AppRun
 
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
