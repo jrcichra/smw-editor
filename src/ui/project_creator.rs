@@ -131,6 +131,7 @@ impl UiProjectCreator {
                 ui.data_mut(|data| {
                     data.insert_temp(Project::project_title_id(), project.title.clone());
                     data.insert_temp(Project::rom_id(), project.rom);
+                    data.insert_temp(eframe::egui::Id::new("rom_path"), path.to_string_lossy().into_owned());
                 });
                 self.err_project_creation.clear();
                 *done = true;
