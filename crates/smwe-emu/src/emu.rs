@@ -212,7 +212,10 @@ fn run_routines(cpu: &mut Cpu<CheckedMem>, routines: &[&str], cycle_limit: u64) 
 }
 
 pub fn fetch_anim_frame(cpu: &mut Cpu<CheckedMem>) -> u64 {
-    run_routines(cpu, &["CODE_05BB39", "CODE_00A390"], 20_000_000)
+    // CODE_00A5F9 is SMW's full animated-tile init loop: it cycles through all
+    // 8 sub-frames so every animated VRAM slot (coins, ? blocks, turn blocks,
+    // etc.) gets its correct graphics regardless of update interval.
+    run_routines(cpu, &["CODE_00A5F9"], 20_000_000)
 }
 
 pub fn upload_sprite_tileset(cpu: &mut Cpu<CheckedMem>, sprite_tileset: u8) -> u64 {
