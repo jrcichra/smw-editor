@@ -86,6 +86,7 @@ pub struct UiLevelEditor {
     // Spawn point marker
     mario_spawn_x: u32,
     mario_spawn_y: u32,
+    dragging_spawn: bool,
 }
 
 impl UiLevelEditor {
@@ -137,6 +138,7 @@ impl UiLevelEditor {
             edit_sprites: false,
             mario_spawn_x: 0,
             mario_spawn_y: 0,
+            dragging_spawn: false,
         };
         editor.load_level();
         Ok(editor)
@@ -667,6 +669,34 @@ impl UiLevelEditor {
         let idx = self.block_map_index(block_x, block_y);
         let (lo_base, hi_base) = self.block_map_base();
         Some(self.cpu.mem.load_u8(lo_base + idx) as u16 | (((self.cpu.mem.load_u8(hi_base + idx) as u16) & 0x01) << 8))
+    }
+
+    /// Update spawn point from absolute tile coordinates
+    fn update_spawn_from_tiles(&mut self, abs_x: u32, abs_y: u32, is_vertical: bool) {
+        // Convert absolute tile coords back to entrance screen + local coords
+        let (entrance_screen, entrance_x, entrance_y) = if is_vertical {
+            let sx = abs_x / 16;
+            let sy = abs_y / 32;
+            let screen = (sy * 2 + sx) as u8;
+            let x = (abs_x % 16) as u8;
+            let y = (abs_y % 32) as u8;
+            (screen, x, y)
+        } else {
+            let screen = (abs_x / 16) as u8;
+            let x = (abs_x % 16) as u8;
+            let y = abs_y as u8;
+            (screen, x, y)
+        };
+
+        // Divide by 2 to get half-resolution entrance coords
+        let entrance_x = (entrance_x / 2).min(7);
+        let entrance_y = (entrance_y / 2).min(15);
+
+        // Update the local spawn position
+        self.mario_spawn_x = abs_x;
+        self.mario_spawn_y = abs_y;
+        log::info!("Updated spawn to tile ({}, {}), entrance screen {}, local ({}, {})",
+            abs_x, abs_y, entrance_screen, entrance_x, entrance_y);
     }
 
     /// Position Mario (editor-only visual marker) at the level's main entrance.

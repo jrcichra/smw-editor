@@ -156,13 +156,36 @@ impl UiLevelEditor {
             let spawn_x = self.mario_spawn_x as f32 * tile_sz;
             let spawn_y = self.mario_spawn_y as f32 * tile_sz;
             let spawn_pos = origin + vec2(spawn_x, spawn_y);
+            let spawn_rect = Rect::from_center_size(spawn_pos + vec2(tile_sz / 2.0, tile_sz / 2.0), Vec2::splat(tile_sz));
+
+            let is_hovering = resp.hover_pos().map_or(false, |p| spawn_rect.contains(p));
+            let spawn_color = if self.dragging_spawn || is_hovering {
+                Color32::from_rgba_unmultiplied(255, 200, 100, 255) // Brighter when hovering
+            } else {
+                Color32::from_rgba_unmultiplied(255, 100, 100, 255)
+            };
+
             painter.text(
                 spawn_pos + vec2(tile_sz / 2.0, tile_sz / 2.0),
                 Align2::CENTER_CENTER,
                 "M",
                 FontId::proportional(tile_sz * 0.8),
-                Color32::from_rgba_unmultiplied(255, 100, 100, 255),
+                spawn_color,
             );
+
+            // Handle dragging the spawn point (Shift+drag)
+            if is_hovering && resp.dragged_by(egui::PointerButton::Primary) && ui.input(|i| i.modifiers.shift_only()) {
+                self.dragging_spawn = true;
+                if let Some(mouse_pos) = resp.interact_pointer_pos() {
+                    let local_pos = mouse_pos - origin;
+                    let tile_x = (local_pos.x / tile_sz).max(0.0) as u32;
+                    let tile_y = (local_pos.y / tile_sz).max(0.0) as u32;
+                    let is_vertical = self.level_properties.is_vertical;
+                    self.update_spawn_from_tiles(tile_x, tile_y, is_vertical);
+                }
+            } else if !resp.dragged() {
+                self.dragging_spawn = false;
+            }
         }
 
         // ── Grid overlay ──────────────────────────────────────
