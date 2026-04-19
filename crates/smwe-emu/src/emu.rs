@@ -218,6 +218,15 @@ pub fn fetch_anim_frame(cpu: &mut Cpu<CheckedMem>) -> u64 {
     run_routines(cpu, &["CODE_00A5F9"], 20_000_000)
 }
 
+/// Advance the global SMW frame counter ($0014) by one tick and re-run the
+/// animation routine so VRAM reflects the next animation frame.  Call this
+/// once per desired animation tick, then re-upload VRAM to the renderer.
+pub fn advance_anim_frame(cpu: &mut Cpu<CheckedMem>) {
+    let counter = cpu.mem.load_u8(0x0014).wrapping_add(1);
+    cpu.mem.store(0x0014, counter);
+    fetch_anim_frame(cpu);
+}
+
 pub fn upload_sprite_tileset(cpu: &mut Cpu<CheckedMem>, sprite_tileset: u8) -> u64 {
     cpu.mem.store(0x192B, sprite_tileset);
     run_routines(cpu, &["UploadSpriteGFX"], 20_000_000)

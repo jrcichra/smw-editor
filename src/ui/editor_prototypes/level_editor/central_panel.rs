@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use egui::{vec2, Align2, Color32, FontId, Key, PaintCallback, Rect, Rounding, Sense, Stroke, Ui, Vec2};
 use egui_glow::CallbackFn;
@@ -56,6 +56,20 @@ impl UiLevelEditor {
         if let Some(vis) = level_rect.intersect(view_rect).into() {
             painter.rect_filled(vis, Rounding::ZERO, bg.linear_multiply(1.15));
         }
+
+        // ── Animated tile ticking ─────────────────────────────
+        // Advance one SMW game-frame every ~67ms (~15 fps visible animation).
+        // SMW coins/? blocks cycle every 8 game-frames at 60 fps; ticking at
+        // ~15 fps shows each distinct frame for roughly the same wall-clock
+        // duration as the real game while keeping CPU cost low.
+        const ANIM_INTERVAL: Duration = Duration::from_millis(67);
+        if self.last_anim_tick.elapsed() >= ANIM_INTERVAL {
+            self.last_anim_tick = std::time::Instant::now();
+            smwe_emu::emu::advance_anim_frame(&mut self.cpu);
+            let renderer = self.level_renderer.lock().expect("Cannot lock level_renderer");
+            renderer.upload_gfx(&self.gl, &self.cpu.mem.vram);
+        }
+        ui.ctx().request_repaint_after(ANIM_INTERVAL);
 
         // ── GL tile rendering (actual SNES graphics) ────────────
         {

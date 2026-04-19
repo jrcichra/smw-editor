@@ -13,6 +13,7 @@ use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{Arc, Mutex},
+    time::Instant,
 };
 
 use egui::{CentralPanel, Frame, SidePanel, Ui, WidgetText, *};
@@ -67,6 +68,9 @@ pub struct UiLevelEditor {
     preview_texture: Option<egui::TextureHandle>,
     preview_for: Option<(u32, u32)>,
 
+    // Animation
+    last_anim_tick: Instant,
+
     // Editing state
     editing_mode: EditingMode,
     selected_object_indices: HashSet<usize>,
@@ -116,6 +120,7 @@ impl UiLevelEditor {
             sprite_oam_cache: HashMap::new(),
             preview_texture: None,
             preview_for: None,
+            last_anim_tick: Instant::now(),
             editing_mode: EditingMode::Select,
             selected_object_indices: HashSet::new(),
             selected_sprite_indices: HashSet::new(),
