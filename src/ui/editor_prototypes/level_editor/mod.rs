@@ -491,11 +491,6 @@ impl UiLevelEditor {
         renderer.upload_gfx(&self.gl, &self.cpu.mem.vram);
         renderer.upload_level(&self.gl, &mut self.cpu, &self.rom, self.level_properties.fg_bg_gfx);
         let sprite_list = self.sprites.read(|sprites| sprites.sprites.clone());
-        log::info!("Uploading {} sprites. OAM map keys: {:?}", sprite_list.len(), oam_map.keys().collect::<Vec<_>>());
-        for spr in &sprite_list {
-            let has_oam = oam_map.contains_key(&spr.sprite_id);
-            log::info!("  Sprite 0x{:02X} at ({}, {}) - has OAM: {}", spr.sprite_id, spr.x, spr.y, has_oam);
-        }
         renderer.upload_editable_sprites(
             &self.gl,
             &sprite_list,
@@ -695,8 +690,6 @@ impl UiLevelEditor {
         // Update the local spawn position
         self.mario_spawn_x = abs_x;
         self.mario_spawn_y = abs_y;
-        log::info!("Updated spawn to tile ({}, {}), entrance screen {}, local ({}, {})",
-            abs_x, abs_y, entrance_screen, entrance_x, entrance_y);
     }
 
     /// Position Mario (editor-only visual marker) at the level's main entrance.
