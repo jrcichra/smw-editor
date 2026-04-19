@@ -1,18 +1,19 @@
 use std::path::{Path, PathBuf};
 
 use eframe::egui::{Button, RichText, ScrollArea, Ui, Window};
+use egui_file_dialog::FileDialog;
 
 use crate::{
     project::Project,
     ui::style::{EditorStyle, ErrorStyle},
 };
 
-#[derive(Debug)]
 pub struct UiProjectCreator {
     base_rom_path: String,
     recent_files: Vec<PathBuf>,
     err_base_rom_path: String,
     err_project_creation: String,
+    file_dialog: FileDialog,
 }
 
 impl Default for UiProjectCreator {
@@ -23,6 +24,7 @@ impl Default for UiProjectCreator {
             recent_files: Project::load_recent_files(),
             err_base_rom_path: String::new(),
             err_project_creation: String::new(),
+            file_dialog: FileDialog::new(),
         }
     }
 }
@@ -30,6 +32,13 @@ impl Default for UiProjectCreator {
 impl UiProjectCreator {
     /// Returns false when the creator should be closed. Takes a `&Context` directly.
     pub fn update_ctx(&mut self, ctx: &eframe::egui::Context) -> bool {
+        // Drive the file picker dialog each frame.
+        self.file_dialog.update(ctx);
+        if let Some(path) = self.file_dialog.take_selected() {
+            self.base_rom_path = path.to_string_lossy().into_owned();
+            self.validate_path();
+        }
+
         let mut opened = true;
         let mut created_or_cancelled = false;
         Window::new("Open ROM").auto_sized().resizable(false).collapsible(false).open(&mut opened).show(ctx, |ui| {
@@ -107,13 +116,8 @@ impl UiProjectCreator {
     }
 
     fn pick_file(&mut self) {
-        // On WSL the XDG portal is broken; use the GTK/native backend directly.
-        // rfd's FileDialog falls back to GTK when the portal isn't available.
-        std::env::remove_var("DBUS_SESSION_BUS_ADDRESS");
-        if let Some(path) = rfd::FileDialog::new().add_filter("SNES ROM", &["smc", "sfc"]).pick_file() {
-            self.base_rom_path = path.to_string_lossy().into_owned();
-            self.validate_path();
-        }
+        self.file_dialog = FileDialog::new();
+        self.file_dialog.select_file();
     }
 
     /// Called by the welcome screen when the user clicks a recent file.
