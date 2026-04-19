@@ -442,6 +442,10 @@ impl UiLevelEditor {
 
         // Decompress level: fills WRAM block maps, VRAM tile graphics, CGRAM palette.
         smwe_emu::emu::decompress_sublevel(&mut self.cpu, self.level_num);
+        // Run one animation frame so animated VRAM tiles (coins, ? blocks) are
+        // populated with their correct graphics instead of whatever the initial
+        // GFX load left behind.
+        smwe_emu::emu::fetch_anim_frame(&mut self.cpu);
 
         // For each unique sprite ID, clone the clean post-decompress CPU state,
         // run exec_sprite_id on the clone (so state never accumulates between IDs),
