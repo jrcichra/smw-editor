@@ -44,6 +44,8 @@ pub struct UiMainWindow {
     open_dialog: FileDialog,
     /// In-egui file dialog for Save As.
     save_as_dialog: FileDialog,
+    /// Set when user tries to close the app with unsaved changes
+    show_exit_dialog: bool,
 }
 
 impl UiMainWindow {
@@ -64,6 +66,7 @@ impl UiMainWindow {
             save_error: None,
             open_dialog: FileDialog::new(),
             save_as_dialog: FileDialog::new(),
+            show_exit_dialog: false,
         }
     }
 }
@@ -71,6 +74,13 @@ impl UiMainWindow {
 impl eframe::App for UiMainWindow {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
         let rom: Option<Arc<SmwRom>> = ctx.data(|data| data.get_temp(Id::new("rom")));
+
+        // Check if user is trying to close the app
+        let is_finishing = ctx.input(|i| i.viewport().close_requested());
+        if is_finishing && !self.show_exit_dialog && self.has_any_unsaved_changes() {
+            self.show_exit_dialog = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+        }
 
         // Menu bar always on top.
         self.main_menu_bar(ctx, rom.as_ref());
@@ -116,6 +126,40 @@ impl eframe::App for UiMainWindow {
 
         // Check if any level editor is requesting a save
         self.check_for_save_requests();
+
+        // Exit confirmation dialog
+        if self.show_exit_dialog {
+            egui::Window::new("⚠️  Unsaved Changes")
+                .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.label("You have unsaved changes in open editors.");
+                    ui.label("Do you want to save before exiting?");
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if ui.button("💾 Save & Exit").clicked() {
+                            // Save all editors before closing
+                            if self.rom_path.is_some() {
+                                let path = self.rom_path.clone().unwrap();
+                                if self.write_rom_to_path(&path, &path).is_ok() {
+                                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                                } else {
+                                    self.show_exit_dialog = false;
+                                }
+                            } else {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                            }
+                        }
+                        if ui.button("❌ Exit Without Saving").clicked() {
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        }
+                        if ui.button("⏸️ Cancel").clicked() {
+                            self.show_exit_dialog = false;
+                        }
+                    });
+                });
+        }
     }
 }
 
@@ -321,6 +365,15 @@ impl UiMainWindow {
             data.insert_temp(Project::rom_id(), Arc::clone(&project.rom));
         });
         Ok(())
+    }
+
+    fn has_any_unsaved_changes(&self) -> bool {
+        for (_, tab) in self.dock_state.iter_all_tabs() {
+            if tab.has_unsaved_changes() {
+                return true;
+            }
+        }
+        false
     }
 
     fn check_for_save_requests(&mut self) {
