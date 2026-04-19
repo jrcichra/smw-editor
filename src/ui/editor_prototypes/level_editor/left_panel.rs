@@ -16,6 +16,7 @@ impl UiLevelEditor {
     }
 
     fn controls_panel(&mut self, ui: &mut Ui) {
+        let old_level = self.level_num;
         let level_changed = {
             let switcher = ValueSwitcher::new(&mut self.level_num, "Level", ValueSwitcherButtons::MinusPlus)
                 .range(0..=0x1FF)
@@ -23,7 +24,14 @@ impl UiLevelEditor {
             ui.add(switcher).changed()
         };
         if level_changed {
-            self.load_level();
+            if self.has_unsaved_changes() {
+                // Show unsaved changes dialog
+                self.show_unsaved_dialog = true;
+                self.pending_level_num = Some(self.level_num);
+                self.level_num = old_level; // Restore old level until user decides
+            } else {
+                self.load_level();
+            }
         }
 
         ui.add(Slider::new(&mut self.zoom, 1.0..=3.0).step_by(0.25).text("Zoom"));

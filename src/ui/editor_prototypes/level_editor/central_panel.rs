@@ -388,5 +388,40 @@ impl UiLevelEditor {
             let r = Rect::from_min_size(origin + vec2(x as f32 * tile_sz, y as f32 * tile_sz), Vec2::splat(tile_sz));
             painter.rect_stroke(r, Rounding::ZERO, Stroke::new(2.0, Color32::from_rgb(255, 220, 0)));
         }
+
+        // ── Unsaved changes dialog ────────────────────────────
+        if self.show_unsaved_dialog {
+            egui::Window::new("⚠️  Unsaved Changes")
+                .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+                .collapsible(false)
+                .resizable(false)
+                .show(ui.ctx(), |ui| {
+                    ui.label("You have unsaved changes to the spawn point.");
+                    ui.label("Do you want to save before switching levels?");
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if ui.button("💾 Save").clicked() {
+                            if let Some(new_level) = self.pending_level_num {
+                                self.level_num = new_level;
+                                self.load_level();
+                            }
+                            self.show_unsaved_dialog = false;
+                            self.pending_level_num = None;
+                        }
+                        if ui.button("❌ Discard").clicked() {
+                            if let Some(new_level) = self.pending_level_num {
+                                self.level_num = new_level;
+                                self.load_level();
+                            }
+                            self.show_unsaved_dialog = false;
+                            self.pending_level_num = None;
+                        }
+                        if ui.button("⏸️ Cancel").clicked() {
+                            self.show_unsaved_dialog = false;
+                            self.pending_level_num = None;
+                        }
+                    });
+                });
+        }
     }
 }

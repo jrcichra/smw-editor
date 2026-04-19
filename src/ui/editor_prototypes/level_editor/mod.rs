@@ -86,7 +86,13 @@ pub struct UiLevelEditor {
     // Spawn point marker
     mario_spawn_x: u32,
     mario_spawn_y: u32,
+    initial_spawn_x: u32,
+    initial_spawn_y: u32,
     dragging_spawn: bool,
+
+    // Unsaved changes tracking
+    show_unsaved_dialog: bool,
+    pending_level_num: Option<u16>,
 }
 
 impl UiLevelEditor {
@@ -138,7 +144,11 @@ impl UiLevelEditor {
             edit_sprites: false,
             mario_spawn_x: 0,
             mario_spawn_y: 0,
+            initial_spawn_x: 0,
+            initial_spawn_y: 0,
             dragging_spawn: false,
+            show_unsaved_dialog: false,
+            pending_level_num: None,
         };
         editor.load_level();
         Ok(editor)
@@ -692,6 +702,11 @@ impl UiLevelEditor {
         self.mario_spawn_y = abs_y;
     }
 
+    /// Check if there are unsaved changes
+    pub(super) fn has_unsaved_changes(&self) -> bool {
+        self.mario_spawn_x != self.initial_spawn_x || self.mario_spawn_y != self.initial_spawn_y
+    }
+
     /// Position Mario (editor-only visual marker) at the level's main entrance.
     /// Uses sprite ID 0xFE as an editor-only placeholder (not saved to ROM).
     fn position_mario_at_entrance(&mut self, is_vertical: bool, level: &Level) {
@@ -720,6 +735,9 @@ impl UiLevelEditor {
         // Store spawn coordinates for rendering the "M" marker
         self.mario_spawn_x = abs_x;
         self.mario_spawn_y = abs_y;
+        // Store initial state for unsaved changes tracking
+        self.initial_spawn_x = abs_x;
+        self.initial_spawn_y = abs_y;
 
         // Spawn coordinates stored for rendering as "M" text overlay
     }
