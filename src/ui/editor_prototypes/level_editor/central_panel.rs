@@ -424,5 +424,33 @@ impl UiLevelEditor {
                     });
                 });
         }
+
+        // ── Close attempt with unsaved changes dialog ────────────────────────────
+        if self.pending_close {
+            egui::Window::new("⚠️  Unsaved Changes")
+                .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+                .collapsible(false)
+                .resizable(false)
+                .show(ui.ctx(), |ui| {
+                    ui.label("You have unsaved changes.");
+                    ui.label("Do you want to save before closing?");
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if ui.button("💾 Save & Close").clicked() {
+                            self.request_rom_save = true;
+                            self.has_edits = false;
+                            self.pending_close = false;
+                        }
+                        if ui.button("❌ Close Without Saving").clicked() {
+                            self.has_edits = false;
+                            self.pending_close = false;
+                        }
+                        if ui.button("⏸️ Cancel").clicked() {
+                            self.pending_close = false;
+                        }
+                    });
+                    ui.label("Click the X again to close the editor.");
+                });
+        }
     }
 }

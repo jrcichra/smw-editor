@@ -8,11 +8,16 @@ pub trait DockableEditorTool {
     fn update(&mut self, ui: &mut Ui);
     fn title(&self) -> WidgetText;
     fn on_closed(&mut self) {}
+    fn on_close_attempt_blocked(&mut self) {}
     fn save_to_rom(&self, _rom_bytes: &mut [u8], _has_smc_header: bool) -> Result<()> {
         Ok(())
     }
     /// Check if this tool is requesting a ROM save (and clear the flag)
     fn take_save_request(&mut self) -> bool {
+        false
+    }
+    /// Check if this tool has unsaved changes
+    fn has_unsaved_changes(&self) -> bool {
         false
     }
 }

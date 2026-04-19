@@ -95,6 +95,7 @@ pub struct UiLevelEditor {
     pending_level_num: Option<u16>,
     has_edits: bool,
     request_rom_save: bool,
+    pending_close: bool,
 }
 
 impl UiLevelEditor {
@@ -153,6 +154,7 @@ impl UiLevelEditor {
             pending_level_num: None,
             has_edits: false,
             request_rom_save: false,
+            pending_close: false,
         };
         editor.load_level();
         Ok(editor)
@@ -172,6 +174,10 @@ impl DockableEditorTool for UiLevelEditor {
 
     fn on_closed(&mut self) {
         self.level_renderer.lock().unwrap().destroy(&self.gl);
+    }
+
+    fn on_close_attempt_blocked(&mut self) {
+        self.pending_close = true;
     }
 
     fn save_to_rom(&self, rom_bytes: &mut [u8], has_smc_header: bool) -> anyhow::Result<()> {
@@ -349,6 +355,14 @@ impl DockableEditorTool for UiLevelEditor {
         }
 
         Ok(())
+    }
+
+    fn has_unsaved_changes(&self) -> bool {
+        self.has_edits
+    }
+
+    fn take_save_request(&mut self) -> bool {
+        std::mem::take(&mut self.request_rom_save)
     }
 }
 
@@ -718,11 +732,6 @@ impl UiLevelEditor {
     /// Check if there are unsaved changes
     pub(super) fn has_unsaved_changes(&self) -> bool {
         self.has_edits
-    }
-
-    /// Check if a ROM save was requested (and clear the flag)
-    pub fn take_save_request(&mut self) -> bool {
-        std::mem::take(&mut self.request_rom_save)
     }
 
     /// Position Mario (editor-only visual marker) at the level's main entrance.

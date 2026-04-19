@@ -17,6 +17,12 @@ impl TabViewer for EditorToolTabViewer {
     }
 
     fn on_close(&mut self, tab: &mut Self::Tab) -> bool {
+        // Prevent closing if there are unsaved changes
+        if tab.has_unsaved_changes() {
+            log::info!("Cannot close {}: unsaved changes", tab.title().text());
+            tab.on_close_attempt_blocked();
+            return false;
+        }
         tab.on_closed();
         log::info!("Closed {}", tab.title().text());
         true
