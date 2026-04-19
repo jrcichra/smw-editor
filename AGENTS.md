@@ -19,34 +19,44 @@ this codebase forward without breaking the renderer.
 - When something is visual and user-facing, compare against a known reference
   image before claiming it is fixed.
 
-## Primary sources
+## Primary sources — check these FIRST
 
-Use these first:
+For any emulation or rendering bug, reach for these before reading Rust code:
 
-- `../SMWDisX/` (the vanilla SMW disassembly, useful to check baseline mechanics)
-- `symbols/SMW_U.sym`
+- `../SMWDisX/` — the vanilla SMW disassembly. For SMW-specific behavior this
+  settles questions in seconds. Grep it immediately when a routine name is known.
+  ```
+  grep -n "ROUTINE_NAME\|keyword" ../SMWDisX/bank_00.asm
+  grep -rn "keyword" ../SMWDisX/
+  ```
+- `symbols/SMW_U.sym` — address-to-name mappings; grep to find which bank a
+  routine lives in before opening that bank's ASM file.
 - emulator state in `crates/smwe-emu`
 - renderer code in `crates/smwe-render`
 - editor entry points in `src/ui/world_editor.rs` and
   `src/ui/editor_prototypes/level_editor`
 
-Do not rely on memory when the ASM is available. For SMW-specific behavior,
-the disassembly usually settles the question quickly.
+**If you have read the same Rust file more than twice looking for a bug — stop.
+Check the disassembly or generate an image. Ruminating on code in memory is the
+most expensive path in this repo.**
 
 ## Core workflow
 
 1. Reproduce the bug locally.
-2. Find the exact render path used by the editor.
-3. Confirm whether the bug is in:
+2. **If the bug involves any named emulator routine, grep SMWDisX for it before
+   reading Rust.** The ASM shows exactly what the real game does; the Rust is an
+   approximation.
+3. Find the exact render path used by the editor.
+4. Confirm whether the bug is in:
    - decompressed WRAM data
    - composed VRAM tilemaps
    - palette upload
    - tile decode
    - UI transform math
    - camera / viewport selection
-4. Generate a local image if the bug is visual.
-5. Compare against ASM and only then patch code.
-6. Rebuild with `cargo check --lib`.
+5. Generate a local image if the bug is visual.
+6. Compare against ASM and only then patch code.
+7. Rebuild with `cargo check --lib`.
 
 If the bug is ambiguous, isolate it by turning layers off before editing code.
 The fastest useful split in this repo is usually: `--no-sprites`, `--layer=1`,
@@ -83,6 +93,39 @@ sprite path before touching editor code.
 
 If a bad object still appears in `--no-sprites`, stop looking at OAM. That
 means the problem is in level tile assembly or the BG graphics/palette path.
+
+## Known emulation pitfalls
+
+### Animated tiles (coins, ? blocks, turn blocks, etc.)
+
+The full animated-tile initialization is `CODE_00A5F9` (`bank_00.asm`). It
+loops 8 times through `CODE_05BB39` + `CODE_00A390` to populate every animated
+VRAM slot regardless of its update interval. Calling the pair only once leaves
+slots that update on longer intervals still wrong.
+
+`fetch_anim_frame()` in `crates/smwe-emu/src/emu.rs` must call `CODE_00A5F9`,
+not the raw pair directly.
+
+If animated tiles look wrong (wrong color, look like ground tiles, etc.):
+1. Check whether `fetch_anim_frame` is called after `decompress_sublevel` in
+   the level load path.
+2. Confirm `fetch_anim_frame` calls `CODE_00A5F9` (the 8-frame loop), not just
+   one pass of `CODE_05BB39`+`CODE_00A390`.
+3. grep `../SMWDisX/bank_00.asm` for `A5F9` to see what the real game does
+   during level init.
+
+### decompress_sublevel and load_overworld
+
+These are approximations of real game flows. If a visual bug persists:
+- Compare them against the actual game-mode ASM (`bank_00.asm` around
+  `GM??` labels) instead of stacking more guesses on top.
+- The hook at `$05D8B7` that sets `$000E` to the level ID is load-order
+  sensitive; missing it causes wrong level context downstream.
+
+### 65816 wrap semantics
+
+Plain integer addition where the CPU expects wrapping addresses can produce
+fake rendering bugs. Use wrapping arithmetic where the 65816 would wrap.
 
 ## Overworld-specific notes
 
@@ -128,24 +171,17 @@ means the problem is in level tile assembly or the BG graphics/palette path.
   same crop offset.
 - Tile quadrant order is dangerous. Change it only with image proof.
 
-## Emulator pitfalls
-
-- `decompress_sublevel()` and `load_overworld()` are approximations of real game
-  flows. If a visual bug persists, compare them against the actual game-mode ASM
-  instead of stacking more guesses on top.
-- If you attempt to run a more complete in-game routine sequence and hit an
-  emulator panic or illegal instruction, back the experiment out before moving
-  on.
-- 65816 wrap semantics matter. Plain integer addition where the CPU expects
-  wrapping addresses can produce fake rendering bugs.
-
 ## How to avoid wasting time
 
+- **If you have read the same file more than twice without a fix — check the
+  disassembly or generate a render. Do not keep re-reading Rust.**
 - Do not patch globally when one tile or one layer is wrong.
 - Do not assume a palette bug if the map shape is also wrong.
 - Do not assume a graphics bug if the overlay is drifting.
 - Do not trust "looks close enough" for submaps; compare against a reference.
 - Do not stop at `cargo check` for visual bugs. Render an image.
+- For any named SMW routine (`CODE_XXYYYY`), grep `../SMWDisX/` before
+  guessing what it does. The answer is one grep away.
 
 ## Verification expectations
 
