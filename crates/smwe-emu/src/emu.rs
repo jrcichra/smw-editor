@@ -272,10 +272,10 @@ pub struct SpriteOamTile {
 /// Run exec_sprite_id for the given ID, then tick extra frames so that sprites
 /// whose draw routine fires on frame 2+ (e.g. Dragon Coin 0xA6) still produce
 /// OAM. Collect ALL OAM tiles with non-zero tile words AND non-blank VRAM,
-/// expressed as signed offsets from the spawn anchor (x=0xD0, y=0x80).
+/// expressed as signed offsets from the spawn anchor (x=0x80, y=0x80).
 /// Returns an empty Vec if the sprite writes no OAM.
 pub fn sprite_oam_tiles(cpu: &mut Cpu<CheckedMem>, id: u8) -> Vec<SpriteOamTile> {
-    const ANCHOR_X: i32 = 0xD0;
+    const ANCHOR_X: i32 = 0x80;
     const ANCHOR_Y: i32 = 0x80;
 
     exec_sprite_id(cpu, id);
