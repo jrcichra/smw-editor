@@ -147,121 +147,236 @@ impl DockableEditorTool for UiLevelEditor {
     }
 
     fn save_to_rom(&self, rom_bytes: &mut [u8], has_smc_header: bool) -> anyhow::Result<()> {
+        let level_idx = self.level_num as usize;
         let level = self
             .rom
             .levels
-            .get(self.level_num as usize)
+            .get(level_idx)
             .ok_or_else(|| anyhow::anyhow!("Level {:03X} out of range", self.level_num))?;
-
-        let new_layer1 = self.layer1.read(|layer| layer.serialize_layer1_bytes(level.secondary_header.vertical_level()))?;
-        let old_layer1 = level.layer1.as_bytes();
-        if new_layer1.len() > old_layer1.len() {
-            anyhow::bail!(
-                "Level {:03X} layer 1 data grew from {} to {} bytes; repointing is not implemented yet",
-                self.level_num,
-                old_layer1.len(),
-                new_layer1.len()
-            );
-        }
-
+        let vertical = level.secondary_header.vertical_level();
         let header_offset = usize::from(has_smc_header) * 0x200;
-        let pointer_table_pc = AddrPc::try_from_lorom(AddrSnes(0x05E000))?.as_index() + header_offset;
-        let pointer_off = pointer_table_pc + self.level_num as usize * 3;
-        let ptr_bytes = rom_bytes
-            .get(pointer_off..pointer_off + 3)
-            .ok_or_else(|| anyhow::anyhow!("Level {:03X} pointer table offset out of range", self.level_num))?;
-        let level_addr = u32::from_le_bytes([ptr_bytes[0], ptr_bytes[1], ptr_bytes[2], 0]);
-        let level_pc = AddrPc::try_from_lorom(AddrSnes(level_addr))?.as_index() + header_offset;
-        let header_dst = rom_bytes
-            .get_mut(level_pc..level_pc + PRIMARY_HEADER_SIZE)
-            .ok_or_else(|| anyhow::anyhow!("Level {:03X} header write range out of bounds", self.level_num))?;
-        header_dst[2] = (header_dst[2] & 0xF0) | (self.level_properties.sprite_gfx & 0x0F);
-        let layer1_start = level_pc + PRIMARY_HEADER_SIZE;
-        let layer1_end = layer1_start + old_layer1.len();
-        let layer1_dst = rom_bytes
-            .get_mut(layer1_start..layer1_end)
-            .ok_or_else(|| anyhow::anyhow!("Level {:03X} layer 1 write range out of bounds", self.level_num))?;
 
-        layer1_dst[..new_layer1.len()].copy_from_slice(&new_layer1);
-        layer1_dst[new_layer1.len()..].fill(0);
+        // Serialize current editor state.
+        let new_l1 = self.layer1.read(|l| l.serialize_layer1_bytes(vertical))?;
+        let new_sprites = self.sprites.read(|s| s.serialize_bytes(vertical))?;
 
-        let sprite_data_old = level.sprite_layer.as_bytes();
-        let sprite_new = self.sprites.read(|sprites| sprites.serialize_bytes(level.secondary_header.vertical_level()))?;
-        if sprite_new.len() > sprite_data_old.len() {
-            anyhow::bail!(
-                "Level {:03X} sprite data grew from {} to {} bytes; repointing is not implemented yet",
-                self.level_num,
-                sprite_data_old.len(),
-                sprite_new.len()
-            );
-        }
-        let sprite_ptr_table_pc = AddrPc::try_from_lorom(AddrSnes(0x05EC00))?.as_index() + header_offset;
-        let sprite_ptr_off = sprite_ptr_table_pc + self.level_num as usize * 2;
-        let sprite_ptr = rom_bytes
-            .get(sprite_ptr_off..sprite_ptr_off + 2)
-            .ok_or_else(|| anyhow::anyhow!("Level {:03X} sprite pointer table offset out of range", self.level_num))?;
-        let sprite_addr = u16::from_le_bytes([sprite_ptr[0], sprite_ptr[1]]) as u32 | 0x070000;
-        let sprite_pc = AddrPc::try_from_lorom(AddrSnes(sprite_addr))?.as_index() + header_offset;
-        let sprite_data_start = sprite_pc + 1;
-        let sprite_data_end = sprite_data_start + sprite_data_old.len();
-        let sprite_dst = rom_bytes
-            .get_mut(sprite_data_start..sprite_data_end)
-            .ok_or_else(|| anyhow::anyhow!("Level {:03X} sprite write range out of bounds", self.level_num))?;
-        sprite_dst[..sprite_new.len()].copy_from_slice(&sprite_new);
-        sprite_dst[sprite_new.len()..].fill(0);
+        // Reconstruct all 5 primary-header bytes from LevelProperties.
+        let p = &self.level_properties;
+        let new_primary_header: [u8; PRIMARY_HEADER_SIZE] = [
+            (p.palette_bg << 5) | p.level_length,
+            (p.back_area_color << 5) | p.level_mode,
+            ((p.layer3_priority as u8) << 7) | (p.music << 4) | (p.sprite_gfx & 0x0F),
+            (p.timer << 6) | (p.palette_sprite << 3) | p.palette_fg,
+            (p.item_memory << 6) | (p.vertical_scroll << 4) | p.fg_bg_gfx,
+        ];
 
-        let layer2_ptr_table_pc = AddrPc::try_from_lorom(AddrSnes(0x05E600))?.as_index() + header_offset;
-        let layer2_ptr_off = layer2_ptr_table_pc + self.level_num as usize * 3;
-        let layer2_ptr_bytes = rom_bytes
-            .get(layer2_ptr_off..layer2_ptr_off + 3)
-            .ok_or_else(|| anyhow::anyhow!("Level {:03X} layer 2 pointer table offset out of range", self.level_num))?;
-        let layer2_addr_raw = u32::from_le_bytes([layer2_ptr_bytes[0], layer2_ptr_bytes[1], layer2_ptr_bytes[2], 0]);
+        // ── Layer 1  (pointer table $05E000, 3-byte LoROM SNES addr each) ──────
+        // Block layout on ROM: [5-byte primary header][layer-1 object data]
+        {
+            let tbl_pc = AddrPc::try_from_lorom(AddrSnes(0x05E000))?.as_index();
+            let ptr_off = tbl_pc + header_offset + level_idx * 3;
+            let old_snes = read_u24(rom_bytes, ptr_off)
+                .ok_or_else(|| anyhow::anyhow!("L1 pointer table out of range"))?;
+            let old_file = AddrPc::try_from_lorom(AddrSnes(old_snes))?.as_index() + header_offset;
 
-        match (&level.layer2, &self.layer2_objects, &self.layer2_background) {
-            (Layer2Data::Objects(objects), Some(layer2), _) => {
-                let new_layer2 = layer2.read(|layer| layer.serialize_layer1_bytes(level.secondary_header.vertical_level()))?;
-                let old_layer2 = objects.as_bytes();
-                if new_layer2.len() > old_layer2.len() {
-                    anyhow::bail!(
-                        "Level {:03X} layer 2 object data grew from {} to {} bytes; repointing is not implemented yet",
-                        self.level_num,
-                        old_layer2.len(),
-                        new_layer2.len()
-                    );
-                }
-                let layer2_pc = AddrPc::try_from_lorom(AddrSnes(layer2_addr_raw))?.as_index() + header_offset;
-                let start = layer2_pc + PRIMARY_HEADER_SIZE;
-                let end = start + old_layer2.len();
-                let dst = rom_bytes
-                    .get_mut(start..end)
-                    .ok_or_else(|| anyhow::anyhow!("Level {:03X} layer 2 object write range out of bounds", self.level_num))?;
-                dst[..new_layer2.len()].copy_from_slice(&new_layer2);
-                dst[new_layer2.len()..].fill(0);
+            let old_block = PRIMARY_HEADER_SIZE + level.layer1.as_bytes().len();
+            let new_block = PRIMARY_HEADER_SIZE + new_l1.len();
+
+            let dest = if new_block <= old_block {
+                old_file
+            } else {
+                let pc = find_free_space(rom_bytes, new_block, 0x008000, header_offset)
+                    .ok_or_else(|| anyhow::anyhow!(
+                        "No free space for level {:03X} layer 1 ({} bytes)", self.level_num, new_block))?;
+                rom_bytes[old_file..old_file + old_block].fill(0xFF);
+                let b = AddrSnes::try_from_lorom(AddrPc(pc as u32))?.0.to_le_bytes();
+                rom_bytes[ptr_off..ptr_off + 3].copy_from_slice(&b[..3]);
+                pc + header_offset
+            };
+
+            rom_bytes[dest..dest + PRIMARY_HEADER_SIZE].copy_from_slice(&new_primary_header);
+            let data_dest = dest + PRIMARY_HEADER_SIZE;
+            rom_bytes[data_dest..data_dest + new_l1.len()].copy_from_slice(&new_l1);
+            // Fill any shrunk tail with 0xFF so it is recognised as free space.
+            if dest == old_file && new_block < old_block {
+                rom_bytes[dest + new_block..dest + old_block].fill(0xFF);
             }
-            (Layer2Data::Background(background), _, Some(layer2)) => {
-                let new_bg = layer2.read(|bg| bg.tile_ids.clone());
-                let compressed = lc_rle1::compress(&new_bg);
-                let old_size = background.compressed_size();
-                if compressed.len() > old_size {
-                    anyhow::bail!(
-                        "Level {:03X} layer 2 background data grew from {} to {} bytes; repointing is not implemented yet",
-                        self.level_num,
-                        old_size,
-                        compressed.len()
-                    );
-                }
-                let layer2_pc = AddrPc::try_from_lorom(AddrSnes((layer2_addr_raw & 0x00FFFF) | 0x0C0000))?.as_index()
-                    + header_offset;
-                let dst = rom_bytes
-                    .get_mut(layer2_pc..layer2_pc + old_size)
-                    .ok_or_else(|| anyhow::anyhow!("Level {:03X} layer 2 background write range out of bounds", self.level_num))?;
-                dst[..compressed.len()].copy_from_slice(&compressed);
-                dst[compressed.len()..].fill(0);
-            }
-            _ => {}
         }
+
+        // ── Sprites  (pointer table $05EC00, 2-byte offset in bank $07 each) ──
+        // Block layout on ROM: [1-byte sprite header][sprite data…0xFF]
+        // Sprite data must stay in bank $07 (SNES $078000-$07FFFF).
+        {
+            let tbl_pc = AddrPc::try_from_lorom(AddrSnes(0x05EC00))?.as_index();
+            let ptr_off = tbl_pc + header_offset + level_idx * 2;
+            let old_offset = read_u16(rom_bytes, ptr_off)
+                .ok_or_else(|| anyhow::anyhow!("Sprite pointer table out of range"))?;
+            let old_snes = AddrSnes(old_offset as u32 | 0x070000);
+            let old_file = AddrPc::try_from_lorom(old_snes)?.as_index() + header_offset;
+
+            // Read sprite-header byte before any possible erasure.
+            let sprite_hdr = *rom_bytes.get(old_file)
+                .ok_or_else(|| anyhow::anyhow!("Sprite header byte out of range"))?;
+            let old_block = 1 + level.sprite_layer.as_bytes().len();
+            let new_block = 1 + new_sprites.len();
+
+            let dest = if new_block <= old_block {
+                old_file
+            } else {
+                // Must stay in bank $07: SNES $078000-$07FFFF = PC $038000-$03FFFF.
+                let bank7_start = AddrPc::try_from_lorom(AddrSnes(0x078000))?.as_index();
+                let bank7_end = bank7_start + 0x8000;
+                let pc = find_free_space_in(rom_bytes, new_block, bank7_start, bank7_end, header_offset)
+                    .ok_or_else(|| anyhow::anyhow!(
+                        "No free space in bank $07 for level {:03X} sprite data ({} bytes)", self.level_num, new_block))?;
+                rom_bytes[old_file..old_file + old_block].fill(0xFF);
+                let new_off = AddrSnes::try_from_lorom(AddrPc(pc as u32))?.0 as u16;
+                rom_bytes[ptr_off..ptr_off + 2].copy_from_slice(&new_off.to_le_bytes());
+                pc + header_offset
+            };
+
+            rom_bytes[dest] = sprite_hdr;
+            let data_dest = dest + 1;
+            rom_bytes[data_dest..data_dest + new_sprites.len()].copy_from_slice(&new_sprites);
+            if dest == old_file && new_block < old_block {
+                rom_bytes[dest + new_block..dest + old_block].fill(0xFF);
+            }
+        }
+
+        // ── Layer 2  (pointer table $05E600, 3-byte value each) ────────────────
+        // If the pointer's bank byte == $FF the data is background (LC-RLE1) at
+        // SNES bank $0C with the same 16-bit offset.  Otherwise it is object
+        // data with the same block layout as layer 1.
+        {
+            let tbl_pc = AddrPc::try_from_lorom(AddrSnes(0x05E600))?.as_index();
+            let ptr_off = tbl_pc + header_offset + level_idx * 3;
+            let l2_raw = read_u24(rom_bytes, ptr_off)
+                .ok_or_else(|| anyhow::anyhow!("L2 pointer table out of range"))?;
+
+            match (&level.layer2, &self.layer2_objects, &self.layer2_background) {
+                (Layer2Data::Objects(objects), Some(layer2), _) => {
+                    let new_l2 = layer2.read(|l| l.serialize_layer1_bytes(vertical))?;
+                    let old_file = AddrPc::try_from_lorom(AddrSnes(l2_raw))?.as_index() + header_offset;
+
+                    // The 5-byte L2 header is not edited; copy it verbatim when repointing.
+                    let old_block = PRIMARY_HEADER_SIZE + objects.as_bytes().len();
+                    let new_block = PRIMARY_HEADER_SIZE + new_l2.len();
+
+                    let dest = if new_block <= old_block {
+                        old_file
+                    } else {
+                        // Save the existing L2 header before erasing.
+                        let mut l2_hdr = [0u8; PRIMARY_HEADER_SIZE];
+                        l2_hdr.copy_from_slice(&rom_bytes[old_file..old_file + PRIMARY_HEADER_SIZE]);
+                        let pc = find_free_space(rom_bytes, new_block, 0x008000, header_offset)
+                            .ok_or_else(|| anyhow::anyhow!(
+                                "No free space for level {:03X} layer 2 ({} bytes)", self.level_num, new_block))?;
+                        rom_bytes[old_file..old_file + old_block].fill(0xFF);
+                        let b = AddrSnes::try_from_lorom(AddrPc(pc as u32))?.0.to_le_bytes();
+                        rom_bytes[ptr_off..ptr_off + 3].copy_from_slice(&b[..3]);
+                        let dest_file = pc + header_offset;
+                        rom_bytes[dest_file..dest_file + PRIMARY_HEADER_SIZE].copy_from_slice(&l2_hdr);
+                        dest_file
+                    };
+
+                    let data_dest = dest + PRIMARY_HEADER_SIZE;
+                    rom_bytes[data_dest..data_dest + new_l2.len()].copy_from_slice(&new_l2);
+                    if dest == old_file && new_block < old_block {
+                        rom_bytes[dest + new_block..dest + old_block].fill(0xFF);
+                    }
+                }
+                (Layer2Data::Background(background), _, Some(layer2)) => {
+                    let new_bg = layer2.read(|bg| bg.tile_ids.clone());
+                    let compressed = lc_rle1::compress(&new_bg);
+                    // Background lives at bank $0C with the same 16-bit offset.
+                    let old_snes_0c = AddrSnes((l2_raw & 0x00FFFF) | 0x0C0000);
+                    let old_file = AddrPc::try_from_lorom(old_snes_0c)?.as_index() + header_offset;
+                    let old_size = background.compressed_size();
+
+                    let dest = if compressed.len() <= old_size {
+                        old_file
+                    } else {
+                        // Background data lives in bank $0C: SNES $0C8000-$0CFFFF = PC $060000-$067FFF.
+                        let bank0c_start = AddrPc::try_from_lorom(AddrSnes(0x0C8000))?.as_index();
+                        let bank0c_end = bank0c_start + 0x8000;
+                        let pc = find_free_space_in(rom_bytes, compressed.len(), bank0c_start, bank0c_end, header_offset)
+                            .ok_or_else(|| anyhow::anyhow!(
+                                "No free space in bank $0C for level {:03X} layer 2 bg ({} bytes)", self.level_num, compressed.len()))?;
+                        rom_bytes[old_file..old_file + old_size].fill(0xFF);
+                        // Pointer stores bank $FF with the same 16-bit offset used in bank $0C.
+                        let new_snes_0c = AddrSnes::try_from_lorom(AddrPc(pc as u32))?;
+                        let new_ptr = (0xFF0000u32) | (new_snes_0c.0 & 0x00FFFF);
+                        let b = new_ptr.to_le_bytes();
+                        rom_bytes[ptr_off..ptr_off + 3].copy_from_slice(&b[..3]);
+                        pc + header_offset
+                    };
+
+                    rom_bytes[dest..dest + compressed.len()].copy_from_slice(&compressed);
+                    if dest == old_file && compressed.len() < old_size {
+                        rom_bytes[dest + compressed.len()..dest + old_size].fill(0xFF);
+                    }
+                }
+                _ => {}
+            }
+        }
+
         Ok(())
     }
+}
+
+// ── ROM save helpers ────────────────────────────────────────────────────────
+
+/// Scan `rom_bytes` for `needed` consecutive `0xFF` bytes, starting at
+/// `pc_start` (PC address, *without* the SMC header offset), anywhere up to
+/// the end of the ROM.  Returns the PC address of the first byte of the run,
+/// or `None` if no suitable region is found.
+///
+/// LoROM banks are 32 KB each; a run may not cross a bank boundary because the
+/// SNES mapper cannot address such a block as a single contiguous region.
+fn find_free_space(rom_bytes: &[u8], needed: usize, pc_start: usize, header_offset: usize) -> Option<usize> {
+    let pc_end = rom_bytes.len().saturating_sub(header_offset);
+    find_free_space_in(rom_bytes, needed, pc_start, pc_end, header_offset)
+}
+
+/// Like `find_free_space` but restricted to the PC range `[pc_start, pc_end)`.
+fn find_free_space_in(
+    rom_bytes: &[u8], needed: usize, pc_start: usize, pc_end: usize, header_offset: usize,
+) -> Option<usize> {
+    const BANK: usize = 0x8000;
+    let mut run_start: Option<usize> = None;
+    let mut run_len = 0usize;
+    for pc in pc_start..pc_end {
+        // Never span a LoROM bank boundary.
+        if pc % BANK == 0 && pc != pc_start {
+            run_start = None;
+            run_len = 0;
+        }
+        let file = pc + header_offset;
+        if file >= rom_bytes.len() {
+            break;
+        }
+        if rom_bytes[file] == 0xFF {
+            run_start.get_or_insert(pc);
+            run_len += 1;
+            if run_len >= needed {
+                return run_start;
+            }
+        } else {
+            run_start = None;
+            run_len = 0;
+        }
+    }
+    None
+}
+
+fn read_u16(rom_bytes: &[u8], file_off: usize) -> Option<u16> {
+    let b = rom_bytes.get(file_off..file_off + 2)?;
+    Some(u16::from_le_bytes([b[0], b[1]]))
+}
+
+fn read_u24(rom_bytes: &[u8], file_off: usize) -> Option<u32> {
+    let b = rom_bytes.get(file_off..file_off + 3)?;
+    Some(u32::from_le_bytes([b[0], b[1], b[2], 0]))
 }
 
 // Internals
