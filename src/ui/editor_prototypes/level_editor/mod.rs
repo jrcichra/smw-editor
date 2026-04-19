@@ -475,8 +475,9 @@ impl UiLevelEditor {
 
         // Ensure Mario spawn marker (0xFF) has OAM data
         if !oam_map.contains_key(&0xFF) {
-            // Use Green Yoshi (0x35) graphics for Mario spawn point
-            let tiles = self.compute_sprite_oam_tiles(0x35);
+            // Use Green Koopa (0x04) graphics for Mario spawn point
+            let tiles = self.compute_sprite_oam_tiles(0x04);
+            log::info!("Mario spawn marker (0xFF): computed {} OAM tiles from sprite 0x04", tiles.len());
             if !tiles.is_empty() {
                 oam_map.insert(0xFF, tiles);
             }
@@ -490,6 +491,11 @@ impl UiLevelEditor {
         renderer.upload_gfx(&self.gl, &self.cpu.mem.vram);
         renderer.upload_level(&self.gl, &mut self.cpu, &self.rom, self.level_properties.fg_bg_gfx);
         let sprite_list = self.sprites.read(|sprites| sprites.sprites.clone());
+        log::info!("Uploading {} sprites. OAM map keys: {:?}", sprite_list.len(), oam_map.keys().collect::<Vec<_>>());
+        for spr in &sprite_list {
+            let has_oam = oam_map.contains_key(&spr.sprite_id);
+            log::info!("  Sprite 0x{:02X} at ({}, {}) - has OAM: {}", spr.sprite_id, spr.x, spr.y, has_oam);
+        }
         renderer.upload_editable_sprites(
             &self.gl,
             &sprite_list,
@@ -702,7 +708,7 @@ impl UiLevelEditor {
                 sprites.sprites.insert(0, EditableSprite {
                     x: abs_x,
                     y: abs_y,
-                    sprite_id: 0xFE,
+                    sprite_id: 0xFF,
                     extra_bits: 0,
                 });
                 log::info!("Created Mario spawn marker at ({}, {}). Total sprites: {}", abs_x, abs_y, sprites.sprites.len());
