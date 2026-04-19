@@ -58,11 +58,10 @@ impl UiLevelEditor {
         }
 
         // ── Animated tile ticking ─────────────────────────────
-        // Advance one SMW game-frame every ~67ms (~15 fps visible animation).
-        // SMW coins/? blocks cycle every 8 game-frames at 60 fps; ticking at
-        // ~15 fps shows each distinct frame for roughly the same wall-clock
-        // duration as the real game while keeping CPU cost low.
-        const ANIM_INTERVAL: Duration = Duration::from_millis(67);
+        // SMW advances each animated tile slot once every 8 game-frames at
+        // 60 fps, so each distinct animation frame shows for ~133ms.  We tick
+        // at the same interval to match the real game's visual speed.
+        const ANIM_INTERVAL: Duration = Duration::from_millis(133);
         if self.last_anim_tick.elapsed() >= ANIM_INTERVAL {
             self.last_anim_tick = std::time::Instant::now();
             smwe_emu::emu::advance_anim_frame(&mut self.cpu);
