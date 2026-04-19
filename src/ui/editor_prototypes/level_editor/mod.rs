@@ -24,7 +24,7 @@ use smwe_emu::{
 };
 use smwe_rom::{
     compression::lc_rle1,
-    level::{Layer2Data, PRIMARY_HEADER_SIZE},
+    level::{Layer2Data, Level, PRIMARY_HEADER_SIZE},
     snes_utils::addr::{AddrPc, AddrSnes},
     SmwRom,
 };
@@ -32,7 +32,7 @@ use smwe_rom::{
 use self::{
     background_layer::EditableBackgroundLayer,
     level_renderer::LevelRenderer, object_layer::EditableObjectLayer, properties::LevelProperties,
-    sprite_layer::EditableSpriteLayer,
+    sprite_layer::{EditableSprite, EditableSpriteLayer},
     tile_picker::{BgTilePicker, TilePicker},
 };
 use crate::{
@@ -431,6 +431,10 @@ impl UiLevelEditor {
             }
             (level.sprite_layer.clone(), level.secondary_header.vertical_level())
         };
+
+        // Position Mario at the level entrance
+        let level = self.rom.levels[level_idx].clone();
+        self.position_mario_at_entrance(is_vertical, &level);
         self.offset = Vec2::ZERO;
         self.selected_tile = None;
         self.selected_object_indices.clear();
@@ -648,5 +652,47 @@ impl UiLevelEditor {
         let idx = self.block_map_index(block_x, block_y);
         let (lo_base, hi_base) = self.block_map_base();
         Some(self.cpu.mem.load_u8(lo_base + idx) as u16 | (((self.cpu.mem.load_u8(hi_base + idx) as u16) & 0x01) << 8))
+    }
+
+    /// Position Mario (sprite 0x00) at the level's main entrance.
+    fn position_mario_at_entrance(&mut self, is_vertical: bool, level: &Level) {
+        let (entrance_x, entrance_y) = level.secondary_header.main_entrance_xy_pos();
+        let entrance_screen = level.secondary_header.main_entrance_screen();
+
+        // Entrance coordinates are stored at half-resolution, multiply by 2
+        let entrance_x = entrance_x as u32 * 2;
+        let entrance_y = entrance_y as u32 * 2;
+
+        // Convert entrance screen + local coords to absolute tile coordinates
+        let abs_x = if is_vertical {
+            let sx = entrance_screen as u32 % 2;
+            sx * 16 + entrance_x
+        } else {
+            entrance_screen as u32 * 16 + entrance_x
+        };
+
+        let abs_y = if is_vertical {
+            let sy = entrance_screen as u32 / 2;
+            sy * 32 + entrance_y
+        } else {
+            entrance_y
+        };
+
+        // Find or create Mario sprite
+        self.sprites.write(|sprites| {
+            if let Some(mario) = sprites.sprites.iter_mut().find(|s| s.sprite_id == 0x00) {
+                // Move existing Mario to entrance
+                mario.x = abs_x;
+                mario.y = abs_y;
+            } else {
+                // Create Mario at entrance if not present
+                sprites.sprites.insert(0, EditableSprite {
+                    x: abs_x,
+                    y: abs_y,
+                    sprite_id: 0x00,
+                    extra_bits: 0,
+                });
+            }
+        });
     }
 }
