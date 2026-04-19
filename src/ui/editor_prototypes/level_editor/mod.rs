@@ -81,10 +81,11 @@ pub struct UiLevelEditor {
 }
 
 impl UiLevelEditor {
-    pub fn new(gl: Arc<glow::Context>, rom: Arc<SmwRom>, rom_path: PathBuf) -> Self {
+    pub fn new(gl: Arc<glow::Context>, rom: Arc<SmwRom>, rom_path: PathBuf) -> anyhow::Result<Self> {
         let level_renderer = Arc::new(Mutex::new(LevelRenderer::new(&gl)));
 
-        let raw = std::fs::read(&rom_path).expect("cannot read ROM for emulator");
+        let raw = std::fs::read(&rom_path)
+            .map_err(|e| anyhow::anyhow!("Cannot read ROM for emulator at {}: {e}", rom_path.display()))?;
         let rom_bytes = if raw.len() % 0x400 == 0x200 { raw[0x200..].to_vec() } else { raw };
         let mut emu_rom = EmuRom::new(rom_bytes);
         emu_rom.load_symbols(include_str!("../../../../symbols/SMW_U.sym"));
@@ -127,7 +128,7 @@ impl UiLevelEditor {
             edit_sprites: false,
         };
         editor.load_level();
-        editor
+        Ok(editor)
     }
 }
 

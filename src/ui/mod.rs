@@ -92,7 +92,10 @@ impl eframe::App for UiMainWindow {
             self.pending_initial_editor = false;
             if let Some(ref rom) = rom {
                 let path = self.rom_path.clone().unwrap_or_default();
-                self.open_tool(UiLevelEditor::new(Arc::clone(&self.gl), Arc::clone(rom), path));
+                match UiLevelEditor::new(Arc::clone(&self.gl), Arc::clone(rom), path) {
+                    Ok(editor) => self.open_tool(editor),
+                    Err(e) => self.save_error = Some(format!("Failed to open level editor: {e}")),
+                }
             }
         }
 
@@ -139,7 +142,10 @@ impl eframe::App for UiMainWindow {
                             self.rom_path = Some(PathBuf::from(p));
                         }
                         let path = self.rom_path.clone().unwrap_or_default();
-                        self.open_tool(UiLevelEditor::new(Arc::clone(&self.gl), Arc::clone(&rom), path));
+                        match UiLevelEditor::new(Arc::clone(&self.gl), Arc::clone(&rom), path) {
+                            Ok(editor) => self.open_tool(editor),
+                            Err(e) => self.save_error = Some(format!("Failed to open level editor: {e}")),
+                        }
                     }
                 }
                 self.project_creator = None;
@@ -238,7 +244,10 @@ impl UiMainWindow {
                     ui.add_enabled_ui(has_rom, |ui| {
                         if ui.button("Level Editor").clicked() {
                             let path = self.rom_path.clone().unwrap_or_default();
-                            self.open_tool(UiLevelEditor::new(Arc::clone(&self.gl), Arc::clone(rom.unwrap()), path));
+                            match UiLevelEditor::new(Arc::clone(&self.gl), Arc::clone(rom.unwrap()), path) {
+                                Ok(editor) => self.open_tool(editor),
+                                Err(e) => self.save_error = Some(format!("Failed to open level editor: {e}")),
+                            }
                             ui.close_menu();
                         }
                         if ui.button("World Map Editor").clicked() {
