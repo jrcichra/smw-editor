@@ -160,7 +160,7 @@ impl UiLevelEditor {
 
             let is_hovering = resp.hover_pos().map_or(false, |p| spawn_rect.contains(p));
             let spawn_color = if self.dragging_spawn || is_hovering {
-                Color32::from_rgba_unmultiplied(255, 200, 100, 255) // Brighter when hovering
+                Color32::from_rgba_unmultiplied(255, 200, 100, 255)
             } else {
                 Color32::from_rgba_unmultiplied(255, 100, 100, 255)
             };
@@ -174,16 +174,18 @@ impl UiLevelEditor {
             );
 
             // Handle dragging the spawn point (Shift+drag)
-            if is_hovering && resp.dragged_by(egui::PointerButton::Primary) && ui.input(|i| i.modifiers.shift_only()) {
+            let shift_held = ui.input(|i| i.modifiers.shift_only());
+            if is_hovering && shift_held && resp.dragged_by(egui::PointerButton::Primary) {
                 self.dragging_spawn = true;
-                if let Some(mouse_pos) = resp.interact_pointer_pos() {
-                    let local_pos = mouse_pos - origin;
+                // Get mouse position from input
+                if let Some(pointer_pos) = ui.input(|i| i.pointer.latest_pos()) {
+                    let local_pos = pointer_pos - origin;
                     let tile_x = (local_pos.x / tile_sz).max(0.0) as u32;
                     let tile_y = (local_pos.y / tile_sz).max(0.0) as u32;
                     let is_vertical = self.level_properties.is_vertical;
                     self.update_spawn_from_tiles(tile_x, tile_y, is_vertical);
                 }
-            } else if !resp.dragged() {
+            } else {
                 self.dragging_spawn = false;
             }
         }
