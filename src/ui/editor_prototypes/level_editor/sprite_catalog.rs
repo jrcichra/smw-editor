@@ -201,7 +201,6 @@ pub(super) fn sprite_name(id: u8) -> &'static str {
         0xC6 => "Dark room with spot light",
         0xC7 => "Invisible mushroom",
         0xC8 => "Light switch block for dark room",
-        0xFF => "Mario (spawn point)",
         _ => "Unknown / unsupported",
     }
 }

@@ -82,6 +82,10 @@ pub struct UiLevelEditor {
     draw_sprite_extra_bits: u8,
     edit_layer: u8, // 1 or 2
     edit_sprites: bool,
+
+    // Spawn point marker
+    mario_spawn_x: u32,
+    mario_spawn_y: u32,
 }
 
 impl UiLevelEditor {
@@ -131,6 +135,8 @@ impl UiLevelEditor {
             draw_sprite_extra_bits: 0x00,
             edit_layer: 1,
             edit_sprites: false,
+            mario_spawn_x: 0,
+            mario_spawn_y: 0,
         };
         editor.load_level();
         Ok(editor)
@@ -473,15 +479,7 @@ impl UiLevelEditor {
             }
         }
 
-        // Ensure Mario spawn marker (0xFF) has OAM data
-        if !oam_map.contains_key(&0xFF) {
-            // Use Koopa Kid (0x29) graphics for Mario spawn point - it has reliable OAM data
-            let tiles = self.compute_sprite_oam_tiles(0x29);
-            log::info!("Mario spawn marker (0xFF): computed {} OAM tiles from sprite 0x29", tiles.len());
-            if !tiles.is_empty() {
-                oam_map.insert(0xFF, tiles);
-            }
-        }
+        // Mario spawn point is now rendered as text "M", not a sprite
 
         self.sprite_oam_cache = oam_map.clone();
 
@@ -696,23 +694,10 @@ impl UiLevelEditor {
             entrance_y
         };
 
-        // Create or update Mario as an editor-only visual marker (0xFF)
-        self.sprites.write(|sprites| {
-            if let Some(mario) = sprites.sprites.iter_mut().find(|s| s.sprite_id == 0xFF) {
-                // Move existing Mario to entrance
-                mario.x = abs_x;
-                mario.y = abs_y;
-                log::info!("Updated Mario spawn marker at ({}, {})", abs_x, abs_y);
-            } else {
-                // Create Mario at entrance if not present
-                sprites.sprites.insert(0, EditableSprite {
-                    x: abs_x,
-                    y: abs_y,
-                    sprite_id: 0xFF,
-                    extra_bits: 0,
-                });
-                log::info!("Created Mario spawn marker at ({}, {}). Total sprites: {}", abs_x, abs_y, sprites.sprites.len());
-            }
-        });
+        // Store spawn coordinates for rendering the "M" marker
+        self.mario_spawn_x = abs_x;
+        self.mario_spawn_y = abs_y;
+
+        // Spawn coordinates stored for rendering as "M" text overlay
     }
 }

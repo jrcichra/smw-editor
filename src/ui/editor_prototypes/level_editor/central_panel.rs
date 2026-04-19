@@ -151,6 +151,20 @@ impl UiLevelEditor {
             });
         }
 
+        // ── Mario spawn point marker ───────────────────────────
+        {
+            let spawn_x = self.mario_spawn_x as f32 * tile_sz;
+            let spawn_y = self.mario_spawn_y as f32 * tile_sz;
+            let spawn_pos = origin + vec2(spawn_x, spawn_y);
+            painter.text(
+                spawn_pos + vec2(tile_sz / 2.0, tile_sz / 2.0),
+                Align2::CENTER_CENTER,
+                "M",
+                FontId::proportional(tile_sz * 0.8),
+                Color32::from_rgba_unmultiplied(255, 100, 100, 255),
+            );
+        }
+
         // ── Grid overlay ──────────────────────────────────────
         if self.always_show_grid || ui.input(|i| i.modifiers.shift_only()) {
             let stroke = Stroke::new(0.5, Color32::from_white_alpha(40));
