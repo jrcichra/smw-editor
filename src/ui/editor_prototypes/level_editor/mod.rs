@@ -93,6 +93,7 @@ pub struct UiLevelEditor {
     // Unsaved changes tracking
     show_unsaved_dialog: bool,
     pending_level_num: Option<u16>,
+    has_edits: bool,
 }
 
 impl UiLevelEditor {
@@ -149,6 +150,7 @@ impl UiLevelEditor {
             dragging_spawn: false,
             show_unsaved_dialog: false,
             pending_level_num: None,
+            has_edits: false,
         };
         editor.load_level();
         Ok(editor)
@@ -512,6 +514,9 @@ impl UiLevelEditor {
         // Rebuild the tile picker from the loaded level's tileset.
         self.tile_picker.rebuild(&mut self.cpu);
         self.bg_tile_picker.rebuild(&mut self.cpu);
+
+        // Mark as clean (no unsaved edits)
+        self.has_edits = false;
     }
 
     #[allow(dead_code)]
@@ -679,7 +684,7 @@ impl UiLevelEditor {
     /// Update spawn point from absolute tile coordinates
     fn update_spawn_from_tiles(&mut self, abs_x: u32, abs_y: u32, is_vertical: bool) {
         // Convert absolute tile coords back to entrance screen + local coords
-        let (entrance_screen, entrance_x, entrance_y) = if is_vertical {
+        let (_entrance_screen, _entrance_x, _entrance_y) = if is_vertical {
             let sx = abs_x / 16;
             let sy = abs_y / 32;
             let screen = (sy * 2 + sx) as u8;
@@ -693,29 +698,35 @@ impl UiLevelEditor {
             (screen, x, y)
         };
 
-        // Divide by 2 to get half-resolution entrance coords
-        let entrance_x = (entrance_x / 2).min(7);
-        let entrance_y = (entrance_y / 2).min(15);
+        // Divide by 2 to get half-resolution entrance coords (for future ROM persistence)
+        let _entrance_x = (_entrance_x / 2).min(7);
+        let _entrance_y = (_entrance_y / 2).min(15);
 
         // Update the local spawn position
         self.mario_spawn_x = abs_x;
         self.mario_spawn_y = abs_y;
+        self.mark_edited();
+    }
+
+    /// Mark the level as having edits
+    pub(super) fn mark_edited(&mut self) {
+        self.has_edits = true;
     }
 
     /// Check if there are unsaved changes
     pub(super) fn has_unsaved_changes(&self) -> bool {
-        self.mario_spawn_x != self.initial_spawn_x || self.mario_spawn_y != self.initial_spawn_y
+        self.has_edits
     }
 
     /// Position Mario (editor-only visual marker) at the level's main entrance.
     /// Uses sprite ID 0xFE as an editor-only placeholder (not saved to ROM).
     fn position_mario_at_entrance(&mut self, is_vertical: bool, level: &Level) {
-        let (entrance_x, entrance_y) = level.secondary_header.main_entrance_xy_pos();
+        let (entrance_x_half, entrance_y_half) = level.secondary_header.main_entrance_xy_pos();
         let entrance_screen = level.secondary_header.main_entrance_screen();
 
         // Entrance coordinates are stored at half-resolution, multiply by 2
-        let entrance_x = entrance_x as u32 * 2;
-        let entrance_y = entrance_y as u32 * 2;
+        let entrance_x = entrance_x_half as u32 * 2;
+        let entrance_y = entrance_y_half as u32 * 2;
 
         // Convert entrance screen + local coords to absolute tile coordinates
         let abs_x = if is_vertical {

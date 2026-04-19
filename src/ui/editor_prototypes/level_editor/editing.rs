@@ -87,6 +87,7 @@ impl UiLevelEditor {
             self.sprites.write(|sprites| {
                 sprites.sprites.remove(idx);
             });
+            self.mark_edited();
             self.selected_sprite_indices.clear();
             self.rebuild_sprite_tiles();
         }
@@ -108,6 +109,7 @@ impl UiLevelEditor {
                 extra_bits: self.draw_sprite_extra_bits,
             });
         });
+        self.mark_edited();
         self.selected_sprite_indices.clear();
         self.selected_sprite_indices.insert(new_idx);
         self.rebuild_sprite_tiles();
@@ -154,6 +156,7 @@ impl UiLevelEditor {
                         *tile = 0;
                     }
                 });
+                self.mark_edited();
             }
             self.set_block_id_at(tx, ty, 0);
             self.rebuild_tiles();
@@ -173,6 +176,7 @@ impl UiLevelEditor {
             self.editing_objects_mut().expect("editable object layer missing").write(|layer| {
                 layer.objects.remove(idx);
             });
+            self.mark_edited();
             self.selected_object_indices.clear();
 
             // Blank out the tiles.
@@ -199,6 +203,7 @@ impl UiLevelEditor {
                         *tile = draw_block;
                     }
                 });
+                self.mark_edited();
                 self.set_block_id_at(tx, ty, draw_block as u16);
                 self.rebuild_tiles();
             }
@@ -223,6 +228,7 @@ impl UiLevelEditor {
         layer_data.write(|layer| {
             layer.objects.push(new_obj);
         });
+        self.mark_edited();
         self.selected_object_indices.clear();
         self.selected_object_indices.insert(new_idx);
 
@@ -251,6 +257,7 @@ impl UiLevelEditor {
                 }
                 sprites.sprites = keep;
             });
+            self.mark_edited();
             self.selected_sprite_indices.clear();
             self.rebuild_sprite_tiles();
             return;
@@ -286,6 +293,7 @@ impl UiLevelEditor {
             }
             layer.objects = keep;
         });
+        self.mark_edited();
         self.selected_object_indices.clear();
 
         // Blank out the tiles.

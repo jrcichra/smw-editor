@@ -327,6 +327,7 @@ impl UiLevelEditor {
                             spr.extra_bits = new_extra as u8;
                         }
                     });
+                    self.mark_edited();
                     self.rebuild_sprite_tiles();
                 }
             }
@@ -405,6 +406,7 @@ impl UiLevelEditor {
                             }
                         }
                     });
+                    self.mark_edited();
                 }
             } else {
                 ui.label(format!("  {} objects selected", selected_data.len()));
