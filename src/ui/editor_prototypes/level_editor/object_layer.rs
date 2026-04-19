@@ -93,7 +93,7 @@ impl EditableExit {
             ((self.screen as u32 & 0x1F) << 24)
                 | ((self.midway as u32) << 19)
                 | ((self.secondary as u32) << 17)
-                | (self.id as u32 & 0x01FF),
+                | (self.id as u32 & 0x3FFF),
         )
     }
 }
@@ -199,7 +199,7 @@ impl EditableExit {
     fn to_raw_bytes(self) -> [u8; 4] {
         [
             self.screen & 0x1F,
-            (u8::from(self.midway) << 3) | (u8::from(self.secondary) << 1) | ((self.id >> 8) as u8 & 0x01),
+            (u8::from(self.midway) << 3) | (u8::from(self.secondary) << 1) | ((self.id >> 8) as u8 & 0x3F),
             0,
             self.id as u8,
         ]

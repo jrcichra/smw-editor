@@ -465,7 +465,7 @@ impl UiLevelEditor {
         let mut renderer = self.level_renderer.lock().expect("Cannot lock level_renderer");
         renderer.upload_palette(&self.gl, &self.cpu.mem.cgram);
         renderer.upload_gfx(&self.gl, &self.cpu.mem.vram);
-        renderer.upload_level(&self.gl, &mut self.cpu);
+        renderer.upload_level(&self.gl, &mut self.cpu, &self.rom, self.level_properties.fg_bg_gfx);
         renderer.upload_editable_sprites(
             &self.gl,
             &self.sprites.read(|sprites| sprites.sprites.clone()),
@@ -630,7 +630,7 @@ impl UiLevelEditor {
     /// Re-render the GL tiles from the current WRAM block map.
     fn rebuild_tiles(&mut self) {
         let mut renderer = self.level_renderer.lock().expect("Cannot lock level_renderer");
-        renderer.upload_level(&self.gl, &mut self.cpu);
+        renderer.upload_level(&self.gl, &mut self.cpu, &self.rom, self.level_properties.fg_bg_gfx);
     }
 
     /// Look up the block ID at the given block coordinates by reading

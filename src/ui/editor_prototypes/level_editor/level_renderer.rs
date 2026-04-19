@@ -63,12 +63,12 @@ impl LevelRenderer {
         self.gfx_bufs.upload_palette(gl, data);
     }
 
-    pub(super) fn upload_level(&mut self, gl: &Context, cpu: &mut Cpu) {
+    pub(super) fn upload_level(&mut self, gl: &Context, cpu: &mut Cpu, rom: &smwe_rom::SmwRom, fg_bg_gfx: u8) {
         if self.destroyed {
             return;
         }
-        self.load_layer(gl, cpu, false);
-        self.load_layer(gl, cpu, true);
+        self.load_layer(gl, cpu, rom, fg_bg_gfx, false);
+        self.load_layer(gl, cpu, rom, fg_bg_gfx, true);
     }
 
     /// Build sprite tiles from ROM sprite positions + emulator OAM tile data.
@@ -177,7 +177,7 @@ impl LevelRenderer {
         self.offset = offset;
     }
 
-    fn load_layer(&mut self, gl: &Context, cpu: &mut Cpu, bg: bool) {
+    fn load_layer(&mut self, gl: &Context, cpu: &mut Cpu, rom: &smwe_rom::SmwRom, fg_bg_gfx: u8, bg: bool) {
         let mut tiles = Vec::new();
 
         let map16_bank = cpu.mem.cart.resolve("Map16Common").expect("Cannot resolve Map16Common") & 0xFF0000;
@@ -225,17 +225,34 @@ impl LevelRenderer {
 
             let idx_adj = if bg && !has_layer2 { idx % (16 * 27 * 2) } else { idx };
             let block_id = cpu.mem.load_u8(blocks_lo_addr + idx_adj) as u16
-                | (((cpu.mem.load_u8(blocks_hi_addr + idx_adj) as u16) & 0x01) << 8);
+                | (((cpu.mem.load_u8(blocks_hi_addr + idx_adj) as u16) & 0x3F) << 8);
 
-            let block_ptr = if bg && !has_layer2 {
-                block_id as u32 * 8 + map16_bg
+            // Fetch tiles. Background logic and vanilla (id < 0x200) foreground blocks use legacy emulator pointers
+            if (bg && !has_layer2) || block_id < 0x200 {
+                let block_ptr = if bg && !has_layer2 {
+                    block_id as u32 * 8 + map16_bg
+                } else if block_id >= 0x200 {
+                    get_lm_map16_ptr(cpu, block_id)
+                } else {
+                    cpu.mem.load_u16(0x0FBE + block_id as u32 * 2) as u32 + map16_bank
+                };
+
+                for (tile_id, (off_x, off_y)) in (0..4).zip([(0u32, 0u32), (0, 8), (8, 0), (8, 8)]) {
+                    let tile_id = cpu.mem.load_u16(block_ptr + tile_id * 2);
+                    tiles.push(bg_tile(block_x + off_x, block_y + off_y, tile_id));
+                }
             } else {
-                cpu.mem.load_u16(0x0FBE + block_id as u32 * 2) as u32 + map16_bank
-            };
+                // Extended Lunar Magic map16 blocks (>= 0x200) aren't stored in RAM at 0x0FBE.
+                // Pull directly from the Rom Map16 struct instead.
+                let map16_block = rom.map16_tilesets.get_map16_tile_for_object_tileset(block_id as usize, fg_bg_gfx as usize);
+                let sub_tiles = match map16_block {
+                    Some(b) => [b.upper_left.0, b.lower_left.0, b.upper_right.0, b.lower_right.0],
+                    None => [0x1FF, 0x1FF, 0x1FF, 0x1FF],
+                };
 
-            for (tile_id, (off_x, off_y)) in (0..4).zip([(0u32, 0u32), (0, 8), (8, 0), (8, 8)]) {
-                let tile_id = cpu.mem.load_u16(block_ptr + tile_id * 2);
-                tiles.push(bg_tile(block_x + off_x, block_y + off_y, tile_id));
+                for (tile_id, (off_x, off_y)) in sub_tiles.iter().zip([(0u32, 0u32), (0, 8), (8, 0), (8, 8)]) {
+                    tiles.push(bg_tile(block_x + off_x, block_y + off_y, *tile_id));
+                }
             }
         }
 
@@ -254,6 +271,41 @@ fn bg_tile(x: u32, y: u32, t: u16) -> Tile {
     let pal = (t >> 10) & 0x7;
     let params = scale | (pal << 8) | (t & 0xC000);
     Tile([x, y, tile, params])
+}
+
+fn get_lm_map16_ptr(cpu: &mut Cpu, block_id: u16) -> u32 {
+    let page = (block_id >> 8) as u8;
+    if page < 2 {
+        return 0;
+    }
+    
+    let ranges = [
+        (0x02, 0x0F, 0x06F553, 0x06F557, 0),
+        (0x10, 0x1F, 0x06F55C, 0x06F560, 0),
+        (0x20, 0x2F, 0x06F567, 0x06F56B, 1),
+        (0x30, 0x3F, 0x06F570, 0x06F574, 1),
+        (0x40, 0x4F, 0x06F594, 0x06F598, 0),
+        (0x50, 0x5F, 0x06F59D, 0x06F5A1, 0),
+        (0x60, 0x6F, 0x06F5A8, 0x06F5AC, 1),
+        (0x70, 0x7F, 0x06F5B1, 0x06F5B5, 1),
+    ];
+    
+    for (start, end, lo_addr, bank_addr, add) in ranges {
+        if page >= start && page <= end {
+            let bank = cpu.mem.cart.read(bank_addr).unwrap_or(0);
+            if bank == 0 { break; }
+            let lo_lo = cpu.mem.cart.read(lo_addr).unwrap_or(0);
+            let lo_hi = cpu.mem.cart.read(lo_addr + 1).unwrap_or(0);
+            let lo = ((lo_hi as u32) << 8) | (lo_lo as u32);
+            
+            let base_addr = ((bank as u32) << 16) | lo;
+            let offset = (page as u32 - start as u32) * 0x800 + (block_id as u32 & 0xFF) * 8;
+            return base_addr.wrapping_add(add).wrapping_add(offset);
+        }
+    }
+    
+    // Fallback heuristic for generic Lunar Magic mapping
+    0x0F8000 + (page as u32 - 2) * 0x800 + (block_id as u32 & 0xFF) * 8
 }
 
 fn sp_tile(x: u32, y: u32, t: u16) -> Tile {

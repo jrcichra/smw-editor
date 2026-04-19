@@ -101,7 +101,7 @@ fn render_layer(cpu: &mut Cpu, bg: bool, width: u32, pixels: &mut [u8]) {
 
         let idx_adj = if bg && !has_layer2 { idx % (16 * 27 * 2) } else { idx };
         let block_id = cpu.mem.load_u8(blocks_lo_addr + idx_adj) as u16
-            | (((cpu.mem.load_u8(blocks_hi_addr + idx_adj) as u16) & 0x01) << 8);
+            | (((cpu.mem.load_u8(blocks_hi_addr + idx_adj) as u16) & 0x3F) << 8);
         let block_ptr = if bg && !has_layer2 {
             block_id as u32 * 8 + map16_bg
         } else {
@@ -157,7 +157,7 @@ fn inspect_block(cpu: &mut Cpu, bg: bool, block_x_wanted: u32, block_y_wanted: u
         let idx_adj = if bg && !has_layer2 { idx % (16 * 27 * 2) } else { idx };
         let lo = cpu.mem.load_u8(blocks_lo_addr + idx_adj) as u16;
         let hi_raw = cpu.mem.load_u8(blocks_hi_addr + idx_adj) as u16;
-        let block_id = lo | ((hi_raw & 0x01) << 8);
+        let block_id = lo | ((hi_raw & 0x3F) << 8);
         let block_ptr = if bg && !has_layer2 {
             block_id as u32 * 8 + map16_bg
         } else {

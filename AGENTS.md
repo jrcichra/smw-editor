@@ -23,7 +23,7 @@ this codebase forward without breaking the renderer.
 
 Use these first:
 
-- `../SMWDisX/`
+- `../SMWDisX/` (the vanilla SMW disassembly, useful to check baseline mechanics)
 - `symbols/SMW_U.sym`
 - emulator state in `crates/smwe-emu`
 - renderer code in `crates/smwe-render`
