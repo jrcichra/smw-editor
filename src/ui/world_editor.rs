@@ -250,9 +250,6 @@ impl UiWorldEditor {
         self.needs_center = true;
         self.has_unsavable_changes = false;
         self.source_layer2_words = read_overworld_l2_words(&self.cpu);
-        drop(r);
-        self.overlay_source_layer1_to_vram();
-        self.rebuild_and_upload();
     }
 }
 
