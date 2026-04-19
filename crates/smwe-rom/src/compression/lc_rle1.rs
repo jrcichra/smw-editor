@@ -55,6 +55,14 @@ pub fn decompress(input: &[u8]) -> Result<(Vec<u8>, usize), DecompressionError> 
     }
 
     output.shrink_to_fit();
+    // Advance past the terminator byte(s) so bytes_consumed reflects the true
+    // on-disk size, matching what compress() emits (0xFF 0xFF).
+    if in_it.first() == Some(&0xFF) {
+        in_it = &in_it[1..];
+        if in_it.first() == Some(&0xFF) {
+            in_it = &in_it[1..];
+        }
+    }
     let bytes_consumed = input.len() - in_it.len();
     Ok((output, bytes_consumed))
 }

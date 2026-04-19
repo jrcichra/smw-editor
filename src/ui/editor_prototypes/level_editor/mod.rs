@@ -288,12 +288,6 @@ impl DockableEditorTool for UiLevelEditor {
                 }
                 (Layer2Data::Background(background), _, Some(layer2)) => {
                     let new_bg = layer2.read(|bg| bg.tile_ids.clone());
-                    // If the background tiles are unchanged, skip re-compressing and writing.
-                    // Our compressor may produce larger output than the original, so we must
-                    // not write unedited backgrounds (they would always trigger a repoint).
-                    if new_bg.as_slice() == background.tile_ids() {
-                        // nothing to do
-                    } else {
                     let compressed = lc_rle1::compress(&new_bg);
                     // Background lives at bank $0C with the same 16-bit offset.
                     let old_snes_0c = AddrSnes((l2_raw & 0x00FFFF) | 0x0C0000);
@@ -322,7 +316,6 @@ impl DockableEditorTool for UiLevelEditor {
                     if dest == old_file && compressed.len() < old_size {
                         rom_bytes[dest + compressed.len()..dest + old_size].fill(0xFF);
                     }
-                    } // end else (background was modified)
                 }
                 _ => {}
             }
