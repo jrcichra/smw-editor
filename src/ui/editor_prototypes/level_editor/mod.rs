@@ -472,6 +472,15 @@ impl UiLevelEditor {
                 }
             }
         }
+
+        // Ensure Mario (sprite 0x00) has OAM data even if not in original ROM
+        if !oam_map.contains_key(&0x00) {
+            let tiles = self.compute_sprite_oam_tiles(0x00);
+            if !tiles.is_empty() {
+                oam_map.insert(0x00, tiles);
+            }
+        }
+
         self.sprite_oam_cache = oam_map.clone();
 
         // Upload palette + GFX from the clean post-decompress state, then tiles.
