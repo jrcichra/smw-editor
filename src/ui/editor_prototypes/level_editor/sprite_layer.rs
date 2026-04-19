@@ -43,6 +43,10 @@ impl EditableSpriteLayer {
     pub fn serialize_bytes(&self, vertical_level: bool) -> anyhow::Result<Vec<u8>> {
         let mut out = Vec::with_capacity(self.sprites.len() * 3 + 1);
         for spr in &self.sprites {
+            // Skip editor-only Mario spawn point marker (0xFE)
+            if spr.sprite_id == 0xFE {
+                continue;
+            }
             let (screen, x_tile, y_tile) = sprite_screen_and_local(*spr, vertical_level)?;
             let y_low = (y_tile & 0x0F) << 4;
             let y_high = (y_tile >> 4) & 0x01;

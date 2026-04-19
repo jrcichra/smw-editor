@@ -559,10 +559,12 @@ impl UiLevelEditor {
 
     fn compute_sprite_oam_tiles(&self, sprite_id: u8) -> Vec<SpriteOamTile> {
         let mut cpu_clone = self.cpu.clone();
-        if let Some(tileset) = sprite_catalog::preview_sprite_tileset(sprite_id) {
+        // Use Green Yoshi (0x35) as the visual for Mario spawn point (0xFE)
+        let render_id = if sprite_id == 0xFE { 0x35 } else { sprite_id };
+        if let Some(tileset) = sprite_catalog::preview_sprite_tileset(render_id) {
             smwe_emu::emu::upload_sprite_tileset(&mut cpu_clone, tileset);
         }
-        smwe_emu::emu::sprite_oam_tiles(&mut cpu_clone, sprite_id)
+        smwe_emu::emu::sprite_oam_tiles(&mut cpu_clone, render_id)
     }
 
     pub(super) fn sprite_pixel_bounds(&mut self, sprite_id: u8) -> Option<(i32, i32, i32, i32)> {
@@ -663,7 +665,8 @@ impl UiLevelEditor {
         Some(self.cpu.mem.load_u8(lo_base + idx) as u16 | (((self.cpu.mem.load_u8(hi_base + idx) as u16) & 0x01) << 8))
     }
 
-    /// Position Mario (sprite 0x00) at the level's main entrance.
+    /// Position Mario (editor-only visual marker) at the level's main entrance.
+    /// Uses sprite ID 0xFE as an editor-only placeholder (not saved to ROM).
     fn position_mario_at_entrance(&mut self, is_vertical: bool, level: &Level) {
         let (entrance_x, entrance_y) = level.secondary_header.main_entrance_xy_pos();
         let entrance_screen = level.secondary_header.main_entrance_screen();
@@ -687,9 +690,9 @@ impl UiLevelEditor {
             entrance_y
         };
 
-        // Find or create Mario sprite
+        // Create or update Mario as an editor-only visual marker (0xFE)
         self.sprites.write(|sprites| {
-            if let Some(mario) = sprites.sprites.iter_mut().find(|s| s.sprite_id == 0x00) {
+            if let Some(mario) = sprites.sprites.iter_mut().find(|s| s.sprite_id == 0xFE) {
                 // Move existing Mario to entrance
                 mario.x = abs_x;
                 mario.y = abs_y;
@@ -698,7 +701,7 @@ impl UiLevelEditor {
                 sprites.sprites.insert(0, EditableSprite {
                     x: abs_x,
                     y: abs_y,
-                    sprite_id: 0x00,
+                    sprite_id: 0xFE,
                     extra_bits: 0,
                 });
             }
