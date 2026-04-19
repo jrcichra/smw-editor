@@ -72,7 +72,11 @@ pub fn compress(input: &[u8]) -> Vec<u8> {
     let mut i = 0usize;
     while i < input.len() {
         let run_len = count_run(input, i);
-        if run_len >= 2 {
+        // Use byte-fill only for runs of 3+. A 2-byte run saves nothing over
+        // direct-copy (both cost 2 bytes for the run itself) but forces an
+        // extra chunk header for whatever comes before/after, so it's a net
+        // loss in the common case.
+        if run_len >= 3 {
             let len = run_len.min(128);
             output.push(0x80 | ((len - 1) as u8));
             output.push(input[i]);
@@ -82,7 +86,7 @@ pub fn compress(input: &[u8]) -> Vec<u8> {
             i += 1;
             while i < input.len() {
                 let run = count_run(input, i);
-                if run >= 2 || i - start >= 128 {
+                if run >= 3 || i - start >= 128 {
                     break;
                 }
                 i += 1;
@@ -104,4 +108,62 @@ fn count_run(input: &[u8], start: usize) -> usize {
         len += 1;
     }
     len
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn round_trip(data: &[u8]) {
+        let compressed = compress(data);
+        let (decompressed, bytes_consumed) = decompress(&compressed).expect("decompress failed");
+        assert_eq!(decompressed, data, "round-trip data mismatch");
+        assert_eq!(bytes_consumed, compressed.len(), "bytes_consumed should equal compressed len");
+    }
+
+    #[test]
+    fn round_trip_empty() {
+        round_trip(&[]);
+    }
+
+    #[test]
+    fn round_trip_all_same() {
+        round_trip(&[0xABu8; 200]);
+    }
+
+    #[test]
+    fn round_trip_no_runs() {
+        let data: Vec<u8> = (0u8..=127).collect();
+        round_trip(&data);
+    }
+
+    #[test]
+    fn round_trip_mixed() {
+        // varied bytes with occasional runs — the pattern that exposed the 2-byte-run bug
+        let data = [0x00u8, 0x10, 0x10, 0x20, 0x30, 0x30, 0x30, 0x40, 0x50, 0x50, 0x60];
+        round_trip(&data);
+    }
+
+    #[test]
+    fn two_byte_run_not_inflated() {
+        // [B, A, A, C] — a 2-byte run flanked by varied bytes.
+        // With the old threshold of >=2 this produced 3 chunks (6 bytes + terminator).
+        // With threshold >=3 it folds into one direct-copy (5 bytes + terminator).
+        let data = [0x01u8, 0xAA, 0xAA, 0x02];
+        let compressed = compress(&data);
+        // One direct-copy chunk header + 4 bytes + 2-byte terminator = 7 bytes.
+        assert_eq!(compressed.len(), 7, "2-byte run should not break into a separate fill chunk");
+        round_trip(&data);
+    }
+
+    #[test]
+    fn three_byte_run_uses_fill() {
+        // A run of 3+ should still use the more compact byte-fill encoding.
+        let data = [0x01u8, 0xAA, 0xAA, 0xAA, 0x02];
+        let compressed = compress(&data);
+        // Expect: [0x00, 0x01] direct-copy B + [0x82, 0xAA] fill 3 + [0x00, 0x02] direct-copy C + terminator
+        // = 2 + 2 + 2 + 2 = 8 bytes
+        assert_eq!(compressed.len(), 8);
+        round_trip(&data);
+    }
 }
