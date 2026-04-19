@@ -177,8 +177,13 @@ impl UiLevelEditor {
             let shift_held = ui.input(|i| i.modifiers.shift);
             let primary_down = ui.input(|i| i.pointer.primary_down());
 
-            if is_hovering && shift_held && primary_down {
+            // Start drag when shift+click on M
+            if is_hovering && shift_held && ui.input(|i| i.pointer.primary_pressed()) {
                 self.dragging_spawn = true;
+            }
+
+            // Continue dragging while shift+primary held, update from pointer
+            if self.dragging_spawn && shift_held && primary_down {
                 if let Some(pointer_pos) = ui.input(|i| i.pointer.latest_pos()) {
                     let local_pos = pointer_pos - origin;
                     let tile_x = (local_pos.x / tile_sz).max(0.0) as u32;
@@ -186,7 +191,8 @@ impl UiLevelEditor {
                     let is_vertical = self.level_properties.is_vertical;
                     self.update_spawn_from_tiles(tile_x, tile_y, is_vertical);
                 }
-            } else {
+            } else if !primary_down {
+                // End drag when mouse released
                 self.dragging_spawn = false;
             }
         }
