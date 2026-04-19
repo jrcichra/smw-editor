@@ -173,11 +173,12 @@ impl UiLevelEditor {
                 spawn_color,
             );
 
-            // Handle dragging the spawn point (Shift+drag)
-            let shift_held = ui.input(|i| i.modifiers.shift_only());
-            if is_hovering && shift_held && resp.dragged_by(egui::PointerButton::Primary) {
+            // Handle dragging the spawn point (Shift+click+drag on M)
+            let shift_held = ui.input(|i| i.modifiers.shift);
+            let primary_down = ui.input(|i| i.pointer.primary_down());
+
+            if is_hovering && shift_held && primary_down {
                 self.dragging_spawn = true;
-                // Get mouse position from input
                 if let Some(pointer_pos) = ui.input(|i| i.pointer.latest_pos()) {
                     let local_pos = pointer_pos - origin;
                     let tile_x = (local_pos.x / tile_sz).max(0.0) as u32;
