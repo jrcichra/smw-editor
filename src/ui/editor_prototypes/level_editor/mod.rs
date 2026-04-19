@@ -475,9 +475,9 @@ impl UiLevelEditor {
 
         // Ensure Mario spawn marker (0xFF) has OAM data
         if !oam_map.contains_key(&0xFF) {
-            // Use Green Koopa (0x04) graphics for Mario spawn point
-            let tiles = self.compute_sprite_oam_tiles(0x04);
-            log::info!("Mario spawn marker (0xFF): computed {} OAM tiles from sprite 0x04", tiles.len());
+            // Use Koopa Kid (0x29) graphics for Mario spawn point - it has reliable OAM data
+            let tiles = self.compute_sprite_oam_tiles(0x29);
+            log::info!("Mario spawn marker (0xFF): computed {} OAM tiles from sprite 0x29", tiles.len());
             if !tiles.is_empty() {
                 oam_map.insert(0xFF, tiles);
             }
