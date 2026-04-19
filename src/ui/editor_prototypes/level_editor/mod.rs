@@ -490,12 +490,6 @@ impl UiLevelEditor {
         renderer.upload_gfx(&self.gl, &self.cpu.mem.vram);
         renderer.upload_level(&self.gl, &mut self.cpu, &self.rom, self.level_properties.fg_bg_gfx);
         let sprite_list = self.sprites.read(|sprites| sprites.sprites.clone());
-        log::info!("Uploading {} sprites to renderer. OAM map has entries for: {:?}",
-            sprite_list.len(),
-            oam_map.keys().collect::<Vec<_>>());
-        for (i, spr) in sprite_list.iter().enumerate() {
-            log::info!("  Sprite {}: ID=0x{:02X}, pos=({},{})", i, spr.sprite_id, spr.x, spr.y);
-        }
         renderer.upload_editable_sprites(
             &self.gl,
             &sprite_list,
