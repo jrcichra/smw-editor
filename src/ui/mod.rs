@@ -113,6 +113,9 @@ impl eframe::App for UiMainWindow {
         }
 
         DockArea::new(&mut self.dock_state).style(self.dock_style.clone()).show(ctx, &mut EditorToolTabViewer);
+
+        // Check if any level editor is requesting a save
+        self.check_for_save_requests();
     }
 }
 
@@ -318,5 +321,23 @@ impl UiMainWindow {
             data.insert_temp(Project::rom_id(), Arc::clone(&project.rom));
         });
         Ok(())
+    }
+
+    fn check_for_save_requests(&mut self) {
+        let mut should_save = false;
+        for (_, tab) in self.dock_state.iter_all_tabs_mut() {
+            if tab.take_save_request() {
+                should_save = true;
+            }
+        }
+        if should_save {
+            if let Some(path) = &self.rom_path.clone() {
+                if let Err(e) = self.write_rom_to_path(path, path) {
+                    self.save_error = Some(format!("Save failed: {e}"));
+                } else {
+                    log::info!("Saved ROM to {}", path.display());
+                }
+            }
+        }
     }
 }

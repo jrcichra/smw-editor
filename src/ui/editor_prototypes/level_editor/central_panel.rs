@@ -401,6 +401,7 @@ impl UiLevelEditor {
                     ui.separator();
                     ui.horizontal(|ui| {
                         if ui.button("💾 Save").clicked() {
+                            self.request_rom_save = true;
                             if let Some(new_level) = self.pending_level_num {
                                 self.level_num = new_level;
                                 self.load_level();

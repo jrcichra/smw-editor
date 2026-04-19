@@ -94,6 +94,7 @@ pub struct UiLevelEditor {
     show_unsaved_dialog: bool,
     pending_level_num: Option<u16>,
     has_edits: bool,
+    request_rom_save: bool,
 }
 
 impl UiLevelEditor {
@@ -151,6 +152,7 @@ impl UiLevelEditor {
             show_unsaved_dialog: false,
             pending_level_num: None,
             has_edits: false,
+            request_rom_save: false,
         };
         editor.load_level();
         Ok(editor)
@@ -716,6 +718,11 @@ impl UiLevelEditor {
     /// Check if there are unsaved changes
     pub(super) fn has_unsaved_changes(&self) -> bool {
         self.has_edits
+    }
+
+    /// Check if a ROM save was requested (and clear the flag)
+    pub fn take_save_request(&mut self) -> bool {
+        std::mem::take(&mut self.request_rom_save)
     }
 
     /// Position Mario (editor-only visual marker) at the level's main entrance.
