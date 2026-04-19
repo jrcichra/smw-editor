@@ -52,3 +52,4 @@ serde_json = "1.0"
 shrinkwraprs = "0.3"
 thiserror = "1.0"
 zstd = { version = "0.13", features = ["experimental"] }
+egui-file-dialog = "0.5.0"

@@ -16,6 +16,7 @@ use anyhow::Context as _;
 use eframe::{CreationContext, Frame};
 use egui::*;
 use egui_dock::{DockArea, DockState, Style as DockStyle};
+use egui_file_dialog::FileDialog;
 use egui_phosphor::Variant;
 use smwe_rom::SmwRom;
 
@@ -44,8 +45,8 @@ pub struct UiMainWindow {
     save_error: Option<String>,
     /// True when a ROM was pre-loaded at startup and we still need to open the default editor tab.
     pending_initial_editor: bool,
-    /// When Some, show the egui "Save As" dialog with the contained path string.
-    save_as_dialog: Option<String>,
+    /// Full in-egui file dialog for Save As.
+    save_as_dialog: FileDialog,
 }
 
 impl UiMainWindow {
@@ -78,7 +79,7 @@ impl UiMainWindow {
             rom_path,
             save_error: None,
             pending_initial_editor,
-            save_as_dialog: None,
+            save_as_dialog: FileDialog::new(),
         }
     }
 }
@@ -192,55 +193,28 @@ impl UiMainWindow {
     }
 
     fn save_rom_as(&mut self) {
-        // Populate the dialog with the current path as a starting suggestion.
-        let initial = self
+        let initial_dir = self
             .rom_path
             .as_deref()
-            .and_then(|p| p.to_str())
-            .unwrap_or("")
-            .to_string();
-        self.save_as_dialog = Some(initial);
+            .and_then(|p| p.parent())
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."));
+        let initial_name = self
+            .rom_path
+            .as_deref()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "output.smc".to_string());
+
+        self.save_as_dialog = FileDialog::new()
+            .initial_directory(initial_dir)
+            .default_file_name(&initial_name);
+        self.save_as_dialog.save_file();
     }
 
     fn show_save_as_dialog(&mut self, ctx: &Context) {
-        let Some(ref mut path_str) = self.save_as_dialog else {
-            return;
-        };
-
-        let mut open = true;
-        let mut confirmed = false;
-        let mut cancelled = false;
-
-        Window::new("Save ROM As")
-            .collapsible(false)
-            .resizable(false)
-            .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
-            .open(&mut open)
-            .show(ctx, |ui| {
-                ui.label("Destination path:");
-                let response = ui.add(
-                    TextEdit::singleline(path_str)
-                        .desired_width(400.0)
-                        .hint_text("/path/to/output.smc"),
-                );
-                // Auto-focus the text field on first show.
-                response.request_focus();
-
-                ui.horizontal(|ui| {
-                    if ui.button("Save").clicked()
-                        || (ui.input(|i| i.key_pressed(Key::Enter)) && !path_str.is_empty())
-                    {
-                        confirmed = true;
-                    }
-                    if ui.button("Cancel").clicked() {
-                        cancelled = true;
-                    }
-                });
-            });
-
-        if confirmed {
-            let dest = PathBuf::from(path_str.clone());
-            self.save_as_dialog = None;
+        self.save_as_dialog.update(ctx);
+        if let Some(dest) = self.save_as_dialog.take_selected() {
             let Some(src) = self.rom_path.clone() else {
                 return;
             };
@@ -255,8 +229,6 @@ impl UiMainWindow {
                 }
                 Err(e) => self.save_error = Some(format!("Save As failed: {e}")),
             }
-        } else if !open || cancelled {
-            self.save_as_dialog = None;
         }
     }
 
