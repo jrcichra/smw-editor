@@ -76,6 +76,24 @@ jobs:
 
           cp AppDir/usr/share/applications/smw-editor.desktop AppDir/smw-editor.desktop
 
+          # Generate a minimal 256x256 PNG icon (solid colour, no extra deps).
+          python3 - <<'PYEOF'
+          import struct, zlib
+          def png_chunk(tag, data):
+              c = zlib.crc32(tag + data) & 0xFFFFFFFF
+              return struct.pack('>I', len(data)) + tag + data + struct.pack('>I', c)
+          w = h = 256
+          sig = b'\x89PNG\r\n\x1a\n'
+          ihdr = png_chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0))
+          raw = b''
+          for _ in range(h):
+              raw += b'\x00' + b'\x22\x55\xaa' * w  # filter byte + RGB pixels
+          idat = png_chunk(b'IDAT', zlib.compress(raw, 9))
+          iend = png_chunk(b'IEND', b'')
+          with open('AppDir/smw-editor.png', 'wb') as f:
+              f.write(sig + ihdr + idat + iend)
+          PYEOF
+
           printf '#!/bin/sh\nHERE="$(dirname "$(readlink -f "$0")")"\nexport LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"\nexec "${HERE}/usr/bin/smw-editor" "$@"\n' > AppDir/AppRun
           chmod +x AppDir/AppRun
 
