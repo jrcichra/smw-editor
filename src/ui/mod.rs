@@ -2,7 +2,6 @@ mod dev_utils;
 mod editing_mode;
 mod editor_prototypes;
 mod ow_tile_picker;
-mod project_creator;
 mod style;
 mod tab_viewer;
 mod tool;
@@ -27,7 +26,6 @@ use crate::{
         editor_prototypes::{
             block_editor::UiBlockEditor, level_editor::UiLevelEditor, sprite_map_editor::UiSpriteMapEditor,
         },
-        project_creator::UiProjectCreator,
         tab_viewer::EditorToolTabViewer,
         tool::DockableEditorTool,
         world_editor::UiWorldEditor,
@@ -36,7 +34,6 @@ use crate::{
 
 pub struct UiMainWindow {
     gl: Arc<glow::Context>,
-    project_creator: Option<UiProjectCreator>,
     dock_style: DockStyle,
     dock_state: DockState<Box<dyn DockableEditorTool>>,
     /// Path of the currently-open ROM (for Save).
@@ -45,7 +42,9 @@ pub struct UiMainWindow {
     save_error: Option<String>,
     /// True when a ROM was pre-loaded at startup and we still need to open the default editor tab.
     pending_initial_editor: bool,
-    /// Full in-egui file dialog for Save As.
+    /// In-egui file dialog for Open ROM.
+    open_dialog: FileDialog,
+    /// In-egui file dialog for Save As.
     save_as_dialog: FileDialog,
 }
 
@@ -73,12 +72,12 @@ impl UiMainWindow {
 
         Self {
             gl: Arc::clone(cc.gl.as_ref().expect("must use the glow renderer")),
-            project_creator: None,
             dock_style,
             dock_state: DockState::new(vec![]),
             rom_path,
             save_error: None,
             pending_initial_editor,
+            open_dialog: FileDialog::new(),
             save_as_dialog: FileDialog::new(),
         }
     }
@@ -91,7 +90,7 @@ impl eframe::App for UiMainWindow {
         // Open the level editor automatically whenever a ROM just became available
         // and there are no tabs yet (startup pre-load OR direct recent-file click).
         if self.pending_initial_editor
-            || (rom.is_some() && self.dock_state.iter_all_tabs().count() == 0 && self.project_creator.is_none())
+            || (rom.is_some() && self.dock_state.iter_all_tabs().count() == 0)
         {
             self.pending_initial_editor = false;
             if let Some(ref rom) = rom {
@@ -105,6 +104,9 @@ impl eframe::App for UiMainWindow {
 
         // Menu bar always on top.
         self.main_menu_bar(ctx, rom.as_ref());
+
+        // Open dialog.
+        self.show_open_dialog(ctx);
 
         // Save As dialog (egui-native, no native file picker needed).
         self.show_save_as_dialog(ctx);
@@ -126,38 +128,18 @@ impl eframe::App for UiMainWindow {
         // Welcome / splash when no ROM is open and no tabs.
         if rom.is_none() && self.dock_state.iter_all_tabs().count() == 0 {
             CentralPanel::default().show(ctx, |ui| {
-                welcome::draw_welcome(ui, &mut self.project_creator);
+                let mut open_requested = false;
+                welcome::draw_welcome(ui, &mut open_requested);
+                if open_requested {
+                    self.open_dialog = FileDialog::new();
+                    self.open_dialog.select_file();
+                }
             });
         } else {
             CentralPanel::default().show(ctx, |_ui| {});
         }
 
         DockArea::new(&mut self.dock_state).style(self.dock_style.clone()).show(ctx, &mut EditorToolTabViewer);
-
-        // Project creator dialog.
-        if let Some(project_creator) = &mut self.project_creator {
-            // project_creator.update() already opens a Window internally — no CentralPanel needed.
-            let still_open = project_creator.update_ctx(ctx);
-            if !still_open {
-                // If a ROM was just loaded, grab its path and auto-open level editor.
-                let new_rom: Option<Arc<SmwRom>> = ctx.data(|d| d.get_temp(Id::new("rom")));
-                if let Some(rom) = new_rom {
-                    if self.rom_path.is_none() {
-                        // First load — open the level editor automatically.
-                        let path: Option<String> = ctx.data(|d| d.get_temp(Id::new("rom_path")));
-                        if let Some(p) = path {
-                            self.rom_path = Some(PathBuf::from(p));
-                        }
-                        let path = self.rom_path.clone().unwrap_or_default();
-                        match UiLevelEditor::new(Arc::clone(&self.gl), Arc::clone(&rom), path) {
-                            Ok(editor) => self.open_tool(editor),
-                            Err(e) => self.save_error = Some(format!("Failed to open level editor: {e}")),
-                        }
-                    }
-                }
-                self.project_creator = None;
-            }
-        }
     }
 }
 
@@ -168,6 +150,32 @@ impl UiMainWindow {
     {
         log::info!("Opened {}", tool.title().text());
         self.dock_state.push_to_focused_leaf(Box::new(tool));
+    }
+
+    fn show_open_dialog(&mut self, ctx: &Context) {
+        self.open_dialog.update(ctx);
+        if let Some(path) = self.open_dialog.take_selected() {
+            self.load_rom_from_path(ctx, path);
+        }
+    }
+
+    fn load_rom_from_path(&mut self, ctx: &Context, path: PathBuf) {
+        match Project::new(&path) {
+            Ok(project) => {
+                Project::add_to_recent(&path);
+                ctx.data_mut(|data| {
+                    data.insert_temp(Project::project_title_id(), project.title.clone());
+                    data.insert_temp(Project::rom_id(), Arc::clone(&project.rom));
+                });
+                self.rom_path = Some(path.clone());
+                let rom: Arc<SmwRom> = Arc::clone(&project.rom);
+                match UiLevelEditor::new(Arc::clone(&self.gl), rom, path) {
+                    Ok(editor) => self.open_tool(editor),
+                    Err(e) => self.save_error = Some(format!("Failed to open level editor: {e}")),
+                }
+            }
+            Err(e) => self.save_error = Some(format!("Failed to open ROM: {e}")),
+        }
     }
 
     fn save_rom(&mut self, ctx: &Context) {
@@ -245,7 +253,8 @@ impl UiMainWindow {
                 // ── File ──
                 ui.menu_button("File", |ui| {
                     if ui.button("Open ROM...").clicked() {
-                        self.project_creator = Some(UiProjectCreator::default());
+                        self.open_dialog = FileDialog::new();
+                        self.open_dialog.select_file();
                         ui.close_menu();
                     }
                     ui.add_enabled_ui(has_rom, |ui| {
