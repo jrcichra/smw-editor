@@ -44,6 +44,10 @@ pub struct UiMainWindow {
     open_dialog: FileDialog,
     /// In-egui file dialog for Save As.
     save_as_dialog: FileDialog,
+    /// In-egui file dialog for BPS patch export.
+    bps_export_dialog: FileDialog,
+    /// In-egui file dialog for IPS patch export.
+    ips_export_dialog: FileDialog,
     /// Set when user tries to close the app with unsaved changes
     show_exit_dialog: bool,
 }
@@ -66,6 +70,8 @@ impl UiMainWindow {
             save_error: None,
             open_dialog: FileDialog::new(),
             save_as_dialog: FileDialog::new(),
+            bps_export_dialog: FileDialog::new(),
+            ips_export_dialog: FileDialog::new(),
             show_exit_dialog: false,
         }
     }
@@ -90,6 +96,12 @@ impl eframe::App for UiMainWindow {
 
         // Save As dialog (egui-native, no native file picker needed).
         self.show_save_as_dialog(ctx);
+
+        // BPS export dialog.
+        self.show_bps_export_dialog(ctx, rom.as_ref());
+
+        // IPS export dialog.
+        self.show_ips_export_dialog(ctx, rom.as_ref());
 
         // Save error toast.
         if let Some(err) = &self.save_error.clone() {
@@ -240,6 +252,46 @@ impl UiMainWindow {
         self.save_as_dialog.save_file();
     }
 
+    fn export_bps_patch(&mut self) {
+        let initial_dir = self
+            .rom_path
+            .as_deref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."));
+        let initial_name = self
+            .rom_path
+            .as_deref()
+            .and_then(|p| p.file_stem())
+            .map(|n| format!("{}.bps", n.to_string_lossy()))
+            .unwrap_or_else(|| "output.bps".to_string());
+
+        self.bps_export_dialog = FileDialog::new()
+            .initial_directory(initial_dir)
+            .default_file_name(&initial_name);
+        self.bps_export_dialog.save_file();
+    }
+
+    fn export_ips_patch(&mut self) {
+        let initial_dir = self
+            .rom_path
+            .as_deref()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."));
+        let initial_name = self
+            .rom_path
+            .as_deref()
+            .and_then(|p| p.file_stem())
+            .map(|n| format!("{}.ips", n.to_string_lossy()))
+            .unwrap_or_else(|| "output.ips".to_string());
+
+        self.ips_export_dialog = FileDialog::new()
+            .initial_directory(initial_dir)
+            .default_file_name(&initial_name);
+        self.ips_export_dialog.save_file();
+    }
+
     fn show_save_as_dialog(&mut self, ctx: &Context) {
         self.save_as_dialog.update(ctx);
         if let Some(dest) = self.save_as_dialog.take_selected() {
@@ -258,6 +310,102 @@ impl UiMainWindow {
                 Err(e) => self.save_error = Some(format!("Save As failed: {e}")),
             }
         }
+    }
+
+    fn show_bps_export_dialog(&mut self, ctx: &Context, rom: Option<&Arc<SmwRom>>) {
+        self.bps_export_dialog.update(ctx);
+        if let Some(patch_dest) = self.bps_export_dialog.take_selected() {
+            let Some(rom) = rom else {
+                self.save_error = Some("No ROM loaded.".into());
+                return;
+            };
+            let Some(src) = self.rom_path.clone() else {
+                self.save_error = Some("No ROM path — open a ROM first.".into());
+                return;
+            };
+
+            match self.create_bps_patch(&rom, &src, &patch_dest) {
+                Ok(_) => {
+                    log::info!("Exported BPS patch to {}", patch_dest.display());
+                }
+                Err(e) => self.save_error = Some(format!("BPS export failed: {e}")),
+            }
+        }
+    }
+
+    fn create_bps_patch(
+        &self,
+        rom: &Arc<SmwRom>,
+        original_rom_path: &std::path::Path,
+        patch_dest: &std::path::Path,
+    ) -> anyhow::Result<()> {
+        // Read the original ROM to generate patch against it
+        let original_bytes = std::fs::read(original_rom_path)
+            .with_context(|| format!("Failed to read original ROM from {}", original_rom_path.display()))?;
+
+        // Create the modified ROM (with all current edits applied)
+        let mut modified_bytes = original_bytes.clone();
+        let has_smc_header = modified_bytes.len() % 0x400 == 0x200;
+        for (_, tab) in self.dock_state.iter_all_tabs() {
+            tab.save_to_rom(&mut modified_bytes, has_smc_header)?;
+        }
+
+        // Create BPS patch
+        let patch = rom.create_bps_patch(&original_bytes)?;
+
+        // Write patch to file
+        std::fs::write(patch_dest, patch)
+            .with_context(|| format!("Failed to write BPS patch to {}", patch_dest.display()))?;
+
+        Ok(())
+    }
+
+    fn show_ips_export_dialog(&mut self, ctx: &Context, rom: Option<&Arc<SmwRom>>) {
+        self.ips_export_dialog.update(ctx);
+        if let Some(patch_dest) = self.ips_export_dialog.take_selected() {
+            let Some(rom) = rom else {
+                self.save_error = Some("No ROM loaded.".into());
+                return;
+            };
+            let Some(src) = self.rom_path.clone() else {
+                self.save_error = Some("No ROM path — open a ROM first.".into());
+                return;
+            };
+
+            match self.create_ips_patch(&rom, &src, &patch_dest) {
+                Ok(_) => {
+                    log::info!("Exported IPS patch to {}", patch_dest.display());
+                }
+                Err(e) => self.save_error = Some(format!("IPS export failed: {e}")),
+            }
+        }
+    }
+
+    fn create_ips_patch(
+        &self,
+        rom: &Arc<SmwRom>,
+        original_rom_path: &std::path::Path,
+        patch_dest: &std::path::Path,
+    ) -> anyhow::Result<()> {
+        // Read the original ROM to generate patch against it
+        let original_bytes = std::fs::read(original_rom_path)
+            .with_context(|| format!("Failed to read original ROM from {}", original_rom_path.display()))?;
+
+        // Create the modified ROM (with all current edits applied)
+        let mut modified_bytes = original_bytes.clone();
+        let has_smc_header = modified_bytes.len() % 0x400 == 0x200;
+        for (_, tab) in self.dock_state.iter_all_tabs() {
+            tab.save_to_rom(&mut modified_bytes, has_smc_header)?;
+        }
+
+        // Create IPS patch
+        let patch = rom.create_ips_patch(&original_bytes)?;
+
+        // Write patch to file
+        std::fs::write(patch_dest, patch)
+            .with_context(|| format!("Failed to write IPS patch to {}", patch_dest.display()))?;
+
+        Ok(())
     }
 
     fn main_menu_bar(&mut self, ctx: &Context, rom: Option<&Arc<SmwRom>>) {
@@ -285,6 +433,15 @@ impl UiMainWindow {
                         }
                         if ui.button("Save ROM As...").clicked() {
                             self.save_rom_as();
+                            ui.close_menu();
+                        }
+                        ui.separator();
+                        if ui.button("Export BPS Patch...").clicked() {
+                            self.export_bps_patch();
+                            ui.close_menu();
+                        }
+                        if ui.button("Export IPS Patch...").clicked() {
+                            self.export_ips_patch();
                             ui.close_menu();
                         }
                     });

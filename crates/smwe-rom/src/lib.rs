@@ -120,4 +120,50 @@ impl SmwRom {
         f.write_all(&bytes)?;
         Ok(())
     }
+
+    /// Create a BPS patch from the original ROM to the current modified ROM
+    ///
+    /// Takes the original ROM bytes and generates a binary patch that can be applied
+    /// with tools like Flips. This is useful for distributing ROM hacks without
+    /// shipping the full ROM file.
+    pub fn create_bps_patch(&self, original_rom: &[u8]) -> anyhow::Result<Vec<u8>> {
+        let modified_rom = self.disassembly.rom.0.to_vec();
+        let config = smwe_bps::BpsConfig::default();
+        let patch = smwe_bps::create_patch(original_rom, &modified_rom, config)?;
+        Ok(patch)
+    }
+
+    /// Create a BPS patch from the original ROM with metadata
+    ///
+    /// The metadata should be valid UTF-8 XML following the BPS specification.
+    /// Example metadata structure:
+    /// ```xml
+    /// <?xml version="1.0" encoding="UTF-8"?>
+    /// <patch>
+    ///   <name>My Level Hack</name>
+    ///   <author>Your Name</author>
+    ///   <description>A description of your ROM hack</description>
+    /// </patch>
+    /// ```
+    pub fn create_bps_patch_with_metadata(
+        &self,
+        original_rom: &[u8],
+        metadata: Vec<u8>,
+    ) -> anyhow::Result<Vec<u8>> {
+        let modified_rom = self.disassembly.rom.0.to_vec();
+        let config = smwe_bps::BpsConfig { metadata };
+        let patch = smwe_bps::create_patch(original_rom, &modified_rom, config)?;
+        Ok(patch)
+    }
+
+    /// Create an IPS patch from the original ROM to the current modified ROM
+    ///
+    /// IPS format is simpler and older than BPS but limited to 16MB files.
+    /// This is still suitable for SMW ROM hacks. The patch can be applied
+    /// with Flips or other ROM patching tools.
+    pub fn create_ips_patch(&self, original_rom: &[u8]) -> anyhow::Result<Vec<u8>> {
+        let modified_rom = self.disassembly.rom.0.to_vec();
+        let patch = smwe_ips::create_patch(original_rom, &modified_rom)?;
+        Ok(patch)
+    }
 }

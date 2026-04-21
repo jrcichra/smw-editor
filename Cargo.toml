@@ -8,6 +8,8 @@ members = [
     "crates/smwe-render",
     "crates/smwe-rom",
     "crates/smwe-widgets",
+    "crates/smwe-bps",
+    "crates/smwe-ips",
     "crates/wdc65816",
     "crates/smwe-emu",
 ]

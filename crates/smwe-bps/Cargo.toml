@@ -1,0 +1,10 @@
+[package]
+name = "smwe-bps"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+crc = "3.0"
+thiserror = "1.0"
+
+[dev-dependencies]

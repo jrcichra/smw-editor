@@ -9,6 +9,8 @@ rust-version = "1.70"
 
 [dependencies]
 smwe-render = { path = "../smwe-render" }
+smwe-bps = { path = "../smwe-bps" }
+smwe-ips = { path = "../smwe-ips" }
 
 anyhow = "1.0"
 duplicate = "1.0"
