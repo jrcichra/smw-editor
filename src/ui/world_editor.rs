@@ -175,6 +175,7 @@ pub struct UiWorldEditor {
     pub(super) draw_palette: u8,
     pub(super) draw_tile_attr: u8,
     pub(super) tile_picker: crate::ui::ow_tile_picker::OwTilePicker,
+    pub(super) l1_tile_picker: crate::ui::ow_tile_picker::OwL1TilePicker,
     pub(super) edit_layer: u8, // 1 or 2
     preview_texture: Option<egui::TextureHandle>,
     preview_for: Option<(u32, u32)>,
@@ -212,6 +213,7 @@ impl UiWorldEditor {
             draw_palette: 0,
             draw_tile_attr: 0x00,
             tile_picker: crate::ui::ow_tile_picker::OwTilePicker::new(),
+            l1_tile_picker: crate::ui::ow_tile_picker::OwL1TilePicker::new(),
             edit_layer: 1,
             preview_texture: None,
             preview_for: None,
@@ -242,8 +244,9 @@ impl UiWorldEditor {
 
         r.set_tiles(&self.gl, l1, l2);
 
-        // Rebuild the tile picker from current VRAM
+        // Rebuild the tile pickers from current VRAM
         self.tile_picker.rebuild(&self.cpu.mem.vram, &self.cpu.mem.cgram, VRAM_L1_TILEMAP_BASE, VRAM_L2_TILEMAP_BASE);
+        self.l1_tile_picker.rebuild(&mut self.cpu);
 
         self.offset = Vec2::ZERO;
         self.selected_tile = None;
@@ -490,7 +493,37 @@ impl UiWorldEditor {
                             .rect_stroke(sel_rect, egui::Rounding::ZERO, egui::Stroke::new(2.0, Color32::YELLOW));
                     }
                 } else {
-                    ui.small("Layer 1 now edits ROM-backed overworld tile IDs.");
+                    // Visual L1 tile picker grid
+                    let tex = self.l1_tile_picker.texture(ui.ctx());
+                    let tex_size = tex.size();
+                    let max_w = ui.available_width().min(300.0);
+                    let (rect, resp) = ui.allocate_exact_size(vec2(max_w, max_w), egui::Sense::click());
+                    ui.painter().image(
+                        tex.id(),
+                        rect,
+                        Rect::from_min_size(egui::pos2(0.0, 0.0), vec2(1.0, 1.0)),
+                        Color32::WHITE,
+                    );
+                    if resp.clicked_by(egui::PointerButton::Primary) {
+                        if let Some(pos) = resp.interact_pointer_pos() {
+                            let rel = pos - rect.min;
+                            let px = rel.x / max_w * tex_size[0] as f32;
+                            let py = rel.y / max_w * tex_size[1] as f32;
+                            if let Some(tile_id) = self.l1_tile_picker.block_at_pixel(px, py) {
+                                self.draw_tile_num = tile_id;
+                                self.preview_texture = None; // Invalidate preview cache
+                            }
+                        }
+                    }
+                    // Selection highlight
+                    let (col, row) = self.l1_tile_picker.block_grid_pos(self.draw_tile_num);
+                    let tile_screen = max_w / crate::ui::ow_tile_picker::L1_COLS as f32;
+                    let sel_rect = Rect::from_min_size(
+                        rect.min + vec2(col as f32 * tile_screen, row as f32 * tile_screen),
+                        vec2(tile_screen, tile_screen),
+                    );
+                    ui.painter()
+                        .rect_stroke(sel_rect, egui::Rounding::ZERO, egui::Stroke::new(2.0, Color32::YELLOW));
                 }
             }
 
