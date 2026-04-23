@@ -658,7 +658,7 @@ impl UiWorldEditor {
             self.offset += resp.drag_delta() / self.zoom;
         }
 
-        let scroll = ui.input(|i| i.raw_scroll_delta.y);
+        let scroll = ui.input(|i| i.smooth_scroll_delta.y);
         if scroll != 0.0 && resp.hovered() {
             let factor = 1.0 + scroll * 0.001;
             self.zoom = (self.zoom * factor).clamp(0.25, 16.0);
