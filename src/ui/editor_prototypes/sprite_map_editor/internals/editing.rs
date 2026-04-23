@@ -1,4 +1,4 @@
-use egui::{PlatformOutput, Pos2, Vec2};
+use egui::{Pos2, Vec2};
 use smwe_math::coordinates::*;
 use smwe_widgets::vram_view::VramSelectionMode;
 
@@ -20,12 +20,12 @@ impl UiSpriteMapEditor {
         self.upload_tiles();
     }
 
-    pub(in super::super) fn handle_copy(&mut self, output: &mut PlatformOutput) {
-        self.copy_selected_tiles(output);
+    pub(in super::super) fn handle_copy(&mut self, ctx: &egui::Context) {
+        self.copy_selected_tiles(ctx);
     }
 
-    pub(in super::super) fn handle_cut(&mut self, output: &mut PlatformOutput) {
-        self.handle_copy(output);
+    pub(in super::super) fn handle_cut(&mut self, ctx: &egui::Context) {
+        self.handle_copy(ctx);
         self.delete_selected_tiles();
     }
 

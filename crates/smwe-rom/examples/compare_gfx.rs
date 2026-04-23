@@ -27,7 +27,7 @@ fn main() {
         }
     }
     
-    if let (Some(f0), Some(f1c)) = (rom.gfx.files.get(0x00), rom.gfx.files.get(0x1C)) {
+    if let (Some(f0), Some(f1c)) = (rom.gfx.files.first(), rom.gfx.files.get(0x1C)) {
         let same = f0.tiles.len() == f1c.tiles.len() && 
             f0.tiles.iter().zip(f1c.tiles.iter())
                 .all(|(a,b)| a.color_indices == b.color_indices);

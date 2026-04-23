@@ -139,14 +139,14 @@ impl EditableObjectLayer {
             if target_screen != current_screen {
                 if target_screen == current_screen.saturating_add(1) {
                     current_screen = target_screen;
-                    bytes.extend_from_slice(&obj.to_raw_bytes(true, raw_x, raw_y));
+                    bytes.extend_from_slice(&obj.raw_bytes(true, raw_x, raw_y));
                 } else {
                     bytes.extend_from_slice(&screen_jump_bytes(target_screen));
                     current_screen = target_screen;
-                    bytes.extend_from_slice(&obj.to_raw_bytes(false, raw_x, raw_y));
+                    bytes.extend_from_slice(&obj.raw_bytes(false, raw_x, raw_y));
                 }
             } else {
-                bytes.extend_from_slice(&obj.to_raw_bytes(false, raw_x, raw_y));
+                bytes.extend_from_slice(&obj.raw_bytes(false, raw_x, raw_y));
             }
         }
 
@@ -182,7 +182,7 @@ impl EditableObject {
         }
     }
 
-    fn to_raw_bytes(&self, new_screen: bool, raw_x: u8, raw_y: u8) -> [u8; 3] {
+    fn raw_bytes(&self, new_screen: bool, raw_x: u8, raw_y: u8) -> [u8; 3] {
         if self.is_extended {
             [(u8::from(new_screen) << 7) | (raw_y & 0x1F), raw_x & 0x0F, self.extended_id]
         } else {
@@ -209,43 +209,6 @@ impl EditableExit {
 fn screen_jump_bytes(screen: u8) -> [u8; 3] {
     [screen & 0x1F, 0, 1]
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{EditableExit, EditableObject, EditableObjectLayer};
-
-    #[test]
-    fn serializes_horizontal_objects_and_exits() {
-        let layer = EditableObjectLayer {
-            objects: vec![
-                EditableObject { x: 0, y: 0, id: 0x12, settings: 0x34, is_extended: false, extended_id: 0 },
-                EditableObject { x: 17, y: 5, id: 0x2F, settings: 0x56, is_extended: false, extended_id: 0 },
-            ],
-            exits: vec![EditableExit { screen: 3, midway: false, secondary: false, id: 0x0123 }],
-        };
-
-        let bytes = layer.serialize_layer1_bytes(false).unwrap();
-
-        assert_eq!(bytes, vec![0x20, 0x20, 0x34, 0xC5, 0xF1, 0x56, 0x03, 0x01, 0x00, 0x23, 0xFF]);
-    }
-
-    #[test]
-    fn serializes_vertical_objects_with_screen_jump() {
-        let layer = EditableObjectLayer {
-            objects: vec![
-                EditableObject { x: 7, y: 18, id: 0x11, settings: 0xAA, is_extended: false, extended_id: 0 },
-                EditableObject { x: 9, y: 64, id: 0x22, settings: 0xBB, is_extended: false, extended_id: 0 },
-            ],
-            exits: vec![],
-        };
-
-        let bytes = layer.serialize_layer1_bytes(true).unwrap();
-
-        assert_eq!(bytes, vec![0xA7, 0x12, 0xAA, 0x04, 0x00, 0x01, 0x49, 0x20, 0xBB, 0xFF]);
-    }
-}
-
-// ── Undo support ────────────────────────────────────────────────────────────
 
 impl Undo for EditableObjectLayer {
     fn from_bytes(bytes: Vec<u8>) -> Self {
@@ -310,5 +273,40 @@ impl Undo for EditableObjectLayer {
 
     fn size_bytes(&self) -> usize {
         4 + self.objects.len() * 12 + self.exits.len() * 5
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{EditableExit, EditableObject, EditableObjectLayer};
+
+    #[test]
+    fn serializes_horizontal_objects_and_exits() {
+        let layer = EditableObjectLayer {
+            objects: vec![
+                EditableObject { x: 0, y: 0, id: 0x12, settings: 0x34, is_extended: false, extended_id: 0 },
+                EditableObject { x: 17, y: 5, id: 0x2F, settings: 0x56, is_extended: false, extended_id: 0 },
+            ],
+            exits: vec![EditableExit { screen: 3, midway: false, secondary: false, id: 0x0123 }],
+        };
+
+        let bytes = layer.serialize_layer1_bytes(false).unwrap();
+
+        assert_eq!(bytes, vec![0x20, 0x20, 0x34, 0xC5, 0xF1, 0x56, 0x03, 0x01, 0x00, 0x23, 0xFF]);
+    }
+
+    #[test]
+    fn serializes_vertical_objects_with_screen_jump() {
+        let layer = EditableObjectLayer {
+            objects: vec![
+                EditableObject { x: 7, y: 18, id: 0x11, settings: 0xAA, is_extended: false, extended_id: 0 },
+                EditableObject { x: 9, y: 64, id: 0x22, settings: 0xBB, is_extended: false, extended_id: 0 },
+            ],
+            exits: vec![],
+        };
+
+        let bytes = layer.serialize_layer1_bytes(true).unwrap();
+
+        assert_eq!(bytes, vec![0xA7, 0x12, 0xAA, 0x04, 0x00, 0x01, 0x49, 0x20, 0xBB, 0xFF]);
     }
 }

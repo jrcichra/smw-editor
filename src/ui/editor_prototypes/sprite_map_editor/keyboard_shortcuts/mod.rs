@@ -41,10 +41,10 @@ impl UiSpriteMapEditor {
         });
 
         if ui.input(|input| input.events.contains(&Event::Copy)) {
-            ui.output_mut(|output| self.handle_copy(output));
+            self.handle_copy(ui.ctx());
         }
         if ui.input(|input| input.events.contains(&Event::Cut)) {
-            ui.output_mut(|output| self.handle_cut(output));
+            self.handle_cut(ui.ctx());
         }
     }
 

@@ -43,23 +43,21 @@ impl TilePicker {
 
         // Pre-compute all block pointers (needs mutable load_u16).
         let mut block_ptrs = [0u32; NUM_BLOCKS];
-        for block_id in 0..NUM_BLOCKS {
+        for (block_id, block_ptr) in block_ptrs.iter_mut().enumerate() {
             let ptr_lo = 0x0FBE + block_id * 2;
             if ptr_lo + 1 < 0x10000 {
-                block_ptrs[block_id] = cpu.mem.load_u16(ptr_lo as u32) as u32 + map16_bank;
+                *block_ptr = cpu.mem.load_u16(ptr_lo as u32) as u32 + map16_bank;
             }
         }
 
         let vram = &cpu.mem.vram;
         let cgram = &cpu.mem.cgram;
 
-        for block_id in 0..NUM_BLOCKS {
+        for (block_id, &block_ptr) in block_ptrs.iter().enumerate() {
             let col = block_id % COLS;
             let row = block_id / COLS;
             let x0 = (col * BLOCK_PX) as u32;
             let y0 = (row * BLOCK_PX) as u32;
-
-            let block_ptr = block_ptrs[block_id];
             if block_ptr == map16_bank {
                 continue;
             }

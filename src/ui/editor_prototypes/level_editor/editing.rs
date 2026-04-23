@@ -120,9 +120,7 @@ impl UiLevelEditor {
         let tx = rel.x.floor();
         let ty = rel.y.floor();
 
-        let Some(layer_data) = self.editing_objects() else {
-            return None;
-        };
+        let layer_data = self.editing_objects()?;
         layer_data.read(|layer| {
             // Iterate in reverse so topmost (last-placed) objects are hit first.
             for (i, obj) in layer.objects.iter().enumerate().rev() {

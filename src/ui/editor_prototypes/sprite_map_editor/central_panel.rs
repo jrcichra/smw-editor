@@ -126,12 +126,12 @@ impl UiSpriteMapEditor {
                 let canvas_rect = Rect::from_center_size(editing_area_rect.center(), self.canvas_size().0);
                 let max_rect = editing_area_rect.union(canvas_rect);
                 let margin = Margin {
-                    left: canvas_rect.min.x - max_rect.min.x,
-                    right: max_rect.max.x - canvas_rect.max.x,
-                    top: canvas_rect.min.y - max_rect.min.y,
-                    bottom: max_rect.max.y - canvas_rect.max.y,
+                    left: (canvas_rect.min.x - max_rect.min.x).round().clamp(i8::MIN as f32, i8::MAX as f32) as i8,
+                    right: (max_rect.max.x - canvas_rect.max.x).round().clamp(i8::MIN as f32, i8::MAX as f32) as i8,
+                    top: (canvas_rect.min.y - max_rect.min.y).round().clamp(i8::MIN as f32, i8::MAX as f32) as i8,
+                    bottom: (max_rect.max.y - canvas_rect.max.y).round().clamp(i8::MIN as f32, i8::MAX as f32) as i8,
                 };
-                Frame::canvas(ui.style()).inner_margin(Margin::same(0.)).outer_margin(margin).show(ui, |ui| {
+                Frame::canvas(ui.style()).inner_margin(Margin::same(0)).outer_margin(margin).show(ui, |ui| {
                     self.canvas(ui);
                 });
             });
@@ -152,7 +152,7 @@ impl UiSpriteMapEditor {
                     sprite_renderer
                         .lock()
                         .expect("Cannot lock mutex on sprite renderer")
-                        .paint(painter.gl(), &TileUniforms { gfx_bufs, screen_size, offset: Vec2::ZERO, zoom });
+                        .paint(painter.gl().as_ref(), &TileUniforms { gfx_bufs, screen_size, offset: Vec2::ZERO, zoom });
                 }))
             },
         });
@@ -175,8 +175,9 @@ impl UiSpriteMapEditor {
                 bounds.0.max += Vec2::splat(self.tile_size_px);
                 ui.painter().rect_stroke(
                     bounds.to_screen(self.pixels_per_point, self.zoom).0.translate(canvas_rect.left_top().to_vec2()),
-                    Rounding::ZERO,
+                    CornerRadius::ZERO,
                     Stroke::new(2., Color32::BLUE),
+                    StrokeKind::Outside,
                 );
             }
         }
@@ -211,8 +212,9 @@ impl UiSpriteMapEditor {
                 if let Selection::Drag(Some(selection_rect)) = selection {
                     ui.painter().rect_stroke(
                         selection_rect.0,
-                        Rounding::ZERO,
+                        CornerRadius::ZERO,
                         Stroke::new(1., ui.visuals().selection.bg_fill),
+                        StrokeKind::Outside,
                     );
                 }
                 self.handle_selection_plot(selection, !holding_ctrl_only, canvas_top_left_pos);

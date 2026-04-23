@@ -110,7 +110,7 @@ where
         let inner_response = ui.horizontal(|ui| {
             let button_l = ui.add_enabled(*self.value > min, Button::new(label_l));
             let mut drag_value = ui.add({
-                let mut dv = DragValue::new(self.value).clamp_range(self.range);
+                let mut dv = DragValue::new(self.value).range(self.range);
                 if let Some(custom_formatter) = self.custom_formatter {
                     dv = dv.custom_formatter(custom_formatter);
                 }

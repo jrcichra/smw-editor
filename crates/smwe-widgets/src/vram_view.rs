@@ -1,6 +1,9 @@
 use std::sync::{Arc, Mutex};
 
-use egui::{vec2, Color32, PaintCallback, PointerButton, Rect, Response, Rounding, Sense, Stroke, Ui, Vec2, Widget};
+use egui::{
+    vec2, Color32, CornerRadius, PaintCallback, PointerButton, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2,
+    Widget,
+};
 use egui_glow::{glow::Context, CallbackFn};
 use inline_tweak::tweak;
 use itertools::Itertools;
@@ -119,7 +122,7 @@ impl Widget for VramView<'_> {
 
                 ui.painter().rect_filled(
                     selection_rect.translate(hovered_tile * scale * zoom),
-                    Rounding::same(tweak!(3.)),
+                    CornerRadius::same(tweak!(3.) as u8),
                     Color32::from_white_alpha(tweak!(100)),
                 );
 
@@ -130,8 +133,9 @@ impl Widget for VramView<'_> {
 
             ui.painter().rect_stroke(
                 selection_rect.translate(vec2(selection.0 as f32, selection.1 as f32) * scale * zoom),
-                Rounding::same(tweak!(3.)),
+                CornerRadius::same(tweak!(3.) as u8),
                 Stroke::new(tweak!(2.), Color32::from_rgba_premultiplied(200, 100, 30, 100)),
+                StrokeKind::Outside,
             );
         }
 

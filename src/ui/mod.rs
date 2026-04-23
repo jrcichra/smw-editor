@@ -124,7 +124,7 @@ impl eframe::App for UiMainWindow {
                 let chosen = welcome::draw_welcome(ui, &mut open_requested);
                 if open_requested {
                     self.open_dialog = FileDialog::new();
-                    self.open_dialog.select_file();
+                    self.open_dialog.pick_file();
                 }
                 if let Some(path) = chosen {
                     self.load_rom_from_path(ctx, path);
@@ -186,7 +186,7 @@ impl UiMainWindow {
 
     fn show_open_dialog(&mut self, ctx: &Context) {
         self.open_dialog.update(ctx);
-        if let Some(path) = self.open_dialog.take_selected() {
+        if let Some(path) = self.open_dialog.take_picked() {
             self.load_rom_from_path(ctx, path);
         }
     }
@@ -294,7 +294,7 @@ impl UiMainWindow {
 
     fn show_save_as_dialog(&mut self, ctx: &Context) {
         self.save_as_dialog.update(ctx);
-        if let Some(dest) = self.save_as_dialog.take_selected() {
+        if let Some(dest) = self.save_as_dialog.take_picked() {
             let Some(src) = self.rom_path.clone() else {
                 return;
             };
@@ -305,7 +305,7 @@ impl UiMainWindow {
                         self.save_error = Some(format!("Saved ROM As, but reload failed: {e}"));
                         return;
                     }
-                    self.rom_path = Some(dest);
+                    self.rom_path = Some(dest.to_path_buf());
                 }
                 Err(e) => self.save_error = Some(format!("Save As failed: {e}")),
             }
@@ -314,7 +314,7 @@ impl UiMainWindow {
 
     fn show_bps_export_dialog(&mut self, ctx: &Context, rom: Option<&Arc<SmwRom>>) {
         self.bps_export_dialog.update(ctx);
-        if let Some(patch_dest) = self.bps_export_dialog.take_selected() {
+        if let Some(patch_dest) = self.bps_export_dialog.take_picked() {
             let Some(rom) = rom else {
                 self.save_error = Some("No ROM loaded.".into());
                 return;
@@ -324,7 +324,7 @@ impl UiMainWindow {
                 return;
             };
 
-            match self.create_bps_patch(&rom, &src, &patch_dest) {
+            match self.create_bps_patch(rom, &src, &patch_dest) {
                 Ok(_) => {
                     log::info!("Exported BPS patch to {}", patch_dest.display());
                 }
@@ -335,7 +335,7 @@ impl UiMainWindow {
 
     fn create_bps_patch(
         &self,
-        rom: &Arc<SmwRom>,
+        _rom: &Arc<SmwRom>,
         original_rom_path: &std::path::Path,
         patch_dest: &std::path::Path,
     ) -> anyhow::Result<()> {
@@ -351,7 +351,7 @@ impl UiMainWindow {
         }
 
         // Create BPS patch
-        let patch = rom.create_bps_patch(&original_bytes)?;
+        let patch = smwe_bps::create_patch(&original_bytes, &modified_bytes, smwe_bps::BpsConfig::default())?;
 
         // Write patch to file
         std::fs::write(patch_dest, patch)
@@ -362,7 +362,7 @@ impl UiMainWindow {
 
     fn show_ips_export_dialog(&mut self, ctx: &Context, rom: Option<&Arc<SmwRom>>) {
         self.ips_export_dialog.update(ctx);
-        if let Some(patch_dest) = self.ips_export_dialog.take_selected() {
+        if let Some(patch_dest) = self.ips_export_dialog.take_picked() {
             let Some(rom) = rom else {
                 self.save_error = Some("No ROM loaded.".into());
                 return;
@@ -372,7 +372,7 @@ impl UiMainWindow {
                 return;
             };
 
-            match self.create_ips_patch(&rom, &src, &patch_dest) {
+            match self.create_ips_patch(rom, &src, &patch_dest) {
                 Ok(_) => {
                     log::info!("Exported IPS patch to {}", patch_dest.display());
                 }
@@ -383,7 +383,7 @@ impl UiMainWindow {
 
     fn create_ips_patch(
         &self,
-        rom: &Arc<SmwRom>,
+        _rom: &Arc<SmwRom>,
         original_rom_path: &std::path::Path,
         patch_dest: &std::path::Path,
     ) -> anyhow::Result<()> {
@@ -399,7 +399,7 @@ impl UiMainWindow {
         }
 
         // Create IPS patch
-        let patch = rom.create_ips_patch(&original_bytes)?;
+        let patch = smwe_ips::create_patch(&original_bytes, &modified_bytes)?;
 
         // Write patch to file
         std::fs::write(patch_dest, patch)
@@ -422,7 +422,7 @@ impl UiMainWindow {
                 ui.menu_button("File", |ui| {
                     if ui.button("Open ROM...").clicked() {
                         self.open_dialog = FileDialog::new();
-                        self.open_dialog.select_file();
+                        self.open_dialog.pick_file();
                         ui.close_menu();
                     }
                     ui.add_enabled_ui(has_rom, |ui| {

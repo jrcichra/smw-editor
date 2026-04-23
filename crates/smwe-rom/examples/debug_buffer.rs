@@ -1,5 +1,4 @@
 use smwe_rom::compression::lc_rle2::decompress_rle2;
-use smwe_rom::SmwRom;
 
 fn lorom_pc(snes: u32) -> usize {
     (((snes & 0x7F0000) >> 1) | (snes & 0x7FFF)) as usize

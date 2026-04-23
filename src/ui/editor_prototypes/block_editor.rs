@@ -111,7 +111,7 @@ impl UiBlockEditor {
                         ui.label(format!("muncher: {i}"));
                     });
                     tr.col(|ui| {
-                        ui.add(DragValue::new(&mut self.tile_palettes[i]).clamp_range(0..=7));
+                        ui.add(DragValue::new(&mut self.tile_palettes[i]).range(0..=7));
                     });
                     tr.col(|ui| {
                         ui.checkbox(&mut self.tile_horizontal_flips[i], "");

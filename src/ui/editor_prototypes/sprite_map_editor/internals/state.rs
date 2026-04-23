@@ -60,12 +60,12 @@ impl UiSpriteMapEditor {
                     for col in 0..8_usize {
                         let ci = tile.color_indices[row * 8 + col];
                         let bit = 7 - col;
-                        p0 |= ((ci >> 0) & 1) << bit;
+                        p0 |= (ci & 1) << bit;
                         p1 |= ((ci >> 1) & 1) << bit;
                         p2 |= ((ci >> 2) & 1) << bit;
                         p3 |= ((ci >> 3) & 1) << bit;
                     }
-                    vram[tile_base + row * 2 + 0] = p0;
+                    vram[tile_base + row * 2] = p0;
                     vram[tile_base + row * 2 + 1] = p1;
                     vram[tile_base + row * 2 + 16] = p2;
                     vram[tile_base + row * 2 + 17] = p3;

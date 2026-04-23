@@ -1,4 +1,4 @@
-use egui::{PlatformOutput, Pos2, Rangef, Rect, Vec2};
+use egui::{Pos2, Rangef, Rect, Vec2};
 use itertools::Itertools;
 use num::Integer;
 use smwe_math::coordinates::{OnCanvas, OnGrid, OnScreen};
@@ -94,7 +94,7 @@ impl UiSpriteMapEditor {
         });
     }
 
-    pub(in super::super) fn copy_selected_tiles(&self, platform_output: &mut PlatformOutput) {
+    pub(in super::super) fn copy_selected_tiles(&self, ctx: &egui::Context) {
         let selected_tiles = self
             .selected_sprite_tile_indices
             .iter()
@@ -106,8 +106,7 @@ impl UiSpriteMapEditor {
             })
             .map(TileJson::from)
             .collect_vec();
-        platform_output.copied_text =
-            serde_json::to_string(&selected_tiles).expect("Failed to serialize selected tiles");
+        ctx.copy_text(serde_json::to_string(&selected_tiles).expect("Failed to serialize selected tiles"));
     }
 
     pub(in super::super) fn paste_tiles_to(&mut self, tiles: Vec<TileJson>, paste_offset: OnCanvas<Vec2>) {

@@ -27,7 +27,7 @@ fn main() -> eframe::Result<()> {
         viewport: ViewportBuilder::default().with_min_inner_size(vec2(1280., 720.)),
         ..NativeOptions::default()
     };
-    eframe::run_native("SMW Editor v0.1.0", native_options, Box::new(|cc| Box::new(UiMainWindow::new(cc))))
+    eframe::run_native("SMW Editor v0.1.0", native_options, Box::new(|cc| Ok(Box::new(UiMainWindow::new(cc)))))
 }
 
 fn run_nogui(args: &[String]) -> eframe::Result<()> {

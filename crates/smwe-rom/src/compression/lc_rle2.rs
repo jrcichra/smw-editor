@@ -12,7 +12,6 @@
 ///
 /// Callers must supply `output_len` (the total decompressed byte count, i.e.
 /// number of 16-bit tile entries × 2) because there is no end-of-data marker.
-
 pub fn decompress_rle2(tile_data: &[u8], attr_data: &[u8], output_len: usize) -> Vec<u16> {
     let n_tiles = output_len / 2;
     let mut tile_nums = vec![0u8; n_tiles];

@@ -196,6 +196,7 @@ fn render_l2(wram: &[u8], cols: u32, rows: u32, vram: &[u8], cgram: &[u8]) -> Ve
     pixels
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_l1_proper(
     l1_data: &[u8], m16ptr_data: &[u8], submap: u8, vram: &[u8], cgram: &[u8], pixels: &mut [u8], l2_cols: u32,
     l2_rows: u32, _ptr_base: u32, char_bank: u32, wireframe: bool, l1_y_offset: u8,
@@ -243,7 +244,7 @@ fn render_l1_proper(
             // Render 4 sub-tiles from OWL1CharData: word 0->TL, word 1->TR, word 2->BL, word 3->BR
             // Layout in ROM: [TL][TR][BL][BR] = 8 bytes total
             let sub_tiles = [
-                (rom_bytes.get(rom_offset + 0).copied().unwrap_or(0) as u16)
+                (rom_bytes.get(rom_offset).copied().unwrap_or(0) as u16)
                     | ((rom_bytes.get(rom_offset + 1).copied().unwrap_or(0) as u16) << 8),
                 (rom_bytes.get(rom_offset + 2).copied().unwrap_or(0) as u16)
                     | ((rom_bytes.get(rom_offset + 3).copied().unwrap_or(0) as u16) << 8),
@@ -271,7 +272,7 @@ fn render_l1_proper(
             // Render 4 sub-tiles from OWL1CharData: word 0->TL, word 1->TR, word 2->BL, word 3->BR
             // Layout in ROM: [TL][TR][BL][BR] = 8 bytes total
             let sub_tiles = [
-                (rom_bytes.get(rom_offset + 0).copied().unwrap_or(0) as u16)
+                (rom_bytes.get(rom_offset).copied().unwrap_or(0) as u16)
                     | ((rom_bytes.get(rom_offset + 1).copied().unwrap_or(0) as u16) << 8),
                 (rom_bytes.get(rom_offset + 2).copied().unwrap_or(0) as u16)
                     | ((rom_bytes.get(rom_offset + 3).copied().unwrap_or(0) as u16) << 8),
@@ -396,6 +397,7 @@ fn ow_l1_addr(col: u32, row: u32) -> usize {
     (x_part + y_part) as usize
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_tile(
     vram: &[u8], cgram: &[u8], tile_id: usize, palette: usize, flip_x: bool, flip_y: bool, x0: u32, y0: u32,
     width: u32, pixels: &mut [u8],
@@ -451,7 +453,7 @@ fn read_color(cgram: &[u8], idx: usize) -> [u8; 3] {
     let lo = cgram[off];
     let hi = cgram[off + 1];
     let rgb = ((hi as u16) << 8) | (lo as u16);
-    let r = ((rgb >> 0) & 0x1F) << 3;
+    let r = (rgb & 0x1F) << 3;
     let g = ((rgb >> 5) & 0x1F) << 3;
     let b = ((rgb >> 10) & 0x1F) << 3;
     [r as u8, g as u8, b as u8]

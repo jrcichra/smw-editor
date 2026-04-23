@@ -209,7 +209,13 @@ impl UiLevelEditor {
                 rect.min + vec2(sel_col as f32 * block_px * scale_x, sel_row as f32 * block_px * scale_y),
                 vec2(block_px * scale_x, block_px * scale_y),
             );
-            ui.painter().rect_stroke(sel_rect, egui::Rounding::ZERO, egui::Stroke::new(2.0, Color32::YELLOW));
+            ui.painter()
+                .rect_stroke(
+                    sel_rect,
+                    egui::CornerRadius::ZERO,
+                    egui::Stroke::new(2.0, Color32::YELLOW),
+                    egui::StrokeKind::Outside,
+                );
         }
 
         ui.separator();
@@ -240,14 +246,14 @@ impl UiLevelEditor {
         let preview_block = if self.editing_mode == EditingMode::Draw && !self.edit_sprites {
             Some(("Paint", self.draw_block_id, 0xFFFF_FFFF)) // sentinel for draw mode
         } else if let Some((x, y)) = self.selected_tile {
-            self.block_id_at(x, y).map(|bid| ("Tile", bid, ((x & 0xFFF) | ((y & 0xFFF) << 12)) as u32))
+            self.block_id_at(x, y).map(|bid| ("Tile", bid, (x & 0xFFF) | ((y & 0xFFF) << 12)))
         } else {
             None
         };
 
         if let Some((label, block_id, cache_key)) = preview_block {
             ui.label(format!("{label}: {block_id:#05X}"));
-            if self.preview_for.map(|(x, y)| (x as u32) | ((y as u32) << 16)) != Some(cache_key) {
+            if self.preview_for.map(|(x, y)| x | (y << 16)) != Some(cache_key) {
                 let image = if self.edit_layer == 2 && self.layer2_objects.is_none() {
                     super::tile_picker::render_bg_block_image(block_id.min(0xFF) as u8, &mut self.cpu)
                 } else {

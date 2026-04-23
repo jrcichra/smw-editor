@@ -165,7 +165,7 @@ impl UiLevelEditor {
 impl DockableEditorTool for UiLevelEditor {
     fn update(&mut self, ui: &mut Ui) {
         SidePanel::left("level_editor.left_panel").resizable(false).show_inside(ui, |ui| self.left_panel(ui));
-        CentralPanel::default().frame(Frame::none().inner_margin(0.)).show_inside(ui, |ui| self.central_panel(ui));
+        CentralPanel::default().frame(Frame::NONE.inner_margin(0.)).show_inside(ui, |ui| self.central_panel(ui));
     }
 
     fn title(&self) -> WidgetText {

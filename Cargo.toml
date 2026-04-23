@@ -21,7 +21,7 @@ authors = ["Adam Gąsior (Adanos020)", "Raven Szewczyk (eigenraven)", "Selicre"]
 license = "MIT"
 edition = "2021"
 readme = "README.md"
-rust-version = "1.70"
+rust-version = "1.81"
 
 [dependencies]
 smwe-math = { path = "crates/smwe-math" }
@@ -29,17 +29,18 @@ smwe-render = { path = "crates/smwe-render" }
 smwe-rom = { path = "crates/smwe-rom" }
 smwe-widgets = { path = "crates/smwe-widgets" }
 smwe-emu = { path = "crates/smwe-emu" }
+smwe-bps = { path = "crates/smwe-bps" }
+smwe-ips = { path = "crates/smwe-ips" }
 
 anyhow = "1.0"
 duplicate = "1.0"
-eframe = "0.27"
-egui = { version = "0.27", features = ["serde"] }
-egui_dock = "0.12"
-egui_extras = "0.27"
-egui_glow = "0.27"
-#egui-phosphor = "0.4"
-egui-phosphor = { git = "https://github.com/Adanos020/egui-phosphor", branch = "egui-0.27" }
-glow = "0.13"
+eframe = "0.31.1"
+egui = { version = "0.31.1", features = ["serde"] }
+egui_dock = "0.16.0"
+egui_extras = "0.31.1"
+egui_glow = "0.31.1"
+egui-phosphor = "0.9.0"
+glow = "0.16.0"
 image = "0.25"
 inline_tweak = "1.0"
 itertools = "0.12"
@@ -48,10 +49,10 @@ log4rs = "1.0"
 num = "0.4"
 num_enum = "0.7"
 paste = "1.0"
-rfd = "0.14"
+rfd = "0.17.2"
 serde = "1.0"
 serde_json = "1.0"
 shrinkwraprs = "0.3"
 thiserror = "1.0"
 zstd = { version = "0.13", features = ["experimental"] }
-egui-file-dialog = "0.5.0"
+egui-file-dialog = "0.10.0"

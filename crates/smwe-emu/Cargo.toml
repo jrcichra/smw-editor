@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Selicre"]
 license = "MIT"
 edition = "2021"
-rust-version = "1.70"
+rust-version = "1.81"
 
 [dependencies]
 log = "0.4"

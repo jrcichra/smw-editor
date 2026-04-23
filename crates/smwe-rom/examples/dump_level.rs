@@ -41,7 +41,6 @@ fn main() {
     let rom = SmwRom::from_file(rom_path).expect("failed to load ROM");
     let level = &rom.levels[level_num as usize];
 
-    let is_vertical = level.secondary_header.vertical_level();
     let fg_bg_gfx = level.primary_header.fg_bg_gfx() as usize;
     let map16_tileset = smwe_rom::objects::tilesets::object_tileset_to_map16_tileset(fg_bg_gfx);
     let num_screens = level.primary_header.level_length() as u32 + 1;

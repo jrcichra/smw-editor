@@ -46,11 +46,11 @@ impl UiSpriteMapEditor {
             ui.close_menu();
         }
         if ui.add(Button::new("Copy").shortcut_text(ui.ctx().format_shortcut(&SHORTCUT_COPY))).clicked() {
-            ui.output_mut(|output| self.handle_copy(output));
+            self.handle_copy(ui.ctx());
             ui.close_menu();
         }
         if ui.add(Button::new("Cut").shortcut_text(ui.ctx().format_shortcut(&SHORTCUT_CUT))).clicked() {
-            ui.output_mut(|output| self.handle_cut(output));
+            self.handle_cut(ui.ctx());
             ui.close_menu();
         }
         if ui.add(Button::new("Select all").shortcut_text(ui.ctx().format_shortcut(&SHORTCUT_SELECT_ALL))).clicked() {

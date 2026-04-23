@@ -169,10 +169,8 @@ mod helpers {
     pub fn adjust_to_header(addr: u32, include_header: bool) -> u32 {
         if include_header {
             addr + SMC_HEADER_SIZE as u32
-        } else if addr >= SMC_HEADER_SIZE as u32 {
-            addr - SMC_HEADER_SIZE as u32
         } else {
-            0
+            addr.saturating_sub(SMC_HEADER_SIZE as u32)
         }
     }
 }

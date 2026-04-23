@@ -15,7 +15,8 @@ use std::{
 };
 
 use egui::{
-    vec2, CentralPanel, Color32, Frame, PaintCallback, Rect, Rounding, Sense, SidePanel, Stroke, Ui, Vec2, WidgetText,
+    vec2, CentralPanel, Color32, CornerRadius, Frame, PaintCallback, Rect, Sense, SidePanel, Stroke, StrokeKind, Ui, Vec2,
+    WidgetText,
 };
 use egui_glow::CallbackFn;
 use smwe_emu::{emu::CheckedMem, rom::Rom as EmuRom, Cpu};
@@ -263,7 +264,7 @@ impl DockableEditorTool for UiWorldEditor {
 
     fn update(&mut self, ui: &mut Ui) {
         SidePanel::left("world_editor.left_panel").resizable(false).show_inside(ui, |ui| self.left_panel(ui));
-        CentralPanel::default().frame(Frame::none().inner_margin(0.)).show_inside(ui, |ui| self.central_panel(ui));
+        CentralPanel::default().frame(Frame::NONE.inner_margin(0.)).show_inside(ui, |ui| self.central_panel(ui));
     }
 
     fn on_closed(&mut self) {
@@ -341,8 +342,8 @@ impl UiWorldEditor {
 
     fn apply_source_l1_tile_to_vram(&mut self, map16_x: u32, map16_y: u32, tile_id: u8) {
         let (crop_x, crop_y) = visible_map_crop(self.submap);
-        let src_col = ((map16_x * 16 + crop_x) / 16) as u32;
-        let src_row = ((map16_y * 16 + crop_y) / 16) as u32;
+        let src_col = (map16_x * 16 + crop_x) / 16;
+        let src_row = (map16_y * 16 + crop_y) / 16;
         self.write_source_l1_block_words(src_col, src_row, tile_id);
     }
 
@@ -370,7 +371,7 @@ impl UiWorldEditor {
             ui.horizontal(|ui| {
                 ui.label("Submap");
                 let prev = self.submap;
-                egui::ComboBox::from_id_source("world_editor.submap")
+                egui::ComboBox::from_id_salt("world_editor.submap")
                     .selected_text(SUBMAP_NAMES.get(self.submap as usize).copied().unwrap_or("Submap"))
                     .show_ui(ui, |ui| {
                         for (i, name) in SUBMAP_NAMES.iter().enumerate() {
@@ -490,7 +491,12 @@ impl UiWorldEditor {
                             vec2(tile_screen, tile_screen),
                         );
                         ui.painter()
-                            .rect_stroke(sel_rect, egui::Rounding::ZERO, egui::Stroke::new(2.0, Color32::YELLOW));
+                            .rect_stroke(
+                                sel_rect,
+                                egui::CornerRadius::ZERO,
+                                egui::Stroke::new(2.0, Color32::YELLOW),
+                                egui::StrokeKind::Outside,
+                            );
                     }
                 } else {
                     // Visual L1 tile picker grid
@@ -523,7 +529,12 @@ impl UiWorldEditor {
                         vec2(tile_screen, tile_screen),
                     );
                     ui.painter()
-                        .rect_stroke(sel_rect, egui::Rounding::ZERO, egui::Stroke::new(2.0, Color32::YELLOW));
+                        .rect_stroke(
+                            sel_rect,
+                            egui::CornerRadius::ZERO,
+                            egui::Stroke::new(2.0, Color32::YELLOW),
+                            egui::StrokeKind::Outside,
+                        );
                 }
             }
 
@@ -654,7 +665,7 @@ impl UiWorldEditor {
         }
 
         // ── Background ───────────────────────────────────────────────────────
-        painter.rect_filled(view_rect, Rounding::ZERO, Color32::from_rgb(16, 16, 20));
+        painter.rect_filled(view_rect, CornerRadius::ZERO, Color32::from_rgb(16, 16, 20));
 
         let z = self.zoom;
         let (map_px_w, map_px_h) = visible_map_size(self.submap);
@@ -684,13 +695,13 @@ impl UiWorldEditor {
                 rect: view_rect,
                 callback: Arc::new(CallbackFn::new(move |_info, painter| {
                     let r = renderer.lock().expect("Cannot lock overworld renderer");
-                    r.paint(painter.gl(), screen_sz, gl_zoom, gl_offset, draw_l1, draw_l2);
+                    r.paint(painter.gl().as_ref(), screen_sz, gl_zoom, gl_offset, draw_l1, draw_l2);
                 })),
             });
         }
 
         // ── Border around canvas ──────────────────────────────────────────────
-        painter.rect_stroke(ow_rect, Rounding::ZERO, Stroke::new(2.0, Color32::from_white_alpha(140)));
+        painter.rect_stroke(ow_rect, CornerRadius::ZERO, Stroke::new(2.0, Color32::from_white_alpha(140)), StrokeKind::Outside);
 
         // ── Grid (Map16 block grid, aligned to L1) ───────────────────────────
         if self.show_grid || ui.input(|i| i.modifiers.shift_only()) {
@@ -721,7 +732,7 @@ impl UiWorldEditor {
                 let tile_id = u16::from_le_bytes([self.cpu.mem.vram[addr], self.cpu.mem.vram[addr + 1]]) & 0x03FF;
                 let tile_rect =
                     Rect::from_min_size(origin + vec2(x as f32 * map16_sz, y as f32 * map16_sz), Vec2::splat(map16_sz));
-                painter.rect_stroke(tile_rect, Rounding::ZERO, Stroke::new(1.0, Color32::WHITE));
+                painter.rect_stroke(tile_rect, CornerRadius::ZERO, Stroke::new(1.0, Color32::WHITE), StrokeKind::Outside);
 
                 if resp.clicked_by(egui::PointerButton::Primary)
                     && (self.editing_mode == crate::ui::editing_mode::EditingMode::Select
@@ -759,7 +770,7 @@ impl UiWorldEditor {
         // ── Selected tile highlight ───────────────────────────────────────────
         if let Some((x, y)) = self.selected_tile {
             let r = Rect::from_min_size(origin + vec2(x as f32 * map16_sz, y as f32 * map16_sz), Vec2::splat(map16_sz));
-            painter.rect_stroke(r, Rounding::ZERO, Stroke::new(2.0, Color32::from_rgb(255, 220, 0)));
+            painter.rect_stroke(r, CornerRadius::ZERO, Stroke::new(2.0, Color32::from_rgb(255, 220, 0)), StrokeKind::Outside);
         }
     }
 }
@@ -886,6 +897,7 @@ fn render_source_l1_tile_preview(cpu: &mut Cpu, tile_id: u8) -> egui::ColorImage
     egui::ColorImage::from_rgba_unmultiplied([16, 16], &pixels)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_preview_tile(
     vram: &[u8], cgram: &[u8], tile_num: usize, pal: usize, flip_x: bool, flip_y: bool, x0: u32, y0: u32, width: usize,
     pixels: &mut [u8],

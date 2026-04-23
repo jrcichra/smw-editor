@@ -218,6 +218,7 @@ fn render_sp_tile(vram: &[u8], cgram: &[u8], x: u32, y: u32, t: u16, width: u32,
     render_tile(vram, cgram, tile, pal, (t & 0x4000) != 0, (t & 0x8000) != 0, x, y, width, pixels);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_tile(
     vram: &[u8], cgram: &[u8], tile_id: usize, palette: usize, flip_x: bool, flip_y: bool, x0: u32, y0: u32, width: u32,
     pixels: &mut [u8],

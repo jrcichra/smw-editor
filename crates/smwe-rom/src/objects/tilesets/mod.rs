@@ -150,7 +150,7 @@ struct LmMap16 {
 
 impl LmMap16 {
     fn get(&self, tile_num: usize, tileset: usize) -> Option<Block> {
-        if tile_num >= 0x200 && tile_num < 0x300 {
+        if (0x200..0x300).contains(&tile_num) {
             if let Some(ts) = &self.page2_tileset_specific {
                 if tileset < TILESETS_COUNT {
                     return Some(ts[tile_num - 0x200][tileset]);
@@ -192,7 +192,7 @@ fn read_u8(disasm: &mut RomDisassembly, addr: u32) -> Result<u8, TilesetParseErr
     let bytes = disasm
         .rom_slice_at_block(DataBlock { slice, kind: DataKind::Tileset }, |_| TilesetParseError::Slice(slice))?
         .as_bytes()?;
-    bytes.get(0).copied().ok_or(TilesetParseError::Slice(slice))
+    bytes.first().copied().ok_or(TilesetParseError::Slice(slice))
 }
 
 fn read_u16(disasm: &mut RomDisassembly, addr: u32) -> Result<u16, TilesetParseError> {
@@ -375,10 +375,10 @@ fn parse_lm_map16(disasm: &mut RomDisassembly) -> Result<LmMap16, TilesetParseEr
             let mut out: Vec<[Block; TILESETS_COUNT]> = Vec::with_capacity(0x100);
             for tile in 0..0x100_usize {
                 let mut per_ts = [blank_block(); TILESETS_COUNT];
-                for ts in 0..TILESETS_COUNT {
+                for (ts, block) in per_ts.iter_mut().enumerate() {
                     let offset = (ts << 11) | (tile << 3);
                     if offset + 8 <= bytes.len() {
-                        per_ts[ts] = parse_block_from_bytes(&bytes[offset..offset + 8]);
+                        *block = parse_block_from_bytes(&bytes[offset..offset + 8]);
                     }
                 }
                 out.push(per_ts);

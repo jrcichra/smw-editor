@@ -56,7 +56,7 @@ impl OwTilePicker {
         self.used_tiles.sort_by_key(|(t, p)| (*t, *p));
 
         // Render into a grid
-        let rows = ((self.used_tiles.len() + COLS - 1) / COLS).max(1);
+        let rows = self.used_tiles.len().div_ceil(COLS).max(1);
         self.tex_w = COLS * TILE_PX;
         self.tex_h = rows * TILE_PX;
         self.pixels = vec![0u8; self.tex_w * self.tex_h * 4];
@@ -262,7 +262,11 @@ impl OwL1TilePicker {
 }
 
 /// Render a single 8×8 SNES 4bpp tile from VRAM and write RGBA pixels (for L1 tiles).
-fn render_l1_sub_tile(vram: &[u8], cgram: &[u8], tile_num: usize, pal: usize, flip_x: bool, flip_y: bool, x0: u32, y0: u32, pixels: &mut [u8], stride: usize) {
+#[allow(clippy::too_many_arguments)]
+fn render_l1_sub_tile(
+    vram: &[u8], cgram: &[u8], tile_num: usize, pal: usize, flip_x: bool, flip_y: bool, x0: u32, y0: u32,
+    pixels: &mut [u8], stride: usize,
+) {
     let tile_base = tile_num * 32;
     for ty in 0..8u32 {
         for tx in 0..8u32 {

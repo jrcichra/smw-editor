@@ -4,16 +4,16 @@ version = "0.1.0"
 authors = ["Adam Gąsior (Adanos020)", "Selicre"]
 license = "MIT"
 edition = "2021"
-rust-version = "1.70"
+rust-version = "1.81"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 smwe-math = { path = "../smwe-math" }
 
-emath = "0.27"
-epaint = "0.27"
-egui_glow = "0.27"
+emath = "0.31.1"
+epaint = "0.31.1"
+egui_glow = "0.31.1"
 itertools = "0.12"
 log = "0.4"
 thiserror = "1.0"

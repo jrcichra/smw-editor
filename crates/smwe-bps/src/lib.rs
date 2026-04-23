@@ -18,16 +18,10 @@ pub enum BpsError {
 }
 
 /// Configuration for BPS patch creation
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct BpsConfig {
     /// Optional metadata (e.g., XML with description, author, etc.)
     pub metadata: Vec<u8>,
-}
-
-impl Default for BpsConfig {
-    fn default() -> Self {
-        Self { metadata: Vec::new() }
-    }
 }
 
 /// Creates a BPS patch that transforms source into target
@@ -69,7 +63,7 @@ pub fn create_patch(source: &[u8], target: &[u8], config: BpsConfig) -> Result<V
             }
 
             // Encode SourceRead command
-            let cmd = 0 | ((length - 1) << 2);
+            let cmd = (length - 1) << 2;
             encode_number(cmd as u64, &mut patch)?;
             source_offset += length;
             target_offset += length;

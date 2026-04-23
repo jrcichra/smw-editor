@@ -110,6 +110,7 @@ fn render_bg_full(vram: &[u8], tilemap_base: usize, width: u32, cgram: &[u8], pi
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_tile(
     vram: &[u8], cgram: &[u8], tile_id: usize, palette: usize, flip_x: bool, flip_y: bool, x0: u32, y0: u32,
     width: u32, pixels: &mut [u8],

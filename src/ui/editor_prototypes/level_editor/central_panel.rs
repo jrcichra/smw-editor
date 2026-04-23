@@ -1,6 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
-use egui::{vec2, Align2, Color32, FontId, Key, PaintCallback, Rect, Rounding, Sense, Stroke, Ui, Vec2};
+use egui::{
+    vec2, Align2, Color32, CornerRadius, FontId, Key, PaintCallback, Rect, Sense, Stroke, StrokeKind, Ui, Vec2,
+};
 use egui_glow::CallbackFn;
 
 use super::UiLevelEditor;
@@ -49,12 +51,12 @@ impl UiLevelEditor {
             .map(Color32::from)
             .unwrap_or(Color32::from_rgb(92, 148, 252)); // SMW default sky-blue
 
-        painter.rect_filled(view_rect, Rounding::ZERO, bg);
+        painter.rect_filled(view_rect, CornerRadius::ZERO, bg);
 
         // ── Level bounding box + canvas tint (below GL tiles) ──
         let level_rect = Rect::from_min_size(origin, vec2(canvas_w, canvas_h));
         if let Some(vis) = level_rect.intersect(view_rect).into() {
-            painter.rect_filled(vis, Rounding::ZERO, bg.linear_multiply(1.15));
+            painter.rect_filled(vis, CornerRadius::ZERO, bg.linear_multiply(1.15));
         }
 
         // ── Animated tile ticking ─────────────────────────────
@@ -84,13 +86,13 @@ impl UiLevelEditor {
                 callback: Arc::new(CallbackFn::new(move |_info, painter| {
                     let mut r = level_renderer.lock().expect("Cannot lock level_renderer");
                     r.set_offset(gl_offset);
-                    r.paint(painter.gl(), screen_size_px, gl_zoom);
+                    r.paint(painter.gl().as_ref(), screen_size_px, gl_zoom);
                 })),
             });
         }
 
         // Level bounding box
-        painter.rect_stroke(level_rect, Rounding::ZERO, Stroke::new(2.0, Color32::WHITE));
+        painter.rect_stroke(level_rect, CornerRadius::ZERO, Stroke::new(2.0, Color32::WHITE), StrokeKind::Outside);
 
         // ── Screen dividers ───────────────────────────────────
         let (scr_w, scr_h) = props.screen_dimensions_in_tiles();
@@ -111,7 +113,12 @@ impl UiLevelEditor {
             {
                 continue;
             }
-            painter.rect_stroke(scr_rect, Rounding::ZERO, Stroke::new(0.5, Color32::from_white_alpha(25)));
+            painter.rect_stroke(
+                scr_rect,
+                CornerRadius::ZERO,
+                Stroke::new(0.5, Color32::from_white_alpha(25)),
+                StrokeKind::Outside,
+            );
             if z >= 0.8 {
                 painter.text(
                     scr_rect.min + vec2(3.0, 2.0),
@@ -132,11 +139,12 @@ impl UiLevelEditor {
                 let ex = (sx * scr_w) as f32 * tile_sz;
                 let ey = (sy * scr_h) as f32 * tile_sz;
                 let er = Rect::from_min_size(origin + vec2(ex, ey), Vec2::splat(tile_sz * 2.0));
-                painter.rect_filled(er, Rounding::same(3.0), Color32::from_rgba_unmultiplied(255, 220, 0, 120));
+                painter.rect_filled(er, CornerRadius::same(3), Color32::from_rgba_unmultiplied(255, 220, 0, 120));
                 painter.rect_stroke(
                     er,
-                    Rounding::same(3.0),
+                    CornerRadius::same(3),
                     Stroke::new(1.5, Color32::from_rgba_unmultiplied(255, 200, 0, 200)),
+                    StrokeKind::Outside,
                 );
                 if z >= 0.8 {
                     painter.text(
@@ -158,7 +166,7 @@ impl UiLevelEditor {
             let spawn_pos = origin + vec2(spawn_x, spawn_y);
             let spawn_rect = Rect::from_center_size(spawn_pos + vec2(tile_sz / 2.0, tile_sz / 2.0), Vec2::splat(tile_sz));
 
-            let is_hovering = resp.hover_pos().map_or(false, |p| spawn_rect.contains(p));
+            let is_hovering = resp.hover_pos().is_some_and(|p| spawn_rect.contains(p));
             let spawn_color = if self.dragging_spawn || is_hovering {
                 Color32::from_rgba_unmultiplied(255, 200, 100, 255)
             } else {
@@ -254,14 +262,20 @@ impl UiLevelEditor {
 
                     let selected = self.selected_object_indices.contains(&i);
                     let fill = obj_color(obj.id, obj.is_extended);
-                    painter.rect_filled(rect, Rounding::same(2.0), fill);
-                    painter.rect_stroke(rect, Rounding::same(2.0), Stroke::new(1.0, fill.linear_multiply(2.0)));
+                    painter.rect_filled(rect, CornerRadius::same(2), fill);
+                    painter.rect_stroke(
+                        rect,
+                        CornerRadius::same(2),
+                        Stroke::new(1.0, fill.linear_multiply(2.0)),
+                        StrokeKind::Outside,
+                    );
 
                     if selected {
                         painter.rect_stroke(
                             rect.expand(1.0),
-                            Rounding::same(2.0),
+                            CornerRadius::same(2),
                             Stroke::new(2.0, Color32::from_rgb(255, 220, 0)),
+                            StrokeKind::Outside,
                         );
                     }
 
@@ -307,12 +321,12 @@ impl UiLevelEditor {
                     } else {
                         Color32::from_rgba_unmultiplied(255, 80, 80, 28)
                     };
-                    painter.rect_filled(rect, Rounding::same(2.0), fill);
-                    painter.rect_stroke(rect, Rounding::same(2.0), Stroke::new(2.0, if selected {
+                    painter.rect_filled(rect, CornerRadius::same(2), fill);
+                    painter.rect_stroke(rect, CornerRadius::same(2), Stroke::new(2.0, if selected {
                         Color32::from_rgb(255, 120, 0)
                     } else {
                         Color32::from_rgb(255, 80, 80)
-                    }));
+                    }), StrokeKind::Outside);
                     if self.show_object_labels && z >= 0.9 {
                         painter.text(
                             rect.left_top() + vec2(2.0, 2.0),
@@ -333,7 +347,7 @@ impl UiLevelEditor {
             if tx >= 0 && ty >= 0 && (tx as u32) < level_w && (ty as u32) < level_h {
                 let tile_rect =
                     Rect::from_min_size(origin + vec2(tx as f32 * tile_sz, ty as f32 * tile_sz), Vec2::splat(tile_sz));
-                painter.rect_stroke(tile_rect, Rounding::ZERO, Stroke::new(1.0, Color32::WHITE));
+                painter.rect_stroke(tile_rect, CornerRadius::ZERO, Stroke::new(1.0, Color32::WHITE), StrokeKind::Outside);
 
                 // Tile inspection click (only in Select mode with no object selected,
                 // or always when holding Alt for quick inspection)
@@ -386,7 +400,7 @@ impl UiLevelEditor {
         // ── Selected tile highlight ────────────────────────────
         if let Some((x, y)) = self.selected_tile {
             let r = Rect::from_min_size(origin + vec2(x as f32 * tile_sz, y as f32 * tile_sz), Vec2::splat(tile_sz));
-            painter.rect_stroke(r, Rounding::ZERO, Stroke::new(2.0, Color32::from_rgb(255, 220, 0)));
+            painter.rect_stroke(r, CornerRadius::ZERO, Stroke::new(2.0, Color32::from_rgb(255, 220, 0)), StrokeKind::Outside);
         }
 
         // ── Unsaved changes dialog ────────────────────────────

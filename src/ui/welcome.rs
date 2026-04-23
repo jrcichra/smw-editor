@@ -18,7 +18,7 @@ pub fn draw_welcome(ui: &mut Ui, open_requested: &mut bool) -> Option<PathBuf> {
             .add(
                 Button::new(RichText::new("  📂  Open ROM…  ").size(16.0).strong())
                     .min_size(vec2(240.0, 44.0))
-                    .rounding(Rounding::same(8.0)),
+                    .corner_radius(8),
             )
             .clicked()
         {
@@ -44,7 +44,7 @@ pub fn draw_welcome(ui: &mut Ui, open_requested: &mut bool) -> Option<PathBuf> {
                     .add(
                         Button::new(RichText::new(format!("  📄  {name}")).size(13.0))
                             .min_size(vec2(360.0, 28.0))
-                            .rounding(Rounding::same(5.0)),
+                            .corner_radius(5),
                     )
                     .on_hover_text(&full);
                 if resp.clicked() {
@@ -71,10 +71,10 @@ pub fn draw_welcome(ui: &mut Ui, open_requested: &mut bool) -> Option<PathBuf> {
                 ("🔢", "Address Converter", "Convert between ROM address formats"),
             ];
             for (icon, name, desc) in features {
-                Frame::none()
+                Frame::NONE
                     .stroke(Stroke::new(1.0, Color32::from_gray(55)))
-                    .rounding(Rounding::same(8.0))
-                    .inner_margin(Margin::same(12.0))
+                    .corner_radius(8)
+                    .inner_margin(Margin::same(12))
                     .show(ui, |ui| {
                         ui.set_min_size(vec2(195.0, 72.0));
                         ui.vertical(|ui| {
