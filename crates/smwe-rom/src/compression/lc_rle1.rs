@@ -24,7 +24,7 @@ const COMMAND_BYTE_FILL: u8 = 1;
 /// Returns decompressed data and the size of compressed data.
 pub fn decompress(input: &[u8]) -> Result<(Vec<u8>, usize), DecompressionError> {
     assert!(!input.is_empty());
-    assert!(!input.len() >= 2);
+    assert!(input.len() >= 2);
     let mut output = Vec::with_capacity(input.len() * 2);
     let mut in_it = input;
     while let Some(chunk_header) = in_it.first().copied() {

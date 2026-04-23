@@ -20,4 +20,7 @@ pub trait DockableEditorTool {
     fn has_unsaved_changes(&self) -> bool {
         false
     }
+    /// Called by the main window after a ROM save completes successfully.
+    /// Implementations should clear their unsaved-changes flag here.
+    fn on_save_succeeded(&mut self) {}
 }

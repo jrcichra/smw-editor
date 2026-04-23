@@ -402,6 +402,12 @@ impl DockableEditorTool for UiLevelEditor {
     fn take_save_request(&mut self) -> bool {
         std::mem::take(&mut self.request_rom_save)
     }
+
+    fn on_save_succeeded(&mut self) {
+        self.has_edits = false;
+        self.initial_spawn_x = self.mario_spawn_x;
+        self.initial_spawn_y = self.mario_spawn_y;
+    }
 }
 
 // ── ROM save helpers ────────────────────────────────────────────────────────

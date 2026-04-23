@@ -275,6 +275,10 @@ impl DockableEditorTool for UiWorldEditor {
         self.has_edits
     }
 
+    fn on_save_succeeded(&mut self) {
+        self.has_edits = false;
+    }
+
     fn save_to_rom(&self, rom_bytes: &mut [u8], has_smc_header: bool) -> anyhow::Result<()> {
         if self.has_unsavable_changes {
             anyhow::bail!("Overworld edits currently only modify composed VRAM and cannot be serialized to ROM yet");
@@ -831,7 +835,7 @@ fn activate_all_overworld_events(cpu: &mut Cpu) {
 
 fn read_overworld_l2_words(cpu: &Cpu) -> Vec<u16> {
     let base = (0x7F4000 - 0x7E0000) as usize;
-    let bytes = &cpu.mem.wram[base..base + 0x4000];
+    let bytes = &cpu.mem.wram[base..base + 0x2000];
     bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect()
 }
 

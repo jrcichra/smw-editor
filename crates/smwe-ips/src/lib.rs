@@ -75,14 +75,15 @@ pub fn create_patch(source: &[u8], target: &[u8]) -> Result<Vec<u8>, IpsError> {
     Ok(patch)
 }
 
-/// Check if data would benefit from RLE encoding
+/// Check if data would benefit from RLE encoding.
+/// Uses the same most-common-byte logic as `encode_rle_chunk` so the
+/// candidate check and the encoder always agree on which byte is encoded.
 fn is_rle_candidate(data: &[u8]) -> bool {
     if data.is_empty() {
         return false;
     }
-    // RLE is good if we have many repeated bytes
-    let first = data[0];
-    data.iter().filter(|&&b| b == first).count() >= data.len() / 2
+    let most_common = find_most_common_byte(data);
+    data.iter().filter(|&&b| b == most_common).count() >= data.len() / 2
 }
 
 /// Encode a region as RLE if beneficial

@@ -461,7 +461,6 @@ impl UiLevelEditor {
                     ui.horizontal(|ui| {
                         if ui.button("💾 Save & Close").clicked() {
                             self.request_rom_save = true;
-                            self.has_edits = false;
                             self.pending_close = false;
                         }
                         if ui.button("❌ Close Without Saving").clicked() {

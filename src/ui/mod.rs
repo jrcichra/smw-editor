@@ -541,6 +541,9 @@ impl UiMainWindow {
                     self.save_error = Some(format!("Save failed: {e}"));
                 } else {
                     log::info!("Saved ROM to {}", path.display());
+                    for (_, tab) in self.dock_state.iter_all_tabs_mut() {
+                        tab.on_save_succeeded();
+                    }
                 }
             }
         }
