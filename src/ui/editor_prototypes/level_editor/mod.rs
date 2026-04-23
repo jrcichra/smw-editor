@@ -354,6 +354,44 @@ impl DockableEditorTool for UiLevelEditor {
             }
         }
 
+        // ── Spawn point (secondary header byte tables) ───────────────────────────
+        // The main entrance is stored across four byte tables at $05F000/$05F200/$05F400/$05F600,
+        // one byte per level. We update bytes 0, 1, and 3 (Y pos, X pos, entrance screen).
+        {
+            let is_vertical = level.secondary_header.vertical_level();
+            let (entrance_screen, local_x, local_y) = if is_vertical {
+                let sx = self.mario_spawn_x / 16;
+                let sy = self.mario_spawn_y / 32;
+                let screen = ((sy * 2 + sx) as u8).min(31);
+                let x = (self.mario_spawn_x % 16) as u8;
+                let y = (self.mario_spawn_y % 32) as u8;
+                (screen, x, y)
+            } else {
+                let screen = ((self.mario_spawn_x / 16) as u8).min(31);
+                let x = (self.mario_spawn_x % 16) as u8;
+                let y = self.mario_spawn_y as u8;
+                (screen, x, y)
+            };
+            let entrance_x_half = (local_x / 2).min(7);
+            let entrance_y_half = (local_y / 2).min(15);
+
+            // Byte 0 ($05F000[n]): SSSSYYYY  — update Y (lower 4 bits)
+            let t0 = AddrPc::try_from_lorom(AddrSnes(0x05F000))?.as_index() + header_offset + level_idx;
+            if let Some(b) = rom_bytes.get_mut(t0) {
+                *b = (*b & 0xF0) | entrance_y_half;
+            }
+            // Byte 1 ($05F200[n]): LLAAAXXX  — update X (lower 3 bits)
+            let t1 = AddrPc::try_from_lorom(AddrSnes(0x05F200))?.as_index() + header_offset + level_idx;
+            if let Some(b) = rom_bytes.get_mut(t1) {
+                *b = (*b & 0xF8) | entrance_x_half;
+            }
+            // Byte 3 ($05F600[n]): YUVREEEE E — update entrance screen (lower 5 bits)
+            let t3 = AddrPc::try_from_lorom(AddrSnes(0x05F600))?.as_index() + header_offset + level_idx;
+            if let Some(b) = rom_bytes.get_mut(t3) {
+                *b = (*b & 0xE0) | entrance_screen;
+            }
+        }
+
         Ok(())
     }
 

@@ -120,23 +120,7 @@ impl RomDisassembly {
     pub fn new(rom: Rom, rih: &RomInternalHeader) -> Self {
         let mut walker = RomAssemblyWalker::new(rom.clone(), rih);
         walker.full_analysis().unwrap();
-        Self {
-            rom,
-            chunks: walker.chunks,
-            cached_data_blocks: HashSet::new(),
-            code_lines: {
-                std::fs::read_to_string("ROM/out.json")
-                    .ok()
-                    .and_then(|s| match serde_json::from_str(&s) {
-                        Ok(s) => Some(s),
-                        Err(e) => {
-                            log::error!("{e}");
-                            None
-                        }
-                    })
-                    .unwrap_or_default()
-            },
-        }
+        Self { rom, chunks: walker.chunks, cached_data_blocks: HashSet::new(), code_lines: Vec::new() }
     }
 
     pub fn rom_bytes(&self) -> &[u8] {
@@ -195,7 +179,13 @@ impl RomDisassembly {
                     self.split_unknown_block_with(data_block, &error_mapper)?;
                 }
                 Some(&old_data_block) => {
-                    assert_eq!(old_data_block.kind, data_block.kind);
+                    if old_data_block.kind != data_block.kind {
+                        log::error!(
+                            "Block kind mismatch at {:?}: expected {:?}, found {:?} — using existing block",
+                            data_block.slice.begin, old_data_block.kind, data_block.kind
+                        );
+                        data_block = old_data_block;
+                    }
                     // `data_block` and `old_block` differ in size, which means that either:
                     // 1. `old_block` is infinite - the block at this address was previously
                     // requested when its size was not known, but now is and `data_block` is used to

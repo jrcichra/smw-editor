@@ -23,9 +23,7 @@ use crate::{
     project::Project,
     ui::{
         dev_utils::address_converter::UiAddressConverter,
-        editor_prototypes::{
-            block_editor::UiBlockEditor, level_editor::UiLevelEditor, sprite_map_editor::UiSpriteMapEditor,
-        },
+        editor_prototypes::{level_editor::UiLevelEditor, sprite_map_editor::UiSpriteMapEditor},
         tab_viewer::EditorToolTabViewer,
         tool::DockableEditorTool,
         world_editor::UiWorldEditor,
@@ -476,10 +474,7 @@ impl UiMainWindow {
                             self.open_tool(UiSpriteMapEditor::new(Arc::clone(&self.gl), Arc::clone(rom.unwrap())));
                             ui.close_menu();
                         }
-                        if ui.button("Block Editor").clicked() {
-                            self.open_tool(UiBlockEditor::default());
-                            ui.close_menu();
-                        }
+
                     });
                 });
 

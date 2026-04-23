@@ -177,6 +177,7 @@ pub struct UiWorldEditor {
     pub(super) edit_layer: u8, // 1 or 2
     preview_texture: Option<egui::TextureHandle>,
     preview_for: Option<(u32, u32)>,
+    pub(super) has_edits: bool,
     pub(super) has_unsavable_changes: bool,
     pub(super) source_layer1_tiles: Vec<u8>,
     pub(super) source_layer2_words: Vec<u16>,
@@ -215,6 +216,7 @@ impl UiWorldEditor {
             edit_layer: 1,
             preview_texture: None,
             preview_for: None,
+            has_edits: false,
             has_unsavable_changes: false,
             source_layer1_tiles,
             source_layer2_words: Vec::new(),
@@ -249,6 +251,7 @@ impl UiWorldEditor {
         self.offset = Vec2::ZERO;
         self.selected_tile = None;
         self.needs_center = true;
+        self.has_edits = false;
         self.has_unsavable_changes = false;
         self.source_layer2_words = read_overworld_l2_words(&self.cpu);
     }
@@ -266,6 +269,10 @@ impl DockableEditorTool for UiWorldEditor {
 
     fn on_closed(&mut self) {
         self.renderer.lock().expect("Cannot lock overworld renderer").destroy(&self.gl);
+    }
+
+    fn has_unsaved_changes(&self) -> bool {
+        self.has_edits
     }
 
     fn save_to_rom(&self, rom_bytes: &mut [u8], has_smc_header: bool) -> anyhow::Result<()> {

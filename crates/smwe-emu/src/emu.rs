@@ -1,6 +1,6 @@
 #![allow(clippy::identity_op)]
 
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 
 use wdc65816::{Cpu, Mem};
 
@@ -14,7 +14,6 @@ pub struct CheckedMem {
     pub vram: Vec<u8>,
     pub cgram: Vec<u8>,
     pub extram: Vec<u8>,
-    pub uninit: HashSet<usize>,
     pub error: Option<u32>,
     pub err_value: Option<u8>,
     pub last_store: Option<u32>,
@@ -29,7 +28,6 @@ impl CheckedMem {
             vram: Vec::from([0; 0x10000]),
             cgram: Vec::from([0; 0x200]),
             extram: Vec::from([0; 0x10000]),
-            uninit: HashSet::new(),
             error: None,
             err_value: None,
             last_store: None,
