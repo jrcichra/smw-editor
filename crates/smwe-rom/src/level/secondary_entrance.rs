@@ -54,4 +54,8 @@ impl SecondaryEntrance {
         // screen_number = SSSSS
         self.0[2] & 0b11111
     }
+
+    pub fn bytes(&self) -> [u8; 4] {
+        self.0
+    }
 }

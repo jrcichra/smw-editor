@@ -19,16 +19,26 @@ pub(super) struct LevelProperties {
     pub vertical_scroll: u8,
     pub fg_bg_gfx: u8,
 
-    // Other
+    // Secondary header
     pub is_vertical: bool,
     pub has_layer2: bool,
+    pub layer2_scroll: u8,
+    pub layer3: u8,
+    pub main_entrance_action: u8,
+    pub midway_entrance_screen: u8,
+    pub fg_initial_pos: u8,
+    pub bg_initial_pos: u8,
+    pub no_yoshi_level: bool,
+    pub unknown_vertical_pos_level: bool,
 }
 
 impl LevelProperties {
     pub fn from_level(level: &Level) -> Self {
         let h = &level.primary_header;
-        let is_vertical = level.secondary_header.vertical_level();
+        let s = &level.secondary_header;
+        let is_vertical = s.vertical_level();
         let has_layer2 = matches!(level.layer2, Layer2Data::Objects(_));
+        let (_, _) = s.main_entrance_xy_pos();
         Self {
             palette_bg: h.palette_bg(),
             level_length: h.level_length(),
@@ -45,6 +55,14 @@ impl LevelProperties {
             fg_bg_gfx: h.fg_bg_gfx(),
             is_vertical,
             has_layer2,
+            layer2_scroll: s.layer2_scroll(),
+            layer3: s.layer3(),
+            main_entrance_action: s.main_entrance_mario_action(),
+            midway_entrance_screen: s.midway_entrance_screen(),
+            fg_initial_pos: s.fg_initial_pos(),
+            bg_initial_pos: s.bg_initial_pos(),
+            no_yoshi_level: s.no_yoshi_level(),
+            unknown_vertical_pos_level: s.unknown_vertical_pos_level(),
         }
     }
 

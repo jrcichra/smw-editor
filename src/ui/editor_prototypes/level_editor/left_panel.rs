@@ -208,24 +208,33 @@ impl UiLevelEditor {
 
         ui.separator();
         ui.label(format!("Level {:03X}", self.level_num));
-        let is_vertical = {
+        let is_vertical = self.level_properties.is_vertical;
+        {
             let props = self.level_properties;
-            ui.label(format!("Mode: {:02X}  FG/BG GFX: {:X}", props.level_mode, props.fg_bg_gfx));
-            let mut sprite_gfx = props.sprite_gfx as u16;
-            ui.horizontal(|ui| {
-                ui.label("Sprite GFX:");
-                if ui.add(Slider::new(&mut sprite_gfx, 0..=0x0F).hexadecimal(1, false, false)).changed() {
-                    self.level_properties.sprite_gfx = sprite_gfx as u8;
-                    self.refresh_sprite_gfx();
-                }
-            });
-            ui.label(format!("Music: {}  Timer: {}", props.music, props.timer));
-            ui.label(if props.is_vertical { "Vertical" } else { "Horizontal" });
-            ui.label(format!("Screens: {}", props.num_screens()));
-            let (w, h) = props.level_dimensions_in_tiles();
-            ui.label(format!("Size: {}x{} tiles", w, h));
-            props.is_vertical
-        };
+            ui.label(format!("Screens: {}  Size: {}x{} tiles",
+                props.num_screens(),
+                props.level_dimensions_in_tiles().0,
+                props.level_dimensions_in_tiles().1));
+        }
+
+        // ── Editor launchers ────────────────────────────────────
+        ui.separator();
+        ui.horizontal(|ui| {
+            if ui.button("Level Header…").clicked() {
+                self.show_level_header = !self.show_level_header;
+            }
+            if ui.button("Palette…").clicked() {
+                self.show_palette_editor = true;
+            }
+        });
+        ui.horizontal(|ui| {
+            if ui.button("Secondary Entrances…").clicked() {
+                self.show_secondary_entrances = true;
+            }
+            if ui.button("Map16…").clicked() {
+                self.show_map16_editor = true;
+            }
+        });
 
         ui.separator();
 
@@ -500,6 +509,150 @@ impl UiLevelEditor {
         );
         self.sprite_preview_textures.insert(sprite_id, handle.clone());
         handle
+    }
+}
+
+// ── Level Header Panel ────────────────────────────────────────────────────────
+
+impl UiLevelEditor {
+    pub(super) fn level_header_panel_window(&mut self, ctx: &egui::Context) {
+        if !self.show_level_header {
+            return;
+        }
+        let mut open = self.show_level_header;
+        egui::Window::new("Level Header")
+            .open(&mut open)
+            .resizable(false)
+            .show(ctx, |ui| {
+                let mut rebuild_tiles = false;
+                let mut refresh_sprites = false;
+                let mut changed = false;
+
+                ui.strong("Primary Header");
+                egui::Grid::new("primary_header_grid")
+                    .num_columns(2)
+                    .spacing([12.0, 4.0])
+                    .show(ui, |ui| {
+                        let p = &mut self.level_properties;
+
+                        macro_rules! row_slider {
+                            ($label:expr, $field:expr, $range:expr) => {{
+                                ui.label($label);
+                                let mut v = $field as i32;
+                                if ui.add(Slider::new(&mut v, $range)).changed() {
+                                    $field = v as _;
+                                    changed = true;
+                                }
+                                ui.end_row();
+                            }};
+                        }
+                        macro_rules! row_slider_hex {
+                            ($label:expr, $field:expr, $range:expr, $digits:expr) => {{
+                                ui.label($label);
+                                let mut v = $field as i32;
+                                if ui.add(Slider::new(&mut v, $range).hexadecimal($digits, false, false)).changed() {
+                                    $field = v as _;
+                                    changed = true;
+                                }
+                                ui.end_row();
+                            }};
+                        }
+                        macro_rules! row_check {
+                            ($label:expr, $field:expr) => {{
+                                ui.label($label);
+                                if ui.checkbox(&mut $field, "").changed() {
+                                    changed = true;
+                                }
+                                ui.end_row();
+                            }};
+                        }
+
+                        row_slider!("Level Length:", p.level_length, 0..=31_i32);
+                        row_slider_hex!("Level Mode:", p.level_mode, 0..=31_i32, 2);
+
+                        ui.label("FG/BG GFX:");
+                        {
+                            let mut v = p.fg_bg_gfx as i32;
+                            if ui.add(Slider::new(&mut v, 0..=15_i32).hexadecimal(1, false, false)).changed() {
+                                p.fg_bg_gfx = v as u8;
+                                changed = true;
+                                rebuild_tiles = true;
+                            }
+                        }
+                        ui.end_row();
+
+                        ui.label("Sprite GFX:");
+                        {
+                            let mut v = p.sprite_gfx as i32;
+                            if ui.add(Slider::new(&mut v, 0..=15_i32).hexadecimal(1, false, false)).changed() {
+                                p.sprite_gfx = v as u8;
+                                changed = true;
+                                refresh_sprites = true;
+                            }
+                        }
+                        ui.end_row();
+
+                        row_slider!("Music:", p.music, 0..=7_i32);
+                        row_slider!("Timer:", p.timer, 0..=3_i32);
+                        row_slider_hex!("BG Palette:", p.palette_bg, 0..=7_i32, 1);
+                        row_slider_hex!("FG Palette:", p.palette_fg, 0..=7_i32, 1);
+                        row_slider_hex!("Sprite Palette:", p.palette_sprite, 0..=7_i32, 1);
+                        row_slider_hex!("Back Area Color:", p.back_area_color, 0..=7_i32, 1);
+                        row_slider!("Item Memory:", p.item_memory, 0..=3_i32);
+                        row_slider!("Vertical Scroll:", p.vertical_scroll, 0..=3_i32);
+                        row_check!("Layer 3 Priority:", p.layer3_priority);
+                    });
+
+                ui.separator();
+                ui.strong("Secondary Header");
+                egui::Grid::new("secondary_header_grid")
+                    .num_columns(2)
+                    .spacing([12.0, 4.0])
+                    .show(ui, |ui| {
+                        let p = &mut self.level_properties;
+
+                        macro_rules! row_slider {
+                            ($label:expr, $field:expr, $range:expr) => {{
+                                ui.label($label);
+                                let mut v = $field as i32;
+                                if ui.add(Slider::new(&mut v, $range)).changed() {
+                                    $field = v as _;
+                                    changed = true;
+                                }
+                                ui.end_row();
+                            }};
+                        }
+                        macro_rules! row_check {
+                            ($label:expr, $field:expr) => {{
+                                ui.label($label);
+                                if ui.checkbox(&mut $field, "").changed() {
+                                    changed = true;
+                                }
+                                ui.end_row();
+                            }};
+                        }
+
+                        row_check!("Vertical Level:", p.is_vertical);
+                        row_check!("No Yoshi:", p.no_yoshi_level);
+                        row_slider!("Layer 2 Scroll:", p.layer2_scroll, 0..=15_i32);
+                        row_slider!("Layer 3:", p.layer3, 0..=3_i32);
+                        row_slider!("Entrance Action:", p.main_entrance_action, 0..=7_i32);
+                        row_slider!("Midway Screen:", p.midway_entrance_screen, 0..=15_i32);
+                        row_slider!("FG Initial Pos:", p.fg_initial_pos, 0..=3_i32);
+                        row_slider!("BG Initial Pos:", p.bg_initial_pos, 0..=3_i32);
+                    });
+
+                if changed {
+                    self.mark_edited();
+                }
+                if rebuild_tiles {
+                    self.rebuild_tiles();
+                }
+                if refresh_sprites {
+                    self.refresh_sprite_gfx();
+                }
+            });
+        self.show_level_header = open;
     }
 }
 

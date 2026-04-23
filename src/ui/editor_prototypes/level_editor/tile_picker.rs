@@ -175,7 +175,7 @@ impl BgTilePicker {
 }
 
 /// Decode a single 8×8 SNES 4bpp tile from VRAM and write RGBA pixels.
-fn render_sub_tile(vram: &[u8], cgram: &[u8], t: u16, x0: u32, y0: u32, pixels: &mut [u8], stride: usize) {
+pub(super) fn render_sub_tile(vram: &[u8], cgram: &[u8], t: u16, x0: u32, y0: u32, pixels: &mut [u8], stride: usize) {
     let tile_num = (t & 0x3FF) as usize;
     let pal = ((t >> 10) & 0x7) as usize;
     let flip_x = (t & 0x4000) != 0;

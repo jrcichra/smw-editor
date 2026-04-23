@@ -3,8 +3,11 @@ mod central_panel;
 mod editing;
 mod left_panel;
 mod level_renderer;
+mod map16_editor;
 mod object_layer;
+mod palette_editor;
 mod properties;
+mod secondary_entrance_editor;
 mod sprite_catalog;
 mod sprite_layer;
 mod tile_picker;
@@ -96,6 +99,29 @@ pub struct UiLevelEditor {
     has_edits: bool,
     request_rom_save: bool,
     pending_close: bool,
+
+    // Editor windows
+    show_level_header: bool,
+    show_secondary_entrances: bool,
+    show_palette_editor: bool,
+    show_map16_editor: bool,
+
+    // Secondary entrance data (local mutable copy, 512 entries × 4 bytes)
+    secondary_entrance_data: Vec<[u8; 4]>,
+    secondary_entrance_search: String,
+
+    // Palette editor (12 ABGR1555 colors per group, stored as raw u16)
+    palette_bg_colors: [u16; 12],
+    palette_fg_colors: [u16; 12],
+    palette_sprite_colors: [u16; 12],
+    palette_dirty: bool,
+    selected_palette_group: u8,
+    selected_palette_idx: usize,
+
+    // Map16 editor
+    map16_edits: HashMap<u16, [u16; 4]>,
+    map16_block_ptrs: Vec<u32>, // SNES address of each block's data (512 entries)
+    selected_map16_block_for_edit: Option<u16>,
 }
 
 impl UiLevelEditor {
@@ -155,6 +181,21 @@ impl UiLevelEditor {
             has_edits: false,
             request_rom_save: false,
             pending_close: false,
+            show_level_header: false,
+            show_secondary_entrances: false,
+            show_palette_editor: false,
+            show_map16_editor: false,
+            secondary_entrance_data: Vec::new(),
+            secondary_entrance_search: String::new(),
+            palette_bg_colors: [0u16; 12],
+            palette_fg_colors: [0u16; 12],
+            palette_sprite_colors: [0u16; 12],
+            palette_dirty: false,
+            selected_palette_group: 3, // none
+            selected_palette_idx: 0,
+            map16_edits: HashMap::new(),
+            map16_block_ptrs: Vec::new(),
+            selected_map16_block_for_edit: None,
         };
         editor.load_level();
         Ok(editor)
@@ -164,6 +205,12 @@ impl UiLevelEditor {
 // UI
 impl DockableEditorTool for UiLevelEditor {
     fn update(&mut self, ui: &mut Ui) {
+        // Floating editor windows rendered before panels so they draw on top
+        let ctx = ui.ctx().clone();
+        self.level_header_panel_window(&ctx);
+        self.secondary_entrance_editor_window(&ctx);
+        self.palette_editor_window(&ctx);
+        self.map16_editor_window(&ctx);
         SidePanel::left("level_editor.left_panel").resizable(false).show_inside(ui, |ui| self.left_panel(ui));
         CentralPanel::default().frame(Frame::NONE.inner_margin(0.)).show_inside(ui, |ui| self.central_panel(ui));
     }
@@ -354,12 +401,11 @@ impl DockableEditorTool for UiLevelEditor {
             }
         }
 
-        // ── Spawn point (secondary header byte tables) ───────────────────────────
-        // The main entrance is stored across four byte tables at $05F000/$05F200/$05F400/$05F600,
-        // one byte per level. We update bytes 0, 1, and 3 (Y pos, X pos, entrance screen).
+        // ── Secondary header byte tables ($05F000/$05F200/$05F400/$05F600) ─────
+        // Fully reconstruct all four bytes from level_properties + spawn position.
         {
-            let is_vertical = level.secondary_header.vertical_level();
-            let (entrance_screen, local_x, local_y) = if is_vertical {
+            let p = &self.level_properties;
+            let (entrance_screen, local_x, local_y) = if p.is_vertical {
                 let sx = self.mario_spawn_x / 16;
                 let sy = self.mario_spawn_y / 32;
                 let screen = ((sy * 2 + sx) as u8).min(31);
@@ -375,20 +421,81 @@ impl DockableEditorTool for UiLevelEditor {
             let entrance_x_half = (local_x / 2).min(7);
             let entrance_y_half = (local_y / 2).min(15);
 
-            // Byte 0 ($05F000[n]): SSSSYYYY  — update Y (lower 4 bits)
+            // Byte 0: SSSSSYYY Y  (layer2_scroll[3:0] | entrance_y[3:0])
             let t0 = AddrPc::try_from_lorom(AddrSnes(0x05F000))?.as_index() + header_offset + level_idx;
             if let Some(b) = rom_bytes.get_mut(t0) {
-                *b = (*b & 0xF0) | entrance_y_half;
+                *b = (p.layer2_scroll << 4) | (entrance_y_half & 0x0F);
             }
-            // Byte 1 ($05F200[n]): LLAAAXXX  — update X (lower 3 bits)
+            // Byte 1: LLAAAXXX  (layer3[1:0] | action[2:0] | entrance_x[2:0])
             let t1 = AddrPc::try_from_lorom(AddrSnes(0x05F200))?.as_index() + header_offset + level_idx;
             if let Some(b) = rom_bytes.get_mut(t1) {
-                *b = (*b & 0xF8) | entrance_x_half;
+                *b = ((p.layer3 & 0x3) << 6) | ((p.main_entrance_action & 0x7) << 3) | (entrance_x_half & 0x07);
             }
-            // Byte 3 ($05F600[n]): YUVREEEE E — update entrance screen (lower 5 bits)
+            // Byte 2: SSSSFFBB  (midway_screen[3:0] | fg_initial_pos[1:0] | bg_initial_pos[1:0])
+            let t2 = AddrPc::try_from_lorom(AddrSnes(0x05F400))?.as_index() + header_offset + level_idx;
+            if let Some(b) = rom_bytes.get_mut(t2) {
+                *b = ((p.midway_entrance_screen & 0xF) << 4)
+                    | ((p.fg_initial_pos & 0x3) << 2)
+                    | (p.bg_initial_pos & 0x3);
+            }
+            // Byte 3: YUVREEEE  (no_yoshi | unknown_vert | vertical | entrance_screen[4:0])
             let t3 = AddrPc::try_from_lorom(AddrSnes(0x05F600))?.as_index() + header_offset + level_idx;
             if let Some(b) = rom_bytes.get_mut(t3) {
-                *b = (*b & 0xE0) | entrance_screen;
+                *b = ((p.no_yoshi_level as u8) << 7)
+                    | ((p.unknown_vertical_pos_level as u8) << 6)
+                    | ((p.is_vertical as u8) << 5)
+                    | (entrance_screen & 0x1F);
+            }
+        }
+
+        // ── Secondary entrance tables ($05F800 / $05FA00 / $05FC00 / $05FE00) ──
+        // Four separate 512-byte tables, one per byte-lane of each entrance.
+        if self.secondary_entrance_data.len() == 512 {
+            let table_bases = [0x05F800u32, 0x05FA00, 0x05FC00, 0x05FE00];
+            for (byte_i, &snes_base) in table_bases.iter().enumerate() {
+                let pc_base = AddrPc::try_from_lorom(AddrSnes(snes_base))?.as_index() + header_offset;
+                for (idx, bytes) in self.secondary_entrance_data.iter().enumerate() {
+                    if let Some(b) = rom_bytes.get_mut(pc_base + idx) {
+                        *b = bytes[byte_i];
+                    }
+                }
+            }
+        }
+
+        // ── Palette tables ────────────────────────────────────────────────────
+        if self.palette_dirty {
+            let p = &self.level_properties;
+            let write_palette = |rom_bytes: &mut [u8], snes_addr: u32, colors: &[u16; 12]| -> anyhow::Result<()> {
+                let pc = AddrPc::try_from_lorom(AddrSnes(snes_addr))?.as_index() + header_offset;
+                for (i, &c) in colors.iter().enumerate() {
+                    let off = pc + i * 2;
+                    if off + 1 < rom_bytes.len() {
+                        rom_bytes[off] = (c & 0xFF) as u8;
+                        rom_bytes[off + 1] = (c >> 8) as u8;
+                    }
+                }
+                Ok(())
+            };
+            write_palette(rom_bytes, 0x00B0B0 + p.palette_bg as u32 * 0x18, &self.palette_bg_colors)?;
+            write_palette(rom_bytes, 0x00B190 + p.palette_fg as u32 * 0x18, &self.palette_fg_colors)?;
+            write_palette(rom_bytes, 0x00B318 + p.palette_sprite as u32 * 0x18, &self.palette_sprite_colors)?;
+        }
+
+        // ── Map16 block edits ─────────────────────────────────────────────────
+        for (&block_id, &tile_words) in &self.map16_edits {
+            if let Some(&snes_addr) = self.map16_block_ptrs.get(block_id as usize) {
+                if snes_addr != 0 {
+                    if let Ok(pc) = AddrPc::try_from_lorom(AddrSnes(snes_addr)) {
+                        let file_off = pc.as_index() + header_offset;
+                        for (sub_i, &tw) in tile_words.iter().enumerate() {
+                            let off = file_off + sub_i * 2;
+                            if off + 1 < rom_bytes.len() {
+                                rom_bytes[off] = (tw & 0xFF) as u8;
+                                rom_bytes[off + 1] = (tw >> 8) as u8;
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -405,6 +512,7 @@ impl DockableEditorTool for UiLevelEditor {
 
     fn on_save_succeeded(&mut self) {
         self.has_edits = false;
+        self.palette_dirty = false;
         self.initial_spawn_x = self.mario_spawn_x;
         self.initial_spawn_y = self.mario_spawn_y;
     }
@@ -574,6 +682,49 @@ impl UiLevelEditor {
         // Rebuild the tile picker from the loaded level's tileset.
         self.tile_picker.rebuild(&mut self.cpu);
         self.bg_tile_picker.rebuild(&mut self.cpu);
+
+        // ── Secondary entrance data ──────────────────────────────────────────
+        self.secondary_entrance_data =
+            self.rom.secondary_entrances.iter().map(|se| se.bytes()).collect();
+
+        // ── Palette data ─────────────────────────────────────────────────────
+        {
+            let rom_bytes = self.rom.disassembly.rom_bytes();
+            let p = &self.rom.levels[level_idx].primary_header;
+            let read_palette = |snes_addr: u32| -> [u16; 12] {
+                let mut colors = [0u16; 12];
+                if let Ok(pc) = AddrPc::try_from_lorom(AddrSnes(snes_addr)) {
+                    let base = pc.as_index();
+                    for (i, c) in colors.iter_mut().enumerate() {
+                        let off = base + i * 2;
+                        if off + 1 < rom_bytes.len() {
+                            *c = rom_bytes[off] as u16 | ((rom_bytes[off + 1] as u16) << 8);
+                        }
+                    }
+                }
+                colors
+            };
+            self.palette_bg_colors = read_palette(0x00B0B0 + p.palette_bg() as u32 * 0x18);
+            self.palette_fg_colors = read_palette(0x00B190 + p.palette_fg() as u32 * 0x18);
+            self.palette_sprite_colors = read_palette(0x00B318 + p.palette_sprite() as u32 * 0x18);
+            self.palette_dirty = false;
+        }
+
+        // ── Map16 block pointers ─────────────────────────────────────────────
+        {
+            let map16_bank = self.cpu.mem.cart.resolve("Map16Common").unwrap_or(0) & 0xFF0000;
+            let mut ptrs = vec![0u32; 512];
+            for (block_id, ptr) in ptrs.iter_mut().enumerate() {
+                let ptr_lo_addr = 0x0FBE + block_id as u32 * 2;
+                if ptr_lo_addr + 1 < 0x10000 {
+                    let offset = self.cpu.mem.load_u16(ptr_lo_addr) as u32;
+                    if offset != 0 {
+                        *ptr = map16_bank | offset;
+                    }
+                }
+            }
+            self.map16_block_ptrs = ptrs;
+        }
 
         // Mark as clean (no unsaved edits)
         self.has_edits = false;
