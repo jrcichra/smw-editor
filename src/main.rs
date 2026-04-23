@@ -8,7 +8,16 @@ use smw_editor::{
 };
 
 fn main() -> eframe::Result<()> {
-    log4rs::init_file("log4rs.yaml", Default::default()).expect("Failed to initialize log4rs");
+    if log4rs::init_file("log4rs.yaml", Default::default()).is_err() {
+        let stderr = log4rs::append::console::ConsoleAppender::builder()
+            .target(log4rs::append::console::Target::Stderr)
+            .build();
+        let config = log4rs::Config::builder()
+            .appender(log4rs::config::Appender::builder().build("stderr", Box::new(stderr)))
+            .build(log4rs::config::Root::builder().appender("stderr").build(log::LevelFilter::Warn))
+            .unwrap();
+        let _ = log4rs::init_config(config);
+    }
 
     // In WSL environments the Wayland socket exists but is non-functional,
     // causing an immediate crash. Force X11 and software rendering if we detect WSL.

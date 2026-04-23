@@ -61,7 +61,9 @@ impl Project {
         let path = PathBuf::from(home).join(RECENT_FILES_PATH);
         let strings: Vec<String> = files.iter().map(|p| p.to_string_lossy().into_owned()).collect();
         if let Ok(json) = serde_json::to_string_pretty(&strings) {
-            let _ = std::fs::write(path, json);
+            if let Err(e) = std::fs::write(&path, json) {
+                log::warn!("Failed to save recent files to {}: {e}", path.display());
+            }
         }
     }
 

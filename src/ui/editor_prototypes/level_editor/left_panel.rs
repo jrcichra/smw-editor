@@ -2,7 +2,7 @@ use egui::{vec2, Color32, Rect, Sense, Slider, Ui};
 use smwe_widgets::value_switcher::{ValueSwitcher, ValueSwitcherButtons};
 
 use super::UiLevelEditor;
-use crate::ui::editing_mode::EditingMode;
+use crate::ui::{editing_mode::EditingMode, style::toggle_button};
 
 impl UiLevelEditor {
     pub(super) fn left_panel(&mut self, ui: &mut Ui) {
@@ -44,11 +44,7 @@ impl UiLevelEditor {
         ui.horizontal(|ui| {
             ui.label("Edit:");
             for (label, sprites) in [("Objects", false), ("Sprites", true)] {
-                let active = self.edit_sprites == sprites;
-                let fill = if active { Some(Color32::from_rgb(70, 130, 200)) } else { None };
-                let btn = egui::Button::new(label);
-                let btn = if let Some(f) = fill { btn.fill(f) } else { btn };
-                if ui.add(btn).clicked() {
+                if toggle_button(ui, label, self.edit_sprites == sprites) {
                     self.edit_sprites = sprites;
                     self.selected_object_indices.clear();
                     self.selected_sprite_indices.clear();
@@ -67,11 +63,7 @@ impl UiLevelEditor {
                 ("Probe [4]", EditingMode::Probe),
             ];
             for (label, mode) in modes {
-                let active = self.editing_mode == mode;
-                let fill = if active { Some(Color32::from_rgb(70, 130, 200)) } else { None };
-                let btn = egui::Button::new(label);
-                let btn = if let Some(f) = fill { btn.fill(f) } else { btn };
-                if ui.add(btn).clicked() {
+                if toggle_button(ui, label, self.editing_mode == mode) {
                     self.editing_mode = mode;
                 }
             }
@@ -82,11 +74,7 @@ impl UiLevelEditor {
             ui.label("Layer:");
             let modes = [("L1", 1u8), ("L2", 2u8)];
             for (label, layer) in modes {
-                let active = self.edit_layer == layer;
-                let fill = if active { Some(Color32::from_rgb(70, 130, 200)) } else { None };
-                let btn = egui::Button::new(label);
-                let btn = if let Some(f) = fill { btn.fill(f) } else { btn };
-                if ui.add(btn).clicked() {
+                if toggle_button(ui, label, self.edit_layer == layer) {
                     self.edit_layer = layer;
                     self.preview_for = None; // Force preview refresh
                 }

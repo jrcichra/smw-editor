@@ -1,4 +1,4 @@
-use egui::{util::id_type_map::SerializableAny, Color32, Context, Id};
+use egui::{util::id_type_map::SerializableAny, Color32, Context, Id, Ui};
 use serde::{Deserialize, Serialize};
 
 pub trait EditorStyle: Default + SerializableAny {
@@ -42,6 +42,14 @@ impl Default for ErrorStyle {
     fn default() -> Self {
         Self { text_color: Color32::RED }
     }
+}
+
+/// Renders a button highlighted in the editor's active-selection color when `active` is true.
+/// Returns `true` if the button was clicked.
+pub fn toggle_button(ui: &mut Ui, label: &str, active: bool) -> bool {
+    let btn = egui::Button::new(label);
+    let btn = if active { btn.fill(Color32::from_rgb(70, 130, 200)) } else { btn };
+    ui.add(btn).clicked()
 }
 
 impl Default for CellSelectorStyle {

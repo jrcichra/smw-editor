@@ -89,7 +89,7 @@ impl CheckedMem {
             }
             self.store_u16(0x2121, (dest + size) as u16);
         } else {
-            println!("DMA size {size:04X}: ${b:02X} ${a:06X}");
+            log::debug!("DMA size {size:04X}: ${b:02X} ${a:06X}");
         }
     }
 

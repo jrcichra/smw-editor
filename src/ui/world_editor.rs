@@ -31,7 +31,7 @@ use smwe_rom::{
     SmwRom,
 };
 
-use crate::ui::tool::DockableEditorTool;
+use crate::ui::{style::toggle_button, tool::DockableEditorTool};
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 
@@ -92,8 +92,6 @@ pub(super) struct OverworldRenderer {
     layer1: TileRenderer,
     layer2: TileRenderer,
     gfx_bufs: GfxBuffers,
-    #[allow(dead_code)]
-    offset: Vec2,
     destroyed: bool,
 }
 
@@ -103,7 +101,6 @@ impl OverworldRenderer {
             layer1: TileRenderer::new(gl),
             layer2: TileRenderer::new(gl),
             gfx_bufs: GfxBuffers::new(gl),
-            offset: Vec2::ZERO,
             destroyed: false,
         }
     }
@@ -408,11 +405,7 @@ impl UiWorldEditor {
                     ("Erase [3]", crate::ui::editing_mode::EditingMode::Erase),
                 ];
                 for (label, mode) in modes {
-                    let active = self.editing_mode == mode;
-                    let fill = if active { Some(Color32::from_rgb(70, 130, 200)) } else { None };
-                    let btn = egui::Button::new(label);
-                    let btn = if let Some(f) = fill { btn.fill(f) } else { btn };
-                    if ui.add(btn).clicked() {
+                    if toggle_button(ui, label, self.editing_mode == mode) {
                         self.editing_mode = mode;
                     }
                 }
@@ -423,11 +416,7 @@ impl UiWorldEditor {
                 ui.label("Layer:");
                 let layers = [("L1", 1u8), ("L2", 2u8)];
                 for (label, layer) in layers {
-                    let active = self.edit_layer == layer;
-                    let fill = if active { Some(Color32::from_rgb(70, 130, 200)) } else { None };
-                    let btn = egui::Button::new(label);
-                    let btn = if let Some(f) = fill { btn.fill(f) } else { btn };
-                    if ui.add(btn).clicked() {
+                    if toggle_button(ui, label, self.edit_layer == layer) {
                         self.edit_layer = layer;
                         self.preview_texture = None; // Force preview refresh
                     }
