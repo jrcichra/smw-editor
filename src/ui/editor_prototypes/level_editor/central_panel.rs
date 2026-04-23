@@ -35,10 +35,19 @@ impl UiLevelEditor {
         }
 
         // ── Scroll-to-zoom ────────────────────────────────────
-        let scroll = ui.input(|i| i.smooth_scroll_delta.y);
-        if scroll != 0.0 && resp.hovered() {
-            let factor = 1.0 + scroll * 0.001;
-            self.zoom = (self.zoom * factor).clamp(0.25, 8.0);
+        let zoom_delta = ui.input(|i| i.zoom_delta());
+        let wheel_delta = ui.input(|i| i.raw_scroll_delta.y);
+        if resp.contains_pointer() {
+            let factor = if (zoom_delta - 1.0).abs() > f32::EPSILON {
+                zoom_delta
+            } else if wheel_delta.abs() > f32::EPSILON {
+                (wheel_delta * 0.005).exp()
+            } else {
+                1.0
+            };
+            if factor != 1.0 {
+                self.zoom = (self.zoom * factor).clamp(0.25, 8.0);
+            }
         }
 
         // ── Level background colour (fills entire canvas before GL tiles) ───
