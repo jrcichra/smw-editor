@@ -11,21 +11,34 @@ const OW_L2_ROWS: u32 = 64;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
+    let rom_path = args
+        .iter()
+        .find_map(|a| a.strip_prefix("--rom="))
+        .map(Path::new)
+        .or_else(|| {
+            args.iter()
+                .skip(1)
+                .find(|a| !a.starts_with("--"))
+                .map(|a| Path::new(a))
+        })
+        .unwrap_or_else(|| Path::new("smw.smc"));
     let submap = args.iter().find_map(|a| a.strip_prefix("--submap=")).and_then(|s| s.parse::<u8>().ok()).unwrap_or(3);
     let output = args
         .iter()
         .find_map(|a| a.strip_prefix("--out="))
         .unwrap_or("ow_render.png");
     let full = args.iter().any(|a| a == "--full");
+    let activate_events = !args.iter().any(|a| a == "--no-events");
 
-    let rom_path = Path::new("smw.smc");
     let raw = std::fs::read(rom_path).expect("cannot read smw.smc");
     let rom_bytes = if raw.len() % 0x400 == 0x200 { raw[0x200..].to_vec() } else { raw };
     let mut emu_rom = EmuRom::new(rom_bytes);
     emu_rom.load_symbols(include_str!("../../symbols/SMW_U.sym"));
     let mut cpu = Cpu::new(CheckedMem::new(Arc::new(emu_rom)));
 
-    activate_all_overworld_events(&mut cpu);
+    if activate_events {
+        activate_all_overworld_events(&mut cpu);
+    }
     smwe_emu::emu::load_overworld(&mut cpu, submap);
 
     let l2_scroll_x = i16::from_le_bytes(cpu.mem.load_u16(0x001E).to_le_bytes()) as i32;

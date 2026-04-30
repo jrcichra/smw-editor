@@ -232,6 +232,9 @@ pub(super) fn render_sub_tile(vram: &[u8], cgram: &[u8], t: u16, x0: u32, y0: u3
 /// Render a single Map16 block (16×16) into a 16×16 RGBA pixel buffer.
 /// Returns the pixels and a 16×16 egui::ColorImage.
 pub(super) fn render_block_image(block_id: u16, cpu: &mut Cpu) -> egui::ColorImage {
+    if block_id == 0 {
+        return empty_block_preview();
+    }
     let mut pixels = vec![0u8; 16 * 16 * 4];
     let map16_bank = cpu.mem.cart.resolve("Map16Common").unwrap_or(0) & 0xFF0000;
     let ptr_lo = 0x0FBE + (block_id as usize) * 2;
@@ -250,6 +253,9 @@ pub(super) fn render_block_image(block_id: u16, cpu: &mut Cpu) -> egui::ColorIma
 }
 
 pub(super) fn render_bg_block_image(block_id: u8, cpu: &mut Cpu) -> egui::ColorImage {
+    if block_id == 0 {
+        return empty_block_preview();
+    }
     let mut pixels = vec![0u8; 16 * 16 * 4];
     let map16_bg = cpu.mem.cart.resolve("Map16BGTiles").unwrap_or(0);
     let block_ptr = map16_bg + block_id as u32 * 8;
@@ -260,6 +266,22 @@ pub(super) fn render_bg_block_image(block_id: u8, cpu: &mut Cpu) -> egui::ColorI
         let hi = cpu.mem.cart.read(tile_word_addr + 1).unwrap_or(0);
         let t = lo as u16 | ((hi as u16) << 8);
         render_sub_tile(&cpu.mem.vram, &cpu.mem.cgram, t, sx, sy, &mut pixels, 16);
+    }
+    egui::ColorImage::from_rgba_unmultiplied([16, 16], &pixels)
+}
+
+fn empty_block_preview() -> egui::ColorImage {
+    let mut pixels = vec![0u8; 16 * 16 * 4];
+    for y in 0..16usize {
+        for x in 0..16usize {
+            let off = (y * 16 + x) * 4;
+            let border = x == 0 || y == 0 || x == 15 || y == 15;
+            let shade = if border { 56 } else { 0 };
+            pixels[off] = shade;
+            pixels[off + 1] = shade;
+            pixels[off + 2] = shade;
+            pixels[off + 3] = 255;
+        }
     }
     egui::ColorImage::from_rgba_unmultiplied([16, 16], &pixels)
 }
