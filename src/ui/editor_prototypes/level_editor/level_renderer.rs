@@ -227,6 +227,13 @@ impl LevelRenderer {
             let block_id = cpu.mem.load_u8(blocks_lo_addr + idx_adj) as u16
                 | (((cpu.mem.load_u8(blocks_hi_addr + idx_adj) as u16) & 0x3F) << 8);
 
+            // In the editor, block 0 is the erase/empty tile. Some hacked ROMs
+            // repurpose its Map16 graphics, but we still want the canvas to show
+            // empty space through it rather than drawing those graphics.
+            if block_id == 0 {
+                continue;
+            }
+
             // Fetch tiles. Background logic and vanilla (id < 0x200) foreground blocks use legacy emulator pointers
             if (bg && !has_layer2) || block_id < 0x200 {
                 let block_ptr = if bg && !has_layer2 {

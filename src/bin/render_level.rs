@@ -8,12 +8,23 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     let level = args.iter().find_map(|a| a.strip_prefix("--level=")).and_then(|s| u16::from_str_radix(s.trim_start_matches("0x"), 16).ok()).unwrap_or(0x105);
     let output = args.iter().find_map(|a| a.strip_prefix("--out=")).unwrap_or("/tmp/level.png");
+    let rom_path = args
+        .iter()
+        .find_map(|a| a.strip_prefix("--rom="))
+        .map(Path::new)
+        .or_else(|| {
+            args.iter()
+                .skip(1)
+                .find(|a| !a.starts_with("--"))
+                .map(|a| Path::new(a))
+        })
+        .unwrap_or_else(|| Path::new("smw.smc"));
     let inspect = args.iter().find_map(|a| a.strip_prefix("--inspect=")).and_then(|s| {
         let (x, y) = s.split_once(',')?;
         Some((x.parse::<u32>().ok()?, y.parse::<u32>().ok()?))
     });
 
-    let raw = std::fs::read(Path::new("smw.smc")).expect("cannot read smw.smc");
+    let raw = std::fs::read(rom_path).expect("cannot read ROM");
     let rom_bytes = if raw.len() % 0x400 == 0x200 { raw[0x200..].to_vec() } else { raw };
     let mut emu_rom = EmuRom::new(rom_bytes);
     emu_rom.load_symbols(include_str!("../../symbols/SMW_U.sym"));
@@ -43,8 +54,8 @@ fn main() {
         Some("1") => render_layer(&mut cpu, false, width, &mut pixels),
         Some("2") => render_layer(&mut cpu, true, width, &mut pixels),
         _ => {
-            render_layer(&mut cpu, false, width, &mut pixels);
             render_layer(&mut cpu, true, width, &mut pixels);
+            render_layer(&mut cpu, false, width, &mut pixels);
         }
     }
     if let Some((x, y)) = inspect {
@@ -102,6 +113,9 @@ fn render_layer(cpu: &mut Cpu, bg: bool, width: u32, pixels: &mut [u8]) {
         let idx_adj = if bg && !has_layer2 { idx % (16 * 27 * 2) } else { idx };
         let block_id = cpu.mem.load_u8(blocks_lo_addr + idx_adj) as u16
             | (((cpu.mem.load_u8(blocks_hi_addr + idx_adj) as u16) & 0x3F) << 8);
+        if block_id == 0 {
+            continue;
+        }
         let block_ptr = if bg && !has_layer2 {
             block_id as u32 * 8 + map16_bg
         } else {
@@ -158,6 +172,19 @@ fn inspect_block(cpu: &mut Cpu, bg: bool, block_x_wanted: u32, block_y_wanted: u
         let lo = cpu.mem.load_u8(blocks_lo_addr + idx_adj) as u16;
         let hi_raw = cpu.mem.load_u8(blocks_hi_addr + idx_adj) as u16;
         let block_id = lo | ((hi_raw & 0x3F) << 8);
+        if block_id == 0 {
+            println!(
+                "{} ({:03},{:03}) idx={} idx_adj={} lo={:02X} hi={:02X} block=000 <empty>",
+                if bg { "L2" } else { "L1" },
+                block_x,
+                block_y,
+                idx,
+                idx_adj,
+                lo,
+                hi_raw
+            );
+            break;
+        }
         let block_ptr = if bg && !has_layer2 {
             block_id as u32 * 8 + map16_bg
         } else {
