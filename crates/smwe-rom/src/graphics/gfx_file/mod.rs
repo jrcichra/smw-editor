@@ -10,6 +10,8 @@ use thiserror::Error;
 
 use crate::{
     compression::{lc_lz2, DecompressionError},
+    disassembler::binary_block::DataKind,
+    snes_utils::{addr::AddrSnes, rom_slice::SnesSlice},
     RomDisassembly, RomError,
 };
 
@@ -28,6 +30,10 @@ pub enum GfxFileParseError {
 // -------------------------------------------------------------------------------------------------
 
 pub const N_PIXELS_IN_TILE: usize = 8 * 8;
+const GFX_POINTER_TABLE_LEN: usize = 0x32;
+const GFX_POINTER_TABLE_LOW: AddrSnes = AddrSnes(0x00B992);
+const GFX_POINTER_TABLE_HIGH: AddrSnes = AddrSnes(0x00B9C4);
+const GFX_POINTER_TABLE_BANK: AddrSnes = AddrSnes(0x00B9F6);
 
 // -------------------------------------------------------------------------------------------------
 
@@ -185,12 +191,37 @@ impl Tile {
 }
 
 impl GfxFile {
+    fn read_pointer_byte(disasm: &mut RomDisassembly, addr: AddrSnes) -> Result<u8, GfxFileParseError> {
+        let slice = SnesSlice::new(addr, 1);
+        let bytes = disasm
+            .rom_slice_at_block(
+                crate::disassembler::binary_block::DataBlock { slice, kind: DataKind::GfxFile },
+                GfxFileParseError::IsolatingData,
+            )?
+            .as_bytes()?;
+        bytes.first().copied().ok_or(GfxFileParseError::ParsingTile)
+    }
+
+    fn resolve_slice(disasm: &mut RomDisassembly, file_num: usize) -> Result<SnesSlice, GfxFileParseError> {
+        let (_, slice) = GFX_FILES_META[file_num];
+        if file_num >= GFX_POINTER_TABLE_LEN {
+            return Ok(slice);
+        }
+
+        let low = Self::read_pointer_byte(disasm, GFX_POINTER_TABLE_LOW + file_num)?;
+        let high = Self::read_pointer_byte(disasm, GFX_POINTER_TABLE_HIGH + file_num)?;
+        let bank = Self::read_pointer_byte(disasm, GFX_POINTER_TABLE_BANK + file_num)?;
+        let start = AddrSnes(((bank as u32) << 16) | ((high as u32) << 8) | (low as u32));
+        Ok(slice.move_to(start))
+    }
+
     pub fn new(disasm: &mut RomDisassembly, file_num: usize, revised_gfx: bool) -> Result<Self, GfxFileParseError> {
         use TileFormat::*;
         type ParserFn = fn(&[u8]) -> IResult<&[u8], Tile>;
 
         debug_assert!(file_num < GFX_FILES_META.len());
-        let (tile_format, slice) = GFX_FILES_META[file_num];
+        let (tile_format, _) = GFX_FILES_META[file_num];
+        let slice = Self::resolve_slice(disasm, file_num)?;
         let (tile_parser, tile_size_bytes): (ParserFn, usize) = match tile_format {
             Tile2bpp => (Tile::from_2bpp, 2 * 8),
             Tile3bpp => (Tile::from_3bpp, 3 * 8),

@@ -369,21 +369,28 @@ fn parse_lm_map16(disasm: &mut RomDisassembly) -> Result<LmMap16, TilesetParseEr
         } else {
             let size = TILESETS_COUNT * 0x100 * 8;
             let slice = SnesSlice::new(base, size);
-            let bytes = disasm
-                .rom_slice_at_block(DataBlock { slice, kind: DataKind::Tileset }, |_| TilesetParseError::Slice(slice))?
-                .as_bytes()?;
-            let mut out: Vec<[Block; TILESETS_COUNT]> = Vec::with_capacity(0x100);
-            for tile in 0..0x100_usize {
-                let mut per_ts = [blank_block(); TILESETS_COUNT];
-                for (ts, block) in per_ts.iter_mut().enumerate() {
-                    let offset = (ts << 11) | (tile << 3);
-                    if offset + 8 <= bytes.len() {
-                        *block = parse_block_from_bytes(&bytes[offset..offset + 8]);
+            match disasm.rom_slice_at_block(DataBlock { slice, kind: DataKind::Tileset }, |_| TilesetParseError::Slice(slice))
+            {
+                Ok(bytes) => {
+                    let bytes = bytes.as_bytes()?;
+                    let mut out: Vec<[Block; TILESETS_COUNT]> = Vec::with_capacity(0x100);
+                    for tile in 0..0x100_usize {
+                        let mut per_ts = [blank_block(); TILESETS_COUNT];
+                        for (ts, block) in per_ts.iter_mut().enumerate() {
+                            let offset = (ts << 11) | (tile << 3);
+                            if offset + 8 <= bytes.len() {
+                                *block = parse_block_from_bytes(&bytes[offset..offset + 8]);
+                            }
+                        }
+                        out.push(per_ts);
                     }
+                    Some(out)
                 }
-                out.push(per_ts);
+                Err(err) => {
+                    log::warn!("Tileset-specific page 2 data could not be parsed; skipping: {err}");
+                    None
+                }
             }
-            Some(out)
         }
     } else {
         None
