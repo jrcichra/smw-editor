@@ -76,7 +76,7 @@ pub fn decompress(input: &[u8], little_endian_in_repeat: bool) -> Result<Vec<u8>
             LONG_LENGTH => {
                 command = (chunk_header >> 2) & 0b111;
 
-                if !matches!(command, DIRECT_COPY..=REPEAT | LONG_LENGTH) {
+                if !matches!(command, DIRECT_COPY..=LONG_LENGTH) {
                     return Err(LcLz2Error::LongLengthCommand(command).into());
                 }
 
@@ -85,7 +85,7 @@ pub fn decompress(input: &[u8], little_endian_in_repeat: bool) -> Result<Vec<u8>
 
                 u16::from_le_bytes([next_byte, chunk_header & 3])
             }
-            DIRECT_COPY..=REPEAT => u16::from(chunk_header & 0x1F),
+            DIRECT_COPY..=0b110 => u16::from(chunk_header & 0x1F),
             _ => return Err(LcLz2Error::Command(command).into()),
         };
 
@@ -127,19 +127,22 @@ pub fn decompress(input: &[u8], little_endian_in_repeat: bool) -> Result<Vec<u8>
                 );
                 in_it = &in_it[1..];
             }
-            REPEAT => {
+            REPEAT..=LONG_LENGTH => {
                 if in_it.len() >= 2 {
                     let (bytes, rest) = in_it.split_at(2);
                     let from_bytes = if little_endian_in_repeat { u16::from_le_bytes } else { u16::from_be_bytes };
                     let read_start = usize::from(from_bytes([bytes[0], bytes[1]]));
-                    let read_range = read_start..read_start + length;
                     if read_start >= output.len() {
-                        return Err(LcLz2Error::RepeatRangeOutOfBounds(read_range, output.len()).into());
-                    } else {
-                        output.reserve(length);
-                        for i in read_range {
-                            output.push(output[i]);
-                        }
+                        log::warn!(
+                            "LC-LZ2 repeat source {}..{} exceeds current output size {}; zero-filling missing bytes",
+                            read_start,
+                            read_start + length,
+                            output.len()
+                        );
+                    }
+                    output.reserve(length);
+                    for i in 0..length {
+                        output.push(output.get(read_start + i).copied().unwrap_or(0));
                     }
                     in_it = rest;
                 } else {

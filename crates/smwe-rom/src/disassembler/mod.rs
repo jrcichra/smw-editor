@@ -144,7 +144,12 @@ impl RomDisassembly {
         if self.cached_data_blocks.contains(&block) {
             self.cached_data_blocks.remove(&block);
             block.slice.size = size;
-            self.split_unknown_block_with(block, &error_mapper)?;
+            // Marking can fail if the data overlaps a previously-claimed region (e.g. shared
+            // sprite data in Lunar Magic ROMs). The parse already succeeded, so treat this as a
+            // non-fatal warning rather than failing the whole ROM load.
+            if self.split_unknown_block_with(block, &error_mapper).is_err() {
+                log::warn!("Could not mark data block in disassembly map (overlap?): {block:?}");
+            }
             self.cached_data_blocks.insert(block);
         }
 
@@ -257,20 +262,22 @@ impl RomDisassembly {
                                 match next_block {
                                     BinaryBlock::Code(_) => {
                                         log::error!("Requested data block overlaps with the next code block at: {next_chunk_start:?}");
+                                        return Err(error_mapper(RomError::DataBlockNotFound(data_block)));
                                     }
                                     BinaryBlock::Data(next_data_block) => {
                                         log::error!("Requested data block overlaps with the next data block:");
                                         eprintln!("> data_block = {data_block:?}");
                                         eprintln!("> next_block = {next_data_block:?}");
-                                    }
-                                    BinaryBlock::Unknown => {
-                                        log::error!("Requested data block overlaps with the next unknown block at: {next_chunk_start:?}");
+                                        return Err(error_mapper(RomError::DataBlockNotFound(data_block)));
                                     }
                                     BinaryBlock::EndOfRom => {
                                         log::error!("Requested data block doesn't fit in the ROM");
+                                        return Err(error_mapper(RomError::DataBlockNotFound(data_block)));
+                                    }
+                                    BinaryBlock::Unknown => {
+                                        // Data spans into a consecutive Unknown block; will be merged below.
                                     }
                                 }
-                                return Err(error_mapper(RomError::DataBlockNotFound(data_block)));
                             }
                             if !data_block.slice.is_infinite() {
                                 split_type = SplitType::Start(i);
@@ -304,11 +311,34 @@ impl RomDisassembly {
         let begin_pc = AddrPc::try_from_lorom(data_block.slice.begin).unwrap();
         match split_type {
             SplitType::Start(index) => {
-                self.chunks[index].0 += data_block.slice.size as u32;
+                let data_end_pc = begin_pc + data_block.slice.size as u32;
+                // Merge any consecutive Unknown chunks fully within the data range.
+                while self
+                    .chunks
+                    .get(index + 1)
+                    .map_or(false, |(a, b)| *a < data_end_pc && matches!(b, BinaryBlock::Unknown))
+                {
+                    self.chunks.remove(index + 1);
+                }
+                // After merging, a non-Unknown chunk must not start within the data range.
+                if self.chunks.get(index + 1).map_or(false, |(a, _)| *a < data_end_pc) {
+                    let next_start = self.chunks[index + 1].0;
+                    log::error!("Data block overruns a non-unknown chunk at {next_start:?}");
+                    return Err(error_mapper(RomError::DataBlockNotFound(data_block)));
+                }
+                self.chunks[index].0 = data_end_pc;
                 self.chunks.insert(index, (begin_pc, BinaryBlock::Data(data_block)));
             }
             SplitType::Middle(index) => {
                 let data_end = begin_pc + data_block.slice.size as u32;
+                // Merge consecutive Unknown chunks within the data range.
+                while self
+                    .chunks
+                    .get(index + 1)
+                    .map_or(false, |(a, b)| *a < data_end && matches!(b, BinaryBlock::Unknown))
+                {
+                    self.chunks.remove(index + 1);
+                }
                 let next_begin = self.chunks[index + 1].0;
                 if data_end > next_begin {
                     log::error!(

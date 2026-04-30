@@ -4,13 +4,13 @@ use std::fmt::{self, Display, Formatter};
 
 pub(crate) use data::GFX_FILES_META;
 use epaint::Rgba;
-use nom::{bytes::complete::take, combinator::map_parser, multi::many1, IResult};
+use nom::{bytes::complete::take, IResult};
 use smwe_render::color::Abgr1555;
 use thiserror::Error;
 
 use crate::{
     compression::{lc_lz2, DecompressionError},
-    DataBlock, DataKind, RomDisassembly, RomError,
+    RomDisassembly, RomError,
 };
 
 // -------------------------------------------------------------------------------------------------
@@ -186,11 +186,10 @@ impl Tile {
 
 impl GfxFile {
     pub fn new(disasm: &mut RomDisassembly, file_num: usize, revised_gfx: bool) -> Result<Self, GfxFileParseError> {
-        debug_assert!(file_num < GFX_FILES_META.len());
-
         use TileFormat::*;
         type ParserFn = fn(&[u8]) -> IResult<&[u8], Tile>;
 
+        debug_assert!(file_num < GFX_FILES_META.len());
         let (tile_format, slice) = GFX_FILES_META[file_num];
         let (tile_parser, tile_size_bytes): (ParserFn, usize) = match tile_format {
             Tile2bpp => (Tile::from_2bpp, 2 * 8),
@@ -200,16 +199,31 @@ impl GfxFile {
             Tile3bppMode7 => (Tile::from_3bpp_mode7, 3 * 8),
         };
 
-        let tiles = disasm
-            .rom_slice_at_block(DataBlock { slice, kind: DataKind::GfxFile }, |e| match e {
+        let decompressed = disasm
+            .rom
+            .with_error_mapper(|e| match e {
                 RomError::SliceSnes(_) | RomError::SlicePc(_) => GfxFileParseError::IsolatingData(e),
                 RomError::Decompress(DecompressionError::LcLz2(l)) => GfxFileParseError::DecompressingData(l.into()),
                 RomError::Parse => GfxFileParseError::ParsingTile,
                 _ => unreachable!(),
-            })?
-            .decompress(move |slice| lc_lz2::decompress(slice, revised_gfx))?
-            .view()
-            .parse(many1(map_parser(take(tile_size_bytes), tile_parser)))?;
+            })
+            .slice_lorom(slice.infinite())?
+            .decompress(move |slice| lc_lz2::decompress(slice, revised_gfx))?;
+        let bytes = decompressed.view().as_bytes()?;
+
+        let mut tiles = Vec::with_capacity(bytes.len() / tile_size_bytes);
+        let mut input = bytes;
+        while input.len() >= tile_size_bytes {
+            let (rest, tile) = tile_parser(input).map_err(|_| GfxFileParseError::ParsingTile)?;
+            input = rest;
+            tiles.push(tile);
+        }
+        if !input.is_empty() {
+            log::warn!(
+                "GFX file {file_num:02X} had {} trailing bytes after tile decode; ignoring remainder",
+                input.len()
+            );
+        }
 
         Ok(Self { tile_format, tiles })
     }

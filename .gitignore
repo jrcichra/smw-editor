@@ -21,4 +21,4 @@ log
 debug
 
 # Roms
-smw.smc
+*.smc
