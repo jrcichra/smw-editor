@@ -1,13 +1,11 @@
 mod dev_utils;
 mod editing_mode;
 mod editor_prototypes;
-mod ow_tile_picker;
 mod style;
 mod tab_viewer;
 mod tool;
 mod welcome;
 mod world_editor;
-mod world_editor_editing;
 
 use std::{path::PathBuf, sync::Arc};
 

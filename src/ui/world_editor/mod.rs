@@ -9,6 +9,9 @@
 //! Layer 2 ($7F4000 / OWLayer2Tilemap): a 64×64 8×8-tile map stored as four
 //! 32×32 screens (2 across × 2 down). Each entry is [tile_num_u8, YXPCCCTT_u8].
 
+mod editing;
+mod ow_tile_picker;
+
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -31,7 +34,7 @@ use smwe_rom::{
     SmwRom,
 };
 
-use crate::ui::{style::toggle_button, tool::DockableEditorTool};
+use crate::ui::{editing_mode::EditingMode, style::toggle_button, tool::DockableEditorTool};
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 
@@ -45,15 +48,15 @@ const SUBMAP_VIEW_W: u32 = 224;
 const SUBMAP_VIEW_H: u32 = 168;
 
 /// Full BG tilemap size after the game composes the active overworld into VRAM.
-pub(super) const VRAM_TILE_ROWS: u32 = 64;
-pub(super) const VRAM_L1_TILEMAP_BASE: usize = 0x2000 * 2;
-pub(super) const VRAM_L2_TILEMAP_BASE: usize = 0x3000 * 2;
+const VRAM_TILE_ROWS: u32 = 64;
+const VRAM_L1_TILEMAP_BASE: usize = 0x2000 * 2;
+const VRAM_L2_TILEMAP_BASE: usize = 0x3000 * 2;
 
 // ── SNES overworld tile-index helpers ─────────────────────────────────────────
 
-pub(super) const OW_L2_COLS: u32 = 64;
+const OW_L2_COLS: u32 = 64;
 
-pub(super) fn tilemap_vram_addr(base: usize, col: u32, row: u32) -> usize {
+fn tilemap_vram_addr(base: usize, col: u32, row: u32) -> usize {
     let quadrant = ((row / 32) * 2) + (col / 32);
     let sub_row = row % 32;
     let sub_col = col % 32;
@@ -62,7 +65,7 @@ pub(super) fn tilemap_vram_addr(base: usize, col: u32, row: u32) -> usize {
     base + idx as usize
 }
 
-pub(super) fn visible_map_size(submap: u8) -> (u32, u32) {
+fn visible_map_size(submap: u8) -> (u32, u32) {
     if submap == 0 {
         (512, 512)
     } else {
@@ -70,7 +73,7 @@ pub(super) fn visible_map_size(submap: u8) -> (u32, u32) {
     }
 }
 
-pub(super) fn visible_map_crop(submap: u8) -> (u32, u32) {
+fn visible_map_crop(submap: u8) -> (u32, u32) {
     if submap == 0 {
         (0, 0)
     } else {
@@ -78,7 +81,7 @@ pub(super) fn visible_map_crop(submap: u8) -> (u32, u32) {
     }
 }
 
-pub(super) fn l1_vram_addr_for_map16(submap: u8, map16_x: u32, map16_y: u32) -> usize {
+fn l1_vram_addr_for_map16(submap: u8, map16_x: u32, map16_y: u32) -> usize {
     let (crop_x, crop_y) = visible_map_crop(submap);
     let tile_x = (map16_x * 16 + crop_x) / 8;
     let tile_y = (map16_y * 16 + crop_y) / 8;
@@ -88,7 +91,7 @@ pub(super) fn l1_vram_addr_for_map16(submap: u8, map16_x: u32, map16_y: u32) -> 
 // ── OpenGL renderer ───────────────────────────────────────────────────────────
 
 #[derive(Debug)]
-pub(super) struct OverworldRenderer {
+struct OverworldRenderer {
     layer1: TileRenderer,
     layer2: TileRenderer,
     gfx_bufs: GfxBuffers,
@@ -127,7 +130,7 @@ impl OverworldRenderer {
         }
     }
 
-    pub(super) fn set_tiles(&mut self, gl: &glow::Context, l1: Vec<Tile>, l2: Vec<Tile>) {
+    fn set_tiles(&mut self, gl: &glow::Context, l1: Vec<Tile>, l2: Vec<Tile>) {
         if !self.destroyed {
             self.layer1.set_tiles(gl, l1);
             self.layer2.set_tiles(gl, l2);
@@ -151,36 +154,36 @@ impl OverworldRenderer {
 // ── Editor ────────────────────────────────────────────────────────────────────
 
 pub struct UiWorldEditor {
-    pub(super) gl: Arc<glow::Context>,
+    gl: Arc<glow::Context>,
     #[allow(dead_code)]
     rom: Arc<SmwRom>,
-    pub(super) cpu: Cpu,
-    pub(super) renderer: Arc<Mutex<OverworldRenderer>>,
+    cpu: Cpu,
+    renderer: Arc<Mutex<OverworldRenderer>>,
 
-    pub(super) submap: u8,
+    submap: u8,
 
     offset: Vec2,
     zoom: f32,
     show_grid: bool,
     show_layer1: bool,
     show_layer2: bool,
-    pub(super) selected_tile: Option<(u32, u32)>,
+    selected_tile: Option<(u32, u32)>,
     needs_center: bool,
 
     // Editing state
-    pub(super) editing_mode: crate::ui::editing_mode::EditingMode,
-    pub(super) draw_tile_num: u8,
-    pub(super) draw_palette: u8,
-    pub(super) draw_tile_attr: u8,
-    pub(super) tile_picker: crate::ui::ow_tile_picker::OwTilePicker,
-    pub(super) l1_tile_picker: crate::ui::ow_tile_picker::OwL1TilePicker,
-    pub(super) edit_layer: u8, // 1 or 2
+    editing_mode: EditingMode,
+    draw_tile_num: u8,
+    draw_palette: u8,
+    draw_tile_attr: u8,
+    tile_picker: ow_tile_picker::OwTilePicker,
+    l1_tile_picker: ow_tile_picker::OwL1TilePicker,
+    edit_layer: u8, // 1 or 2
     preview_texture: Option<egui::TextureHandle>,
     preview_for: Option<(u32, u32)>,
-    pub(super) has_edits: bool,
-    pub(super) has_unsavable_changes: bool,
-    pub(super) source_layer1_tiles: Vec<u8>,
-    pub(super) source_layer2_words: Vec<u16>,
+    has_edits: bool,
+    has_unsavable_changes: bool,
+    source_layer1_tiles: Vec<u8>,
+    source_layer2_words: Vec<u16>,
 }
 
 impl UiWorldEditor {
@@ -190,7 +193,7 @@ impl UiWorldEditor {
         let raw = std::fs::read(&rom_path).expect("cannot read ROM for emulator");
         let rom_bytes = if raw.len() % 0x400 == 0x200 { raw[0x200..].to_vec() } else { raw };
         let mut emu_rom = EmuRom::new(rom_bytes);
-        emu_rom.load_symbols(include_str!("../../symbols/SMW_U.sym"));
+        emu_rom.load_symbols(include_str!("../../../symbols/SMW_U.sym"));
         let cpu = Cpu::new(CheckedMem::new(Arc::new(emu_rom)));
 
         let source_layer1_tiles = rom.overworld.layer1_tiles.clone();
@@ -207,12 +210,12 @@ impl UiWorldEditor {
             show_layer2: true,
             selected_tile: None,
             needs_center: false,
-            editing_mode: crate::ui::editing_mode::EditingMode::Select,
+            editing_mode: EditingMode::Select,
             draw_tile_num: 0x00,
             draw_palette: 0,
             draw_tile_attr: 0x00,
-            tile_picker: crate::ui::ow_tile_picker::OwTilePicker::new(),
-            l1_tile_picker: crate::ui::ow_tile_picker::OwL1TilePicker::new(),
+            tile_picker: ow_tile_picker::OwTilePicker::new(),
+            l1_tile_picker: ow_tile_picker::OwL1TilePicker::new(),
             edit_layer: 1,
             preview_texture: None,
             preview_for: None,
@@ -338,7 +341,7 @@ impl UiWorldEditor {
         self.source_layer1_tiles.get(idx).copied()
     }
 
-    pub(super) fn set_source_l1_tile_at_view(&mut self, map16_x: u32, map16_y: u32, tile_id: u8) {
+    fn set_source_l1_tile_at_view(&mut self, map16_x: u32, map16_y: u32, tile_id: u8) {
         let Some(idx) = self.source_l1_index_for_view(map16_x, map16_y) else {
             return;
         };
@@ -411,9 +414,9 @@ impl UiWorldEditor {
             ui.label("Mode:");
             ui.horizontal(|ui| {
                 let modes = [
-                    ("Select [1]", crate::ui::editing_mode::EditingMode::Select),
-                    ("Draw [2]", crate::ui::editing_mode::EditingMode::Draw),
-                    ("Erase [3]", crate::ui::editing_mode::EditingMode::Erase),
+                    ("Select [1]", EditingMode::Select),
+                    ("Draw [2]", EditingMode::Draw),
+                    ("Erase [3]", EditingMode::Erase),
                 ];
                 for (label, mode) in modes {
                     if toggle_button(ui, label, self.editing_mode == mode) {
@@ -435,7 +438,7 @@ impl UiWorldEditor {
             });
 
             // ── Draw mode tile picker ───────────────────────────────
-            if self.editing_mode == crate::ui::editing_mode::EditingMode::Draw {
+            if self.editing_mode == EditingMode::Draw {
                 ui.separator();
                 ui.label("Paint tile:");
                 ui.horizontal(|ui| {
@@ -523,7 +526,7 @@ impl UiWorldEditor {
                     }
                     // Selection highlight
                     let (col, row) = self.l1_tile_picker.block_grid_pos(self.draw_tile_num);
-                    let tile_screen = max_w / crate::ui::ow_tile_picker::L1_COLS as f32;
+                    let tile_screen = max_w / ow_tile_picker::L1_COLS as f32;
                     let sel_rect = Rect::from_min_size(
                         rect.min + vec2(col as f32 * tile_screen, row as f32 * tile_screen),
                         vec2(tile_screen, tile_screen),
@@ -542,7 +545,7 @@ impl UiWorldEditor {
 
             // ── Tile preview ────────────────────────────────────
             // In draw mode, show the draw tile. Otherwise, show the selected tile.
-            let draw_mode = self.editing_mode == crate::ui::editing_mode::EditingMode::Draw;
+            let draw_mode = self.editing_mode == EditingMode::Draw;
             if draw_mode {
                 if self.edit_layer == 1 {
                     ui.label(format!("Paint tile ID: {:#04X}", self.draw_tile_num));
@@ -744,8 +747,7 @@ impl UiWorldEditor {
                 painter.rect_stroke(tile_rect, CornerRadius::ZERO, Stroke::new(1.0, Color32::WHITE), StrokeKind::Outside);
 
                 if resp.clicked_by(egui::PointerButton::Primary)
-                    && (self.editing_mode == crate::ui::editing_mode::EditingMode::Select
-                        || ui.input(|i| i.modifiers.alt))
+                    && (self.editing_mode == EditingMode::Select || ui.input(|i| i.modifiers.alt))
                 {
                     self.selected_tile = Some((x, y));
                 }
@@ -766,13 +768,13 @@ impl UiWorldEditor {
         // ── Keyboard shortcuts ──────────────────────────────────────
         ui.input_mut(|input| {
             if input.key_pressed(egui::Key::Num1) {
-                self.editing_mode = crate::ui::editing_mode::EditingMode::Select;
+                self.editing_mode = EditingMode::Select;
             }
             if input.key_pressed(egui::Key::Num2) {
-                self.editing_mode = crate::ui::editing_mode::EditingMode::Draw;
+                self.editing_mode = EditingMode::Draw;
             }
             if input.key_pressed(egui::Key::Num3) {
-                self.editing_mode = crate::ui::editing_mode::EditingMode::Erase;
+                self.editing_mode = EditingMode::Erase;
             }
         });
 
@@ -787,7 +789,7 @@ impl UiWorldEditor {
 // ── Tile list builders ────────────────────────────────────────────────────────
 
 /// Build draw list from the composed BG tilemap already uploaded to VRAM.
-pub(super) fn build_bg_tiles(vram: &[u8], tilemap_base: usize, submap: u8, scroll_x: i32, scroll_y: i32) -> Vec<Tile> {
+fn build_bg_tiles(vram: &[u8], tilemap_base: usize, submap: u8, scroll_x: i32, scroll_y: i32) -> Vec<Tile> {
     let mut tiles = Vec::with_capacity((OW_L2_COLS * VRAM_TILE_ROWS) as usize);
     let (crop_x, crop_y, view_w, view_h) = if submap == 0 {
         (0, 0, 512, 512)
