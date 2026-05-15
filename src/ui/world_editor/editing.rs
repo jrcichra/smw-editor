@@ -59,9 +59,12 @@ impl UiWorldEditor {
             let addr = tilemap_vram_addr(base, map16_x, map16_y);
             let word = u16::from_le_bytes([tile_num, attr]);
             let idx = (addr.saturating_sub(VRAM_L2_TILEMAP_BASE)) / 2;
-            if let Some(slot) = self.source_layer2_words.get_mut(idx) {
-                *slot = word;
-            }
+            self.edit_state.write(|s| {
+                if let Some(slot) = s.layer2_words.get_mut(idx) {
+                    *slot = word;
+                }
+            });
+            self.has_edits = true;
             let wram_base = (0x7F4000 - 0x7E0000) as usize;
             let wram_addr = wram_base + idx * 2;
             if wram_addr + 1 < self.cpu.mem.wram.len() {
@@ -71,7 +74,6 @@ impl UiWorldEditor {
             }
         }
         if base == VRAM_L2_TILEMAP_BASE {
-            // L2 uses raw tile coords, no crop offset
             let addr = tilemap_vram_addr(base, map16_x, map16_y);
             if addr + 1 < self.cpu.mem.vram.len() {
                 self.cpu.mem.vram[addr] = tile_num;
@@ -91,6 +93,10 @@ impl UiWorldEditor {
 
     pub(super) fn rebuild_and_upload(&mut self) {
         self.has_edits = true;
+        self.upload_tiles_from_vram();
+    }
+
+    fn upload_tiles_from_vram(&mut self) {
         let l2_scroll_x = i16::from_le_bytes(self.cpu.mem.load_u16(0x001E).to_le_bytes()) as i32;
         let l2_scroll_y = i16::from_le_bytes(self.cpu.mem.load_u16(0x0020).to_le_bytes()) as i32;
         let l1 = build_bg_tiles(&self.cpu.mem.vram, VRAM_L1_TILEMAP_BASE, self.submap, l2_scroll_x, l2_scroll_y);
@@ -99,8 +105,46 @@ impl UiWorldEditor {
         r.set_tiles(&self.gl, l1, l2);
     }
 
-    #[allow(dead_code)]
-    pub(super) fn handle_undo(&mut self) {}
-    #[allow(dead_code)]
-    pub(super) fn handle_redo(&mut self) {}
+    pub(super) fn handle_undo(&mut self) {
+        self.edit_state.undo();
+        self.has_edits = self.edit_state.can_undo();
+        self.sync_vram_from_edit_state();
+        self.upload_tiles_from_vram();
+    }
+
+    pub(super) fn handle_redo(&mut self) {
+        self.edit_state.redo();
+        self.has_edits = true;
+        self.sync_vram_from_edit_state();
+        self.upload_tiles_from_vram();
+    }
+
+    fn sync_vram_from_edit_state(&mut self) {
+        let layer1_tiles = self.edit_state.read(|s| s.layer1_tiles.clone());
+        let offset = if self.submap == 0 { 0usize } else { 0x400 };
+        let n = (layer1_tiles.len().saturating_sub(offset)).min(0x400);
+        for idx in 0..n {
+            let col = (idx % 32) as u32;
+            let row = (idx / 32) as u32;
+            let tile_id = layer1_tiles[offset + idx];
+            self.write_source_l1_block_words(col, row, tile_id);
+        }
+
+        let layer2_words = self.edit_state.read(|s| s.layer2_words.clone());
+        let wram_base = (0x7F4000 - 0x7E0000) as usize;
+        for (idx, word) in layer2_words.iter().enumerate() {
+            let wram_addr = wram_base + idx * 2;
+            if wram_addr + 1 < self.cpu.mem.wram.len() {
+                let [lo, hi] = word.to_le_bytes();
+                self.cpu.mem.wram[wram_addr] = lo;
+                self.cpu.mem.wram[wram_addr + 1] = hi;
+            }
+            let vram_addr = VRAM_L2_TILEMAP_BASE + idx * 2;
+            if vram_addr + 1 < self.cpu.mem.vram.len() {
+                let [lo, hi] = word.to_le_bytes();
+                self.cpu.mem.vram[vram_addr] = lo;
+                self.cpu.mem.vram[vram_addr + 1] = hi;
+            }
+        }
+    }
 }

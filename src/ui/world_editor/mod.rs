@@ -18,8 +18,8 @@ use std::{
 };
 
 use egui::{
-    vec2, CentralPanel, Color32, CornerRadius, Frame, PaintCallback, Rect, Sense, SidePanel, Stroke, StrokeKind, Ui, Vec2,
-    WidgetText,
+    vec2, CentralPanel, Color32, CornerRadius, Frame, Key, PaintCallback, Rect, Sense, SidePanel, Stroke, StrokeKind,
+    Ui, Vec2, WidgetText,
 };
 use egui_glow::CallbackFn;
 use smwe_emu::{emu::CheckedMem, rom::Rom as EmuRom, Cpu};
@@ -30,11 +30,14 @@ use smwe_render::{
 use smwe_rom::compression::lc_rle2;
 use smwe_rom::{
     overworld::{OWL1_TILE_DATA_SNES, OWL1_TILE_DATA_SIZE, SUBMAP_NAMES},
-    snes_utils::addr::AddrPc,
+    snes_utils::addr::{AddrPc, AddrSnes},
     SmwRom,
 };
 
-use crate::ui::{editing_mode::EditingMode, style::toggle_button, tool::DockableEditorTool};
+use crate::{
+    ui::{editing_mode::EditingMode, style::toggle_button, tool::DockableEditorTool},
+    undo::{Undo, UndoableData},
+};
 
 // ── Layout constants ──────────────────────────────────────────────────────────
 
@@ -151,6 +154,39 @@ impl OverworldRenderer {
     }
 }
 
+// ── Undoable overworld edit state ─────────────────────────────────────────────
+
+/// The serialization layout is: [L1 tiles (OWL1_TILE_DATA_SIZE bytes)][L2 words as LE u16 pairs].
+/// L1 is always exactly OWL1_TILE_DATA_SIZE bytes so `from_bytes` can split correctly.
+#[derive(Clone)]
+pub(super) struct OverworldEditState {
+    pub layer1_tiles: Vec<u8>,
+    pub layer2_words: Vec<u16>,
+}
+
+impl Undo for OverworldEditState {
+    fn from_bytes(bytes: Vec<u8>) -> Self {
+        let l1_end = OWL1_TILE_DATA_SIZE.min(bytes.len());
+        let l1 = bytes[..l1_end].to_vec();
+        let l2_bytes = &bytes[l1_end..];
+        let layer2_words = l2_bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        Self { layer1_tiles: l1, layer2_words }
+    }
+
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.layer1_tiles.len() + self.layer2_words.len() * 2);
+        out.extend_from_slice(&self.layer1_tiles);
+        for &w in &self.layer2_words {
+            out.extend_from_slice(&w.to_le_bytes());
+        }
+        out
+    }
+
+    fn size_bytes(&self) -> usize {
+        self.layer1_tiles.len() + self.layer2_words.len() * 2
+    }
+}
+
 // ── Editor ────────────────────────────────────────────────────────────────────
 
 pub struct UiWorldEditor {
@@ -182,8 +218,7 @@ pub struct UiWorldEditor {
     preview_for: Option<(u32, u32)>,
     has_edits: bool,
     has_unsavable_changes: bool,
-    source_layer1_tiles: Vec<u8>,
-    source_layer2_words: Vec<u16>,
+    pub(super) edit_state: UndoableData<OverworldEditState>,
 }
 
 impl UiWorldEditor {
@@ -197,6 +232,10 @@ impl UiWorldEditor {
         let cpu = Cpu::new(CheckedMem::new(Arc::new(emu_rom)));
 
         let source_layer1_tiles = rom.overworld.layer1_tiles.clone();
+        let edit_state = UndoableData::new(OverworldEditState {
+            layer1_tiles: source_layer1_tiles,
+            layer2_words: Vec::new(),
+        });
         let mut editor = Self {
             gl,
             rom,
@@ -221,8 +260,7 @@ impl UiWorldEditor {
             preview_for: None,
             has_edits: false,
             has_unsavable_changes: false,
-            source_layer1_tiles,
-            source_layer2_words: Vec::new(),
+            edit_state,
         };
         editor.load_submap();
         editor
@@ -242,12 +280,10 @@ impl UiWorldEditor {
         let l1 = build_bg_tiles(&self.cpu.mem.vram, VRAM_L1_TILEMAP_BASE, self.submap, l2_scroll_x, l2_scroll_y);
         let l2 = build_bg_tiles(&self.cpu.mem.vram, VRAM_L2_TILEMAP_BASE, self.submap, l2_scroll_x, l2_scroll_y);
 
-        // Debug: Log tile counts
         log::info!("Loaded submap {}: L1={} tiles, L2={} tiles", self.submap, l1.len(), l2.len());
 
         r.set_tiles(&self.gl, l1, l2);
 
-        // Rebuild the tile pickers from current VRAM
         self.tile_picker.rebuild(&self.cpu.mem.vram, &self.cpu.mem.cgram, VRAM_L1_TILEMAP_BASE, VRAM_L2_TILEMAP_BASE);
         self.l1_tile_picker.rebuild(&mut self.cpu);
 
@@ -256,7 +292,11 @@ impl UiWorldEditor {
         self.needs_center = true;
         self.has_edits = false;
         self.has_unsavable_changes = false;
-        self.source_layer2_words = read_overworld_l2_words(&self.cpu);
+        let layer2_words = read_overworld_l2_words(&self.cpu);
+        self.edit_state.write(|s| {
+            s.layer2_words = layer2_words;
+        });
+        self.edit_state.clear_stack();
     }
 }
 
@@ -292,26 +332,27 @@ impl DockableEditorTool for UiWorldEditor {
         let dst = rom_bytes
             .get_mut(start..end)
             .ok_or_else(|| anyhow::anyhow!("Overworld layer 1 ROM write range out of bounds"))?;
-        dst.copy_from_slice(&self.source_layer1_tiles);
+        self.edit_state.read(|s| dst.copy_from_slice(&s.layer1_tiles));
 
-        let tile_stream: Vec<u8> = self.source_layer2_words.iter().map(|w| (*w & 0x00FF) as u8).collect();
-        let attr_stream: Vec<u8> = self.source_layer2_words.iter().map(|w| (*w >> 8) as u8).collect();
-        let tile_compressed = lc_rle2::compress_pass(&tile_stream);
-        let attr_compressed = lc_rle2::compress_pass(&attr_stream);
+        let (tile_compressed, attr_compressed, l2_len) = self.edit_state.read(|s| {
+            let tile_stream: Vec<u8> = s.layer2_words.iter().map(|w| (*w & 0x00FF) as u8).collect();
+            let attr_stream: Vec<u8> = s.layer2_words.iter().map(|w| (*w >> 8) as u8).collect();
+            (lc_rle2::compress_pass(&tile_stream), lc_rle2::compress_pass(&attr_stream), s.layer2_words.len())
+        });
 
         write_overworld_l2_stream(
             rom_bytes,
             has_smc_header,
-            AddrPc::try_from_lorom(smwe_rom::snes_utils::addr::AddrSnes(0x04A533))?.as_index(),
-            self.source_layer2_words.len(),
+            AddrPc::try_from_lorom(AddrSnes(0x04A533))?.as_index(),
+            l2_len,
             &tile_compressed,
             "OWTileNumbers",
         )?;
         write_overworld_l2_stream(
             rom_bytes,
             has_smc_header,
-            AddrPc::try_from_lorom(smwe_rom::snes_utils::addr::AddrSnes(0x04C02B))?.as_index(),
-            self.source_layer2_words.len(),
+            AddrPc::try_from_lorom(AddrSnes(0x04C02B))?.as_index(),
+            l2_len,
             &attr_compressed,
             "OWTilemap",
         )?;
@@ -336,18 +377,21 @@ impl UiWorldEditor {
         Some(self.source_l1_offset() + ow_l1_addr(src_col as u32, src_row as u32))
     }
 
-    fn source_l1_tile_at_view(&self, map16_x: u32, map16_y: u32) -> Option<u8> {
+    pub(super) fn source_l1_tile_at_view(&self, map16_x: u32, map16_y: u32) -> Option<u8> {
         let idx = self.source_l1_index_for_view(map16_x, map16_y)?;
-        self.source_layer1_tiles.get(idx).copied()
+        self.edit_state.read(|s| s.layer1_tiles.get(idx).copied())
     }
 
-    fn set_source_l1_tile_at_view(&mut self, map16_x: u32, map16_y: u32, tile_id: u8) {
+    pub(super) fn set_source_l1_tile_at_view(&mut self, map16_x: u32, map16_y: u32, tile_id: u8) {
         let Some(idx) = self.source_l1_index_for_view(map16_x, map16_y) else {
             return;
         };
-        if let Some(slot) = self.source_layer1_tiles.get_mut(idx) {
-            *slot = tile_id;
-        }
+        self.edit_state.write(|s| {
+            if let Some(slot) = s.layer1_tiles.get_mut(idx) {
+                *slot = tile_id;
+            }
+        });
+        self.has_edits = true;
         self.apply_source_l1_tile_to_vram(map16_x, map16_y, tile_id);
     }
 
@@ -358,7 +402,7 @@ impl UiWorldEditor {
         self.write_source_l1_block_words(src_col, src_row, tile_id);
     }
 
-    fn write_source_l1_block_words(&mut self, src_col: u32, src_row: u32, tile_id: u8) {
+    pub(super) fn write_source_l1_block_words(&mut self, src_col: u32, src_row: u32, tile_id: u8) {
         let sub_tiles = source_l1_subtiles(&mut self.cpu, tile_id);
         let base_tile_x = src_col * 2;
         let base_tile_y = src_row * 2;
@@ -493,13 +537,12 @@ impl UiWorldEditor {
                             rect.min + vec2(col as f32 * tile_screen, row as f32 * tile_screen),
                             vec2(tile_screen, tile_screen),
                         );
-                        ui.painter()
-                            .rect_stroke(
-                                sel_rect,
-                                egui::CornerRadius::ZERO,
-                                egui::Stroke::new(2.0, Color32::YELLOW),
-                                egui::StrokeKind::Outside,
-                            );
+                        ui.painter().rect_stroke(
+                            sel_rect,
+                            egui::CornerRadius::ZERO,
+                            egui::Stroke::new(2.0, Color32::YELLOW),
+                            egui::StrokeKind::Outside,
+                        );
                     }
                 } else {
                     // Visual L1 tile picker grid
@@ -531,20 +574,18 @@ impl UiWorldEditor {
                         rect.min + vec2(col as f32 * tile_screen, row as f32 * tile_screen),
                         vec2(tile_screen, tile_screen),
                     );
-                    ui.painter()
-                        .rect_stroke(
-                            sel_rect,
-                            egui::CornerRadius::ZERO,
-                            egui::Stroke::new(2.0, Color32::YELLOW),
-                            egui::StrokeKind::Outside,
-                        );
+                    ui.painter().rect_stroke(
+                        sel_rect,
+                        egui::CornerRadius::ZERO,
+                        egui::Stroke::new(2.0, Color32::YELLOW),
+                        egui::StrokeKind::Outside,
+                    );
                 }
             }
 
             ui.separator();
 
             // ── Tile preview ────────────────────────────────────
-            // In draw mode, show the draw tile. Otherwise, show the selected tile.
             let draw_mode = self.editing_mode == EditingMode::Draw;
             if draw_mode {
                 if self.edit_layer == 1 {
@@ -683,8 +724,6 @@ impl UiWorldEditor {
         let (map_px_w, map_px_h) = visible_map_size(self.submap);
         let map16_cols = map_px_w.div_ceil(16);
         let map16_rows = map_px_h.div_ceil(16);
-        // L1 Map16 blocks are 16×16 game pixels.  The canvas border and all
-        // hover/grid/selection overlays use map16_sz so they align with L1.
         let map16_sz = MAP16_PX * z;
         let canvas_w = map_px_w as f32 * z;
         let canvas_h = map_px_h as f32 * z;
@@ -698,8 +737,6 @@ impl UiWorldEditor {
             let draw_l2 = self.show_layer2;
             let ppp = ui.ctx().pixels_per_point();
             let screen_sz = view_rect.size() * ppp;
-            // The paint callback renders in view-local coordinates, so the GL
-            // tile origin must match the egui overlay origin exactly.
             let gl_offset = self.offset;
             let gl_zoom = z * ppp;
 
@@ -713,7 +750,12 @@ impl UiWorldEditor {
         }
 
         // ── Border around canvas ──────────────────────────────────────────────
-        painter.rect_stroke(ow_rect, CornerRadius::ZERO, Stroke::new(2.0, Color32::from_white_alpha(140)), StrokeKind::Outside);
+        painter.rect_stroke(
+            ow_rect,
+            CornerRadius::ZERO,
+            Stroke::new(2.0, Color32::from_white_alpha(140)),
+            StrokeKind::Outside,
+        );
 
         // ── Grid (Map16 block grid, aligned to L1) ───────────────────────────
         if self.show_grid || ui.input(|i| i.modifiers.shift_only()) {
@@ -767,6 +809,12 @@ impl UiWorldEditor {
 
         // ── Keyboard shortcuts ──────────────────────────────────────
         ui.input_mut(|input| {
+            if input.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, Key::Z)) {
+                self.handle_undo();
+            }
+            if input.consume_shortcut(&egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, Key::Y)) {
+                self.handle_redo();
+            }
             if input.key_pressed(egui::Key::Num1) {
                 self.editing_mode = EditingMode::Select;
             }
@@ -788,7 +836,6 @@ impl UiWorldEditor {
 
 // ── Tile list builders ────────────────────────────────────────────────────────
 
-/// Build draw list from the composed BG tilemap already uploaded to VRAM.
 fn build_bg_tiles(vram: &[u8], tilemap_base: usize, submap: u8, scroll_x: i32, scroll_y: i32) -> Vec<Tile> {
     let mut tiles = Vec::with_capacity((OW_L2_COLS * VRAM_TILE_ROWS) as usize);
     let (crop_x, crop_y, view_w, view_h) = if submap == 0 {
@@ -819,7 +866,6 @@ fn build_bg_tiles(vram: &[u8], tilemap_base: usize, submap: u8, scroll_x: i32, s
     tiles
 }
 
-/// Convert a raw u16 SNES tile attribute word into a renderer Tile.
 fn ow_tile(x: u32, y: u32, t: u16) -> Tile {
     let t32 = t as u32;
     let tile = t32 & 0x3FF;
@@ -853,15 +899,75 @@ fn write_overworld_l2_stream(
             .ok_or_else(|| anyhow::anyhow!("{label} ROM source start out of bounds"))?,
         output_len,
     );
-    if compressed.len() > old_size {
-        anyhow::bail!("{label} compressed data grew from {} to {} bytes; repointing is not implemented yet", old_size, compressed.len());
+    if compressed.len() <= old_size {
+        let dst = rom_bytes
+            .get_mut(start..start + old_size)
+            .ok_or_else(|| anyhow::anyhow!("{label} ROM write range out of bounds"))?;
+        dst[..compressed.len()].copy_from_slice(compressed);
+        dst[compressed.len()..].fill(0);
+    } else {
+        let new_pc = find_free_space(rom_bytes, compressed.len(), 0x008000, header_offset)
+            .ok_or_else(|| anyhow::anyhow!("{label} no free space found for {} bytes", compressed.len()))?;
+
+        if let Some(dst) = rom_bytes.get_mut(start..start + old_size) {
+            dst.fill(0xFF);
+        }
+
+        let new_file = new_pc + header_offset;
+        rom_bytes
+            .get_mut(new_file..new_file + compressed.len())
+            .ok_or_else(|| anyhow::anyhow!("{label} new location write out of bounds"))?
+            .copy_from_slice(compressed);
+
+        let old_snes = AddrSnes::try_from_lorom(AddrPc(start_pc_no_header as u32))?.0;
+        let new_snes = AddrSnes::try_from_lorom(AddrPc(new_pc as u32))?.0;
+        patch_snes_pointer(rom_bytes, old_snes, new_snes, label)?;
     }
-    let dst = rom_bytes
-        .get_mut(start..start + old_size)
-        .ok_or_else(|| anyhow::anyhow!("{label} ROM write range out of bounds"))?;
-    dst[..compressed.len()].copy_from_slice(compressed);
-    dst[compressed.len()..].fill(0);
     Ok(())
+}
+
+fn patch_snes_pointer(rom_bytes: &mut [u8], old_snes: u32, new_snes: u32, label: &str) -> anyhow::Result<()> {
+    let old_bytes = old_snes.to_le_bytes();
+    let new_bytes = new_snes.to_le_bytes();
+    let rom_len = rom_bytes.len();
+    for i in 0..rom_len.saturating_sub(2) {
+        if rom_bytes[i] == old_bytes[0] && rom_bytes[i + 1] == old_bytes[1] && rom_bytes[i + 2] == old_bytes[2] {
+            rom_bytes[i] = new_bytes[0];
+            rom_bytes[i + 1] = new_bytes[1];
+            rom_bytes[i + 2] = new_bytes[2];
+            log::info!("{label} repointed from SNES ${old_snes:06X} to ${new_snes:06X}");
+            return Ok(());
+        }
+    }
+    anyhow::bail!("{label} could not find pointer to SNES ${old_snes:06X} for repointing")
+}
+
+fn find_free_space(rom_bytes: &[u8], needed: usize, pc_start: usize, header_offset: usize) -> Option<usize> {
+    const BANK: usize = 0x8000;
+    let pc_end = rom_bytes.len().saturating_sub(header_offset);
+    let mut run_start: Option<usize> = None;
+    let mut run_len = 0usize;
+    for pc in pc_start..pc_end {
+        if pc % BANK == 0 && pc != pc_start {
+            run_start = None;
+            run_len = 0;
+        }
+        let file = pc + header_offset;
+        if file >= rom_bytes.len() {
+            break;
+        }
+        if rom_bytes[file] == 0xFF {
+            run_start.get_or_insert(pc);
+            run_len += 1;
+            if run_len >= needed {
+                return run_start;
+            }
+        } else {
+            run_start = None;
+            run_len = 0;
+        }
+    }
+    None
 }
 
 fn ow_l1_addr(col: u32, row: u32) -> usize {
@@ -892,18 +998,7 @@ fn render_source_l1_tile_preview(cpu: &mut Cpu, tile_id: u8) -> egui::ColorImage
         let pal = ((sub_tile >> 10) & 0x7) as usize;
         let flip_x = (sub_tile & 0x4000) != 0;
         let flip_y = (sub_tile & 0x8000) != 0;
-        render_preview_tile(
-            &cpu.mem.vram,
-            &cpu.mem.cgram,
-            tile_num,
-            pal,
-            flip_x,
-            flip_y,
-            x0,
-            y0,
-            16,
-            &mut pixels,
-        );
+        render_preview_tile(&cpu.mem.vram, &cpu.mem.cgram, tile_num, pal, flip_x, flip_y, x0, y0, 16, &mut pixels);
     }
     egui::ColorImage::from_rgba_unmultiplied([16, 16], &pixels)
 }
@@ -958,8 +1053,6 @@ fn render_preview_tile(
     }
 }
 
-/// Render a 16×16 preview of the Map16 block at (map16_x, map16_y) by reading
-/// its 4 sub-tiles from the given VRAM tilemap.
 fn render_ow_block_preview(
     vram: &[u8], cgram: &[u8], submap: u8, map16_x: u32, map16_y: u32, tilemap_base: usize,
 ) -> egui::ColorImage {
@@ -1033,7 +1126,6 @@ fn render_ow_block_preview(
     egui::ColorImage::from_rgba_unmultiplied([16, 16], &pixels)
 }
 
-/// Render a single 8×8 VRAM tile as a 16×16 preview (2× nearest neighbor).
 fn render_single_tile_preview(vram: &[u8], cgram: &[u8], tile_num: u8, pal: u8) -> egui::ColorImage {
     let mut pixels = vec![0u8; 16 * 16 * 4];
     let tile_base = (tile_num as usize) * 32;
@@ -1065,7 +1157,6 @@ fn render_single_tile_preview(vram: &[u8], cgram: &[u8], tile_num: u8, pal: u8) 
             let r = ((rgb & 0x1F) << 3) as u8;
             let g = (((rgb >> 5) & 0x1F) << 3) as u8;
             let b = (((rgb >> 10) & 0x1F) << 3) as u8;
-            // 2× nearest neighbor
             for dy in 0..2u32 {
                 for dx in 0..2u32 {
                     let px = tx * 2 + dx;
