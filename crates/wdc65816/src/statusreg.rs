@@ -8,9 +8,6 @@ const OVERFLOW_FLAG: u8 = 0x40;
 const SMALL_ACC_FLAG: u8 = 0x20;
 /// 1 = Index registers X/Y are 8-bit (native mode only)
 const SMALL_INDEX_FLAG: u8 = 0x10;
-/// Emulation mode only (same bit as `SMALL_INDEX_FLAG`)
-#[allow(dead_code)] // FIXME Implement or scrap this
-const BREAK_FLAG: u8 = 0x10;
 const DEC_FLAG: u8 = 0x08;
 /// 1 = IRQs disabled
 const IRQ_FLAG: u8 = 0x04;

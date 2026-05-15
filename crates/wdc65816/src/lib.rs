@@ -97,7 +97,6 @@ impl<M: Mem> Cpu<M> {
 
     /// Load a byte from memory.
     fn loadb(&mut self, bank: u8, addr: u16) -> u8 {
-        // FIXME Remove?
         self.mem.load((bank as u32) << 16 | addr as u32)
     }
 
@@ -111,7 +110,6 @@ impl<M: Mem> Cpu<M> {
     }
 
     fn storeb(&mut self, bank: u8, addr: u16, value: u8) {
-        // FIXME Remove?
         self.mem.store((bank as u32) << 16 | addr as u32, value)
     }
 
@@ -182,7 +180,7 @@ impl<M: Mem> Cpu<M> {
 
     /// Enters/exits emulation mode
     fn set_emulation(&mut self, value: bool) {
-        // FIXME Should this set the DBR/PBR?
+        // XCE does not change DBR or PBR per the 65816 datasheet.
         if !self.emulation && value {
             // Enter emulation mode
 
@@ -441,8 +439,8 @@ impl<M: Mem> Cpu<M> {
             0xa0 => instr!(ldy immediate_index),
             0xac => instr!(ldy absolute),
             0xbc => instr!(ldy absolute_indexed_x),
-            0x54 => instr!(mvn), // FIXME These look bad in the trace, print src/dest banks!
-            0x44 => instr!(mvp),
+            0x54 => { if self.trace { self.trace_op(pc, op, "mvn", None); } self.mvn(); }
+            0x44 => { if self.trace { self.trace_op(pc, op, "mvp", None); } self.mvp(); }
 
             // Bit operations
             0x24 => instr!(bit direct),
@@ -618,6 +616,9 @@ impl<M: Mem> Cpu<M> {
     fn mvn(&mut self) {
         let destbank = self.fetchb();
         let srcbank = self.fetchb();
+        if self.trace {
+            println!("  mvn src=${:02X} dest=${:02X}", srcbank, destbank);
+        }
 
         while self.a != 0xffff {
             let (x, y) = (self.x, self.y);
@@ -634,6 +635,9 @@ impl<M: Mem> Cpu<M> {
     fn mvp(&mut self) {
         let destbank = self.fetchb();
         let srcbank = self.fetchb();
+        if self.trace {
+            println!("  mvp src=${:02X} dest=${:02X}", srcbank, destbank);
+        }
 
         while self.a != 0xffff {
             let (x, y) = (self.x, self.y);
@@ -1015,7 +1019,7 @@ impl<M: Mem> Cpu<M> {
             self.p.set_carry(a & 0x8000 != 0);
             let res = self.p.set_nz((a << 1) | c as u16);
             am.storew(self, res);
-            self.cy += 1; // FIXME times 2?
+            self.cy += 2;
         }
     }
 
@@ -1383,8 +1387,7 @@ impl<M: Mem> Cpu<M> {
     /// Test and set memory bits against accumulator
     fn tsb(&mut self, am: AddressingMode) {
         // Sets Z
-        // FIXME Is this correct?
-        if self.p.small_index() {
+        if self.p.small_acc() {
             let val = am.clone().loadb(self);
             self.p.set_zero(val & self.a as u8 == 0);
             let res = val | self.a as u8;
@@ -1402,8 +1405,7 @@ impl<M: Mem> Cpu<M> {
     /// Test and reset memory bits against accumulator
     fn trb(&mut self, am: AddressingMode) {
         // Sets Z
-        // FIXME Is this correct?
-        if self.p.small_index() {
+        if self.p.small_acc() {
             let val = am.clone().loadb(self);
             self.p.set_zero(val & self.a as u8 == 0);
             let res = val & !(self.a as u8);

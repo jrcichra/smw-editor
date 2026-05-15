@@ -110,7 +110,20 @@ impl Rom {
     }
 
     pub fn checksum(&self) -> u16 {
-        // TODO: npo2 roms
-        self.buf.iter().map(|c| *c as u16).sum()
+        let size = self.buf.len();
+        if size == 0 {
+            return 0;
+        }
+        let base: u16 = self.buf.iter().map(|&b| b as u16).sum();
+        if size.is_power_of_two() {
+            base
+        } else {
+            // Mirror the trailing non-power-of-2 portion to fill the gap, matching
+            // what a real SNES cartridge exposes on the bus.
+            let po2 = size.next_power_of_two() / 2;
+            let remainder = size - po2;
+            let mirror_sum: u16 = self.buf[po2..po2 + remainder].iter().map(|&b| b as u16).sum();
+            base.wrapping_add(mirror_sum)
+        }
     }
 }

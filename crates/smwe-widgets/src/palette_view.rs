@@ -64,8 +64,38 @@ impl Widget for PaletteView<'_> {
             _ => 8,
         };
         match self.selection {
-            Some(SelectionType::Cell((_x, _y))) => {
-                unimplemented!()
+            Some(SelectionType::Cell((col, row))) => {
+                let cell_size = vec2(cell_width, cell_width);
+
+                if let Some(hover_pos) = response.hover_pos() {
+                    let relative_pos = hover_pos - view_rect.left_top();
+                    let hovered_col = (relative_pos.x / cell_width).floor().clamp(0., 15.) as u32;
+                    let hovered_row =
+                        (relative_pos.y / cell_width).floor().clamp(0., (row_count - 1) as f32) as u32;
+                    let highlight_rect = Rect::from_min_size(
+                        view_rect.min + vec2(hovered_col as f32 * cell_width, hovered_row as f32 * cell_width),
+                        cell_size,
+                    );
+                    ui.painter()
+                        .rect_filled(highlight_rect, CornerRadius::ZERO, Color32::from_white_alpha(tweak!(100)));
+
+                    if response.clicked_by(PointerButton::Primary) && (*col != hovered_col || *row != hovered_row) {
+                        response.mark_changed();
+                        *col = hovered_col;
+                        *row = hovered_row;
+                    }
+                }
+
+                let selection_rect = Rect::from_min_size(
+                    view_rect.min + vec2(*col as f32 * cell_width, *row as f32 * cell_width),
+                    cell_size,
+                );
+                ui.painter().rect_stroke(
+                    selection_rect,
+                    CornerRadius::same(2),
+                    Stroke::new(2., Color32::from_rgba_premultiplied(200, 100, 30, 100)),
+                    StrokeKind::Outside,
+                );
             }
             Some(SelectionType::Row(row)) => {
                 let row_size = vec2(self.size.x, self.size.x / 16.);
