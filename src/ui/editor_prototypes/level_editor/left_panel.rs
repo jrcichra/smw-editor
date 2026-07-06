@@ -605,7 +605,34 @@ impl UiLevelEditor {
                 }
                 ui.end_row();
 
-                row_slider!("Music:", p.music, 0..=7_i32);
+                ui.label("Music:");
+                {
+                    // Header music 0-7 indexes LevelMusicTable ($0584DB), which in
+                    // vanilla holds these tracks in order (SMWDisX bank_05.asm).
+                    const MUSIC_NAMES: [&str; 8] = [
+                        "Overworld",
+                        "Underground",
+                        "Athletic",
+                        "Castle",
+                        "Ghost House",
+                        "Underwater",
+                        "Boss Fight",
+                        "Bonus Game",
+                    ];
+                    let mut v = p.music as i32;
+                    if ui
+                        .add(Slider::new(&mut v, 0..=7_i32).custom_formatter(|n, _| {
+                            let idx = (n as usize).min(7);
+                            format!("{} — {}", idx, MUSIC_NAMES[idx])
+                        }))
+                        .changed()
+                    {
+                        p.music = v as u8;
+                        changed = true;
+                    }
+                }
+                ui.end_row();
+
                 row_slider!("Timer:", p.timer, 0..=3_i32);
                 row_slider_hex!("BG Palette:", p.palette_bg, 0..=7_i32, 1);
                 row_slider_hex!("FG Palette:", p.palette_fg, 0..=7_i32, 1);

@@ -28,7 +28,7 @@ X"), and player (Mario/Yoshi) graphics customization.
 | Map16 tile picker & editor | ✅ | `tile_picker.rs`, `map16_editor.rs` |
 | Palette editor (BG/FG/sprite) | ✅ | `palette_editor.rs` |
 | Layer 2/3 background editing | 🟡 | `background_layer.rs` minimal (~510 bytes); L2 header copied verbatim, not user-editable (`level_editor/mod.rs:342`) |
-| Music selection | 🟡 | Raw nibble slider only, no track-name mapping |
+| Music selection | ✅ | Header music slider now shows vanilla track names (0-7 → Overworld/Underground/Athletic/Castle/Ghost House/Underwater/Boss Fight/Bonus Game, per `LevelMusicTable` at `$0584DB` in SMWDisX `bank_05.asm`) |
 | Custom level names (overworld name table) | ⛔ | Not found |
 | Message box / dialog text editor | ✅ | `crates/smwe-rom/src/message_boxes.rs` + `level_editor/message_editor.rs` — WYSIWYG text editing for all 22 vanilla messages. The font was located empirically: message byte = BG3 tile `0x100\|byte` (attr `$39`, per `CODE_05B208`), glyphs at VRAM byte offset 0x9000 after level load; the byte↔char chart (`byte_to_char`/`char_to_byte`, A-Z a-z 0-9 `!.-,?#()'` space) was transcribed from a VRAM tile-sheet render and validated by decoding every vanilla message to readable English (real-ROM test asserts the intro decodes to "Welcome!…"). Text edits pad each 18-char game row with spaces; messages using special non-text tiles fall back to the raw byte grid (now annotated with each byte's glyph). Byte budget handling unchanged (2854-byte non-repointable blob) |
 | Import/export level as `.mwl` | ⛔ | Not found |
