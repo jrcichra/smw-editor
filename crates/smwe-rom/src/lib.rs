@@ -29,7 +29,7 @@ use crate::{
     },
     message_boxes::MessageBoxes,
     objects::tilesets::Tilesets,
-    overworld::{OverworldData, OverworldEvents},
+    overworld::{OverworldData, OverworldEvents, TranslevelEvents},
     snes_utils::{
         addr::AddrSnes,
         rom::{Rom, RomError},
@@ -51,6 +51,7 @@ pub struct SmwRom {
     pub map16_tilesets:      Tilesets,
     pub overworld:           OverworldData,
     pub overworld_events:    OverworldEvents,
+    pub translevel_events:   TranslevelEvents,
     pub sprite_tweakers:     SpriteTweakers,
     pub message_boxes:       MessageBoxes,
     pub title_credits:       TitleCreditsData,
@@ -113,6 +114,12 @@ impl SmwRom {
             }
         });
 
+        log::info!("Parsing translevel event table");
+        let translevel_events = TranslevelEvents::parse(&disassembly.rom).unwrap_or_else(|e| {
+            log::warn!("Could not parse translevel event table: {e}");
+            TranslevelEvents { events: vec![overworld::TRANSLEVEL_NO_EVENT; overworld::TRANSLEVEL_EVENTS_COUNT] }
+        });
+
         log::info!("Parsing sprite tweaker bytes");
         let sprite_tweakers = SpriteTweakers::parse(&disassembly.rom).unwrap_or_else(|e| {
             log::warn!("Could not parse sprite tweaker bytes: {e}");
@@ -147,6 +154,7 @@ impl SmwRom {
             map16_tilesets,
             overworld,
             overworld_events,
+            translevel_events,
             sprite_tweakers,
             message_boxes,
             title_credits,

@@ -157,6 +157,48 @@ pub const OW_EVENT_REVEAL_BEFORE_SNES: AddrSnes = AddrSnes(0x04DA1D);
 pub const OW_EVENT_REVEAL_AFTER_SNES: AddrSnes = AddrSnes(0x04DA33);
 pub const OW_EVENT_REVEAL_COUNT: usize = 22;
 
+/// The per-translevel event-number table (`DATA_05D608`): when a level is
+/// beaten, `CODE_05D9xx` does `LDA DATA_05D608,Y` (Y = `TranslevelNo`) →
+/// `OverworldEvent`, i.e. this table decides which overworld event each
+/// level triggers. A secret exit triggers the entry's value + 1 (confirmed
+/// in `bank_04.asm` `CODE_04E5EE`: `OWLevelExitMode == 2` → `INC
+/// OverworldEvent`). `0xFF` means the level triggers no event.
+pub const TRANSLEVEL_EVENTS_SNES: AddrSnes = AddrSnes(0x05D608);
+pub const TRANSLEVEL_EVENTS_COUNT: usize = 0x5D;
+/// Table value meaning "this level triggers no event".
+pub const TRANSLEVEL_NO_EVENT: u8 = 0xFF;
+
+/// Editable copy of the translevel→event table; see
+/// [`TRANSLEVEL_EVENTS_SNES`]. Fixed-size and rewritten in place on save, so
+/// it needs no repointing.
+#[derive(Debug, Clone)]
+pub struct TranslevelEvents {
+    /// Event number triggered by each translevel (index), `0xFF` = none.
+    pub events: Vec<u8>,
+}
+
+impl TranslevelEvents {
+    pub fn parse(rom: &Rom) -> anyhow::Result<Self> {
+        let pc = AddrPc::try_from_lorom(TRANSLEVEL_EVENTS_SNES)
+            .map_err(|e| anyhow::anyhow!("TranslevelEvents addr conversion: {e}"))?
+            .0 as usize;
+        let end = pc + TRANSLEVEL_EVENTS_COUNT;
+        if end > rom.0.len() {
+            anyhow::bail!("TranslevelEvents table extends past end of ROM");
+        }
+        Ok(Self { events: rom.0[pc..end].to_vec() })
+    }
+
+    /// The event this translevel's normal exit triggers, or `None` for no
+    /// event / out-of-range translevel.
+    pub fn event_for_translevel(&self, translevel: u8) -> Option<u8> {
+        match self.events.get(translevel as usize) {
+            Some(&TRANSLEVEL_NO_EVENT) | None => None,
+            Some(&event) => Some(event),
+        }
+    }
+}
+
 /// Overworld "destruction" event data: which tile changes to which other tile
 /// once a given event (numbered 0..[`OW_EVENT_COUNT`]) has been triggered
 /// (typically by beating the level on that tile). Ported from SMWDisX
@@ -340,6 +382,30 @@ mod tests {
         let active = vec![false; 9];
         events.apply(&mut tiles, &active);
         assert_eq!(tiles[0x0469], 0x6E);
+    }
+
+    #[test]
+    fn translevel_event_lookup_handles_none_and_out_of_range() {
+        let events = TranslevelEvents { events: vec![0x1F, TRANSLEVEL_NO_EVENT, 0x03] };
+        assert_eq!(events.event_for_translevel(0), Some(0x1F));
+        assert_eq!(events.event_for_translevel(1), None);
+        assert_eq!(events.event_for_translevel(2), Some(0x03));
+        assert_eq!(events.event_for_translevel(0x50), None);
+    }
+
+    /// Confirms the `DATA_05D608` translevel→event table parses to the known
+    /// vanilla bytes. Run with `ROM_PATH=/path/to/smw.smc cargo test -p
+    /// smwe-rom --lib -- --ignored translevel_event_table_matches_vanilla`.
+    #[test]
+    #[ignore]
+    fn translevel_event_table_matches_vanilla() {
+        let rom_path = std::env::var("ROM_PATH").expect("set ROM_PATH");
+        let raw = std::fs::read(rom_path).expect("read ROM");
+        let rom_bytes = if raw.len() % 0x400 == 0x200 { raw[0x200..].to_vec() } else { raw };
+        let events = TranslevelEvents::parse(&Rom(rom_bytes.into())).expect("parse table");
+        assert_eq!(events.events.len(), TRANSLEVEL_EVENTS_COUNT);
+        // First 8 bytes of vanilla DATA_05D608 (from SMWDisX bank_05.asm).
+        assert_eq!(&events.events[..8], &[0xFF, 0x1F, 0x20, 0xFF, 0x0B, 0x0D, 0x0E, 0x0F]);
     }
 
     /// Confirms `LEVEL_NUMBER_PATCH_OPERAND_SNES` resolves to the exact bytes

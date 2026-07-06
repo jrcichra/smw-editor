@@ -249,6 +249,12 @@ pub struct UiWorldEditor {
     /// doesn't need new ASM code, just different data.
     custom_level_numbers: HashMap<usize, u8>,
     level_numbers_dirty:  bool,
+
+    /// Working copy of the translevel→event table (`DATA_05D608`): which
+    /// overworld event each level's normal exit triggers (secret exit =
+    /// value + 1, `0xFF` = none). Fixed-size, rewritten in place on save.
+    translevel_events:       Vec<u8>,
+    translevel_events_dirty: bool,
 }
 
 impl UiWorldEditor {
@@ -261,6 +267,7 @@ impl UiWorldEditor {
         emu_rom.load_symbols(include_str!("../../../symbols/SMW_U.sym"));
         let cpu = Cpu::new(CheckedMem::new(Arc::new(emu_rom)));
 
+        let translevel_events = rom.translevel_events.events.clone();
         let source_layer1_tiles = rom.overworld.layer1_tiles.clone();
         let edit_state =
             UndoableData::new(OverworldEditState { layer1_tiles: source_layer1_tiles, layer2_words: Vec::new() });
@@ -292,6 +299,8 @@ impl UiWorldEditor {
             active_events: vec![true; smwe_rom::overworld::OW_EVENT_COUNT],
             custom_level_numbers: HashMap::new(),
             level_numbers_dirty: false,
+            translevel_events,
+            translevel_events_dirty: false,
         };
         editor.load_submap();
         editor
@@ -387,6 +396,18 @@ impl DockableEditorTool for UiWorldEditor {
             &attr_compressed,
             "OWTilemap",
         )?;
+
+        // ── Translevel → event table (DATA_05D608) ──────────────────────────
+        // Fixed-size table rewritten in place; only written when the user
+        // actually changed an event assignment.
+        if self.translevel_events_dirty {
+            let start = AddrPc::try_from_lorom(smwe_rom::overworld::TRANSLEVEL_EVENTS_SNES)?.as_index() + header_offset;
+            let end = start + smwe_rom::overworld::TRANSLEVEL_EVENTS_COUNT;
+            let dst = rom_bytes
+                .get_mut(start..end)
+                .ok_or_else(|| anyhow::anyhow!("Translevel event table ROM write range out of bounds"))?;
+            dst.copy_from_slice(&self.translevel_events);
+        }
 
         // ── Custom per-tile level-number assignment ─────────────────────────
         // Only touches the ROM if the user has actually overridden a level
@@ -779,6 +800,40 @@ impl UiWorldEditor {
                                     egui::Color32::from_rgb(220, 160, 60),
                                     "  Overridden — needs the level-number patch on save",
                                 );
+                            }
+
+                            // Which overworld event this level's exits trigger
+                            // (DATA_05D608, indexed by translevel).
+                            if let Some(slot) = self.translevel_events.get_mut(translevel as usize) {
+                                let mut has_event = *slot != smwe_rom::overworld::TRANSLEVEL_NO_EVENT;
+                                ui.horizontal(|ui| {
+                                    ui.label("  Triggers event:");
+                                    if ui.checkbox(&mut has_event, "").changed() {
+                                        *slot = if has_event { 0 } else { smwe_rom::overworld::TRANSLEVEL_NO_EVENT };
+                                        self.translevel_events_dirty = true;
+                                        self.has_edits = true;
+                                    }
+                                    if has_event {
+                                        let mut event = *slot as i32;
+                                        let max_event = smwe_rom::overworld::OW_EVENT_COUNT as i32 - 1;
+                                        if ui
+                                            .add(
+                                                egui::Slider::new(&mut event, 0..=max_event)
+                                                    .hexadecimal(2, false, false),
+                                            )
+                                            .changed()
+                                        {
+                                            *slot = event as u8;
+                                            self.translevel_events_dirty = true;
+                                            self.has_edits = true;
+                                        }
+                                    } else {
+                                        ui.small("none");
+                                    }
+                                });
+                                if has_event {
+                                    ui.small("  normal exit triggers this event; secret exit triggers event + 1");
+                                }
                             }
                         }
                     }
