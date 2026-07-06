@@ -118,8 +118,12 @@ X"), and player (Mario/Yoshi) graphics customization.
 
 ## Known correctness gaps affecting parity work
 
-- Custom Layer-2 backgrounds in hacked levels can render scrambled — root cause
-  understood but not fixed (see memory `custom-layer2-background`).
+- ~~Custom Layer-2 backgrounds in hacked levels can render scrambled~~ FIXED:
+  root cause was `UploadSpriteGFX`'s decompression overrunning the `$7EAD00`
+  buffer into the `$7EB900` BG tilemap on ROMs with Lunar-Magic-sized GFX files
+  (harmless on hardware where the BG is converted to VRAM first; fatal for the
+  editor which renders from that WRAM). `decompress_sublevel`/`decompress_extram`
+  now snapshot the BG tilemap after `CODE_05801E` and restore it at the end.
 - SA-1 and ExLoROM/ExHiROM ROMs are not supported by the mapper or ROM header
   parser (see memory `mapper-autodetection`).
 - Title/credits editing is currently U-ROM fixed-address only for the modeled

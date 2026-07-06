@@ -438,6 +438,7 @@ pub fn decompress_sublevel(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
     }
     let end = addr as u16;
     let mut cy = 0u64;
+    let mut bg_tilemap_snapshot: Option<Vec<u8>> = None;
     loop {
         cy += cpu.dispatch() as u64;
         if cpu.ill {
@@ -447,10 +448,26 @@ pub fn decompress_sublevel(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
         if cpu.pc == 0xD8B7 && cpu.pbr == 0x05 {
             cpu.mem.store_u16(0xE, id);
         }
+        // The background-image tilemap ($7EB900 lo / $7EBD00 hi) is final once
+        // CODE_05801E (level data load) returns, i.e. when execution reaches the
+        // next trampoline entry at $2010. The real game converts it to a VRAM
+        // tilemap (CODE_05809E) before UploadSpriteGFX runs, whose GFX
+        // decompression overruns the $7EAD00 buffer into $7EB900+ on ROMs with
+        // Lunar-Magic-sized GFX files (harmless on hardware, fatal for us since
+        // the editor renders the BG from this WRAM). Snapshot it here and
+        // restore it after the remaining routines have run.
+        if cpu.pbr == 0 && cpu.pc == 0x2010 && bg_tilemap_snapshot.is_none() {
+            bg_tilemap_snapshot = Some((0x7EB900..0x7EC100).map(|a| cpu.mem.load_u8(a)).collect());
+        }
         if cpu.pbr == 0 && cpu.pc == end {
             break;
         }
         cpu.mem.process_dma();
+    }
+    if let Some(snapshot) = bg_tilemap_snapshot {
+        for (i, byte) in snapshot.into_iter().enumerate() {
+            cpu.mem.store(0x7EB900 + i as u32, byte);
+        }
     }
     // Fix dragon coin palette: copy gold colors from row 10 colors 0-7 to 8-15
     // Dragon coin tiles use color indices 9, 12, 13 which are in the upper half
@@ -488,6 +505,7 @@ pub fn decompress_extram(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
     let end = addr as u16;
     let layer1_data_ptr = cpu.mem.cart.resolve("Layer1DataPtr").unwrap();
     let mut cy = 0u64;
+    let mut bg_tilemap_snapshot: Option<Vec<u8>> = None;
     loop {
         cy += cpu.dispatch() as u64;
         if cpu.ill {
@@ -497,6 +515,11 @@ pub fn decompress_extram(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
         if cpu.pc == 0xD8B7 && cpu.pbr == 0x05 {
             cpu.mem.store_u16(0xE, id);
         }
+        // See decompress_sublevel: preserve the BG-image tilemap against
+        // UploadSpriteGFX's decompression-buffer overrun on LM ROMs.
+        if cpu.pbr == 0 && cpu.pc == 0x2010 && bg_tilemap_snapshot.is_none() {
+            bg_tilemap_snapshot = Some((0x7EB900..0x7EC100).map(|a| cpu.mem.load_u8(a)).collect());
+        }
         if cpu.pbr == 0 && cpu.pc == end {
             break;
         }
@@ -504,6 +527,11 @@ pub fn decompress_extram(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
             cpu.mem.store_u24(layer1_data_ptr, 0x600000);
         }
         cpu.mem.process_dma();
+    }
+    if let Some(snapshot) = bg_tilemap_snapshot {
+        for (i, byte) in snapshot.into_iter().enumerate() {
+            cpu.mem.store(0x7EB900 + i as u32, byte);
+        }
     }
     log::debug!("decompress_extram took {}µs", now.elapsed().as_micros());
     cy
