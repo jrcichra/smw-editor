@@ -41,16 +41,21 @@ this session).
 
 ## Remaining items, in suggested order
 
-### 1. Overworld level names editor (task started, not begun)
+### 1. Overworld level names editor — DONE (2026-07-06)
 
-The name shown in the OW status bar ("YOSHI'S ISLAND 1"). Not yet researched.
-Start by grepping SMWDisX for the level-name stripe/tilemap data (try
-`grep -in "levelname\|LevelNames" ../SMWDisX/*.asm symbols/SMW_U.sym`).
-Expect a per-translevel table of Layer-3 stripe text; the message-box font
-chart in `message_boxes.rs` probably applies (same Layer-3 charset region) —
-verify with the `dump_vram_tiles` bin before assuming. Deliverable: parse +
-edit + in-place save like `TranslevelEvents`, surfaced in the world editor
-tile-inspect panel next to the event control.
+Landed in `crates/smwe-rom/src/overworld/level_names.rs` + world-editor
+tile-inspect panel. Key facts (all verified against smw.smc by decoding all
+0x5D names): `LevelNames` $04A0FC (2B/translevel: byte1&0x7F → piece-1 table
+`DATA_049C91`, byte0 hi-nibble → piece-2 `DATA_049CCF`, lo-nibble → piece-3
+`DATA_049CED`; each table entry is a u16 offset into `LevelNameStrings`
+$049AC5, budget 0x1CC bytes, strings end on a bit-7 byte). Display rules from
+`CODE_049D07`: piece 1 skipped if first byte has bit 7, piece 2 skipped if
+first byte == $9F, field is 19 tiles (truncation is per-*tile*: the squished
+glyph runs $32-$37 = " ILLUSI", $38-$3C = "YELLOW" pack ~7 chars into 5-6
+tiles). OW font ≠ message font: digits '1'-'7' at $64-$6A ('0','8','9'
+unverified, unmapped). Rebuild uses dedupe + substring sharing (vanilla needs
+441/460 bytes). Real-ROM tests: `vanilla_level_names_decode_correctly`,
+`vanilla_level_names_round_trip` (run with `ROM_PATH=... --ignored`).
 
 ### 2. ExGFX colored preview + per-level GFX slot cross-link
 

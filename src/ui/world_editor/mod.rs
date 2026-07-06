@@ -43,7 +43,12 @@ use smwe_render::{
 };
 use smwe_rom::{
     compression::lc_rle2,
-    overworld::{OWL1_TILE_DATA_SIZE, OWL1_TILE_DATA_SNES, SUBMAP_NAMES},
+    overworld::{
+        level_names::{decode_piece, encode_piece, OwLevelNames, LEVEL_NAME_DISPLAY_WIDTH, LEVEL_NAME_STRINGS_SIZE},
+        OWL1_TILE_DATA_SIZE,
+        OWL1_TILE_DATA_SNES,
+        SUBMAP_NAMES,
+    },
     snes_utils::addr::{AddrPc, AddrSnes},
     SmwRom,
 };
@@ -255,6 +260,16 @@ pub struct UiWorldEditor {
     /// value + 1, `0xFF` = none). Fixed-size, rewritten in place on save.
     translevel_events:       Vec<u8>,
     translevel_events_dirty: bool,
+
+    /// Working copy of the status-bar level-name tables (`LevelNames` and the
+    /// piece-string tables). Fixed-size regions, rewritten in place on save.
+    ow_level_names:       OwLevelNames,
+    ow_level_names_dirty: bool,
+    /// Text buffers backing the piece-string editors, parallel to
+    /// `ow_level_names.piece1/piece2/piece3`.
+    name_piece_texts:     [Vec<String>; 3],
+    /// Error from the last rejected piece edit, shown until a valid edit.
+    name_piece_error:     Option<String>,
 }
 
 impl UiWorldEditor {
@@ -268,6 +283,12 @@ impl UiWorldEditor {
         let cpu = Cpu::new(CheckedMem::new(Arc::new(emu_rom)));
 
         let translevel_events = rom.translevel_events.events.clone();
+        let ow_level_names = rom.ow_level_names.clone();
+        let name_piece_texts = [
+            ow_level_names.piece1.iter().map(|p| decode_piece(p)).collect(),
+            ow_level_names.piece2.iter().map(|p| decode_piece(p)).collect(),
+            ow_level_names.piece3.iter().map(|p| decode_piece(p)).collect(),
+        ];
         let source_layer1_tiles = rom.overworld.layer1_tiles.clone();
         let edit_state =
             UndoableData::new(OverworldEditState { layer1_tiles: source_layer1_tiles, layer2_words: Vec::new() });
@@ -301,6 +322,10 @@ impl UiWorldEditor {
             level_numbers_dirty: false,
             translevel_events,
             translevel_events_dirty: false,
+            ow_level_names,
+            ow_level_names_dirty: false,
+            name_piece_texts,
+            name_piece_error: None,
         };
         editor.load_submap();
         editor
@@ -337,6 +362,123 @@ impl UiWorldEditor {
             s.layer2_words = layer2_words;
         });
         self.edit_state.clear_stack();
+    }
+
+    /// Status-bar level-name controls for the tile-inspect panel: live name
+    /// preview, per-level piece selection, and a global piece-string editor.
+    fn level_name_controls(&mut self, ui: &mut Ui, translevel: u8) {
+        ui.separator();
+        ui.monospace(format!("  Name: {}", self.ow_level_names.display_name(translevel)));
+        let tiles_wanted = self.ow_level_names.display_tiles(translevel);
+        if tiles_wanted > LEVEL_NAME_DISPLAY_WIDTH {
+            ui.colored_label(
+                Color32::from_rgb(220, 160, 60),
+                format!("  {tiles_wanted} tiles; the {LEVEL_NAME_DISPLAY_WIDTH}-tile field cuts it off (as shown)"),
+            );
+        }
+
+        let combo_label = |texts: &[String], pieces: &[Vec<u8>], idx: u8| -> String {
+            let (Some(text), Some(piece)) = (texts.get(idx as usize), pieces.get(idx as usize)) else {
+                return format!("({idx}?)")
+            };
+            if piece.first() == Some(&smwe_rom::overworld::level_names::BLANK_PIECE_BYTE) {
+                "(blank)".into()
+            } else {
+                text.trim_end().to_string()
+            }
+        };
+        let mut changed = false;
+        {
+            let Self { ow_level_names, name_piece_texts, .. } = self;
+            let Some(entry) = ow_level_names.entries.get_mut(translevel as usize) else { return };
+            let pieces_by_table = [&ow_level_names.piece1, &ow_level_names.piece2, &ow_level_names.piece3];
+            for (table, (label, sel)) in
+                [("First", &mut entry.piece1), ("Middle", &mut entry.piece2), ("Last", &mut entry.piece3)]
+                    .into_iter()
+                    .enumerate()
+            {
+                let texts = &name_piece_texts[table];
+                let pieces = pieces_by_table[table];
+                ui.horizontal(|ui| {
+                    ui.label(format!("  {label}:"));
+                    egui::ComboBox::from_id_salt(("ow_level_name_piece", table, translevel))
+                        .selected_text(combo_label(texts, pieces, *sel))
+                        .show_ui(ui, |ui| {
+                            for idx in 0..pieces.len() as u8 {
+                                if ui
+                                    .selectable_label(*sel == idx, format!("{idx:02}: {}", combo_label(texts, pieces, idx)))
+                                    .clicked()
+                                    && *sel != idx
+                                {
+                                    *sel = idx;
+                                    changed = true;
+                                }
+                            }
+                        });
+                });
+            }
+        }
+        if changed {
+            self.ow_level_names_dirty = true;
+            self.has_edits = true;
+        }
+
+        egui::CollapsingHeader::new("Edit name pieces (shared by all levels)")
+            .id_salt("ow_level_name_pieces")
+            .show(ui, |ui| {
+                ui.small(
+                    "Names are assembled from these shared pieces; renaming one changes every level that uses it. \
+                     Allowed: A-Z, 1-7, space, ' # - . ! , ?",
+                );
+                let mut edited = false;
+                {
+                    let Self { ow_level_names, name_piece_texts, name_piece_error, .. } = self;
+                    let tables: [(&str, &mut Vec<Vec<u8>>); 3] = [
+                        ("First pieces", &mut ow_level_names.piece1),
+                        ("Middle pieces", &mut ow_level_names.piece2),
+                        ("Last pieces", &mut ow_level_names.piece3),
+                    ];
+                    for (table, (header, pieces)) in tables.into_iter().enumerate() {
+                        ui.label(header);
+                        for (idx, piece) in pieces.iter_mut().enumerate() {
+                            let text = &mut name_piece_texts[table][idx];
+                            ui.horizontal(|ui| {
+                                ui.monospace(format!("{idx:02}"));
+                                if ui.add(egui::TextEdit::singleline(text).desired_width(160.0)).changed() {
+                                    match encode_piece(text) {
+                                        Ok(encoded) => {
+                                            *piece = encoded;
+                                            *name_piece_error = None;
+                                            edited = true;
+                                        }
+                                        Err(c) => {
+                                            *name_piece_error =
+                                                Some(format!("'{c}' is not in the overworld font; edit not applied"));
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    }
+                }
+                if edited {
+                    self.ow_level_names_dirty = true;
+                    self.has_edits = true;
+                }
+                if let Some(err) = &self.name_piece_error {
+                    ui.colored_label(Color32::from_rgb(230, 90, 90), err);
+                }
+                let used = self.ow_level_names.strings_size();
+                let over = used > LEVEL_NAME_STRINGS_SIZE;
+                let color = if over { Color32::from_rgb(230, 90, 90) } else { ui.visuals().text_color() };
+                ui.colored_label(color, format!("Text storage: {used}/{LEVEL_NAME_STRINGS_SIZE} bytes"));
+                if over {
+                    ui.colored_label(
+                        Color32::from_rgb(230, 90, 90),
+                        "Over budget — shorten some pieces or saving will fail",
+                    );
+                }
+            });
     }
 }
 
@@ -407,6 +549,14 @@ impl DockableEditorTool for UiWorldEditor {
                 .get_mut(start..end)
                 .ok_or_else(|| anyhow::anyhow!("Translevel event table ROM write range out of bounds"))?;
             dst.copy_from_slice(&self.translevel_events);
+        }
+
+        // ── Status-bar level names (LevelNames + piece tables) ───────────────
+        // All four tables live at fixed addresses and are rewritten in place;
+        // `write_to_rom` fails cleanly if the piece strings outgrow the
+        // vanilla region instead of corrupting neighboring data.
+        if self.ow_level_names_dirty {
+            self.ow_level_names.write_to_rom(rom_bytes, header_offset)?;
         }
 
         // ── Custom per-tile level-number assignment ─────────────────────────
@@ -835,6 +985,8 @@ impl UiWorldEditor {
                                     ui.small("  normal exit triggers this event; secret exit triggers event + 1");
                                 }
                             }
+
+                            self.level_name_controls(ui, translevel);
                         }
                     }
                 } else {

@@ -29,7 +29,7 @@ use crate::{
     },
     message_boxes::MessageBoxes,
     objects::tilesets::Tilesets,
-    overworld::{OverworldData, OverworldEvents, TranslevelEvents},
+    overworld::{level_names::OwLevelNames, OverworldData, OverworldEvents, TranslevelEvents},
     snes_utils::{
         addr::AddrSnes,
         rom::{Rom, RomError},
@@ -52,6 +52,7 @@ pub struct SmwRom {
     pub overworld:           OverworldData,
     pub overworld_events:    OverworldEvents,
     pub translevel_events:   TranslevelEvents,
+    pub ow_level_names:      OwLevelNames,
     pub sprite_tweakers:     SpriteTweakers,
     pub message_boxes:       MessageBoxes,
     pub title_credits:       TitleCreditsData,
@@ -120,6 +121,20 @@ impl SmwRom {
             TranslevelEvents { events: vec![overworld::TRANSLEVEL_NO_EVENT; overworld::TRANSLEVEL_EVENTS_COUNT] }
         });
 
+        log::info!("Parsing overworld level names");
+        let ow_level_names = OwLevelNames::parse(&disassembly.rom).unwrap_or_else(|e| {
+            log::warn!("Could not parse overworld level names: {e}");
+            OwLevelNames {
+                piece1:  vec![vec![overworld::level_names::BLANK_PIECE_BYTE]],
+                piece2:  vec![vec![overworld::level_names::BLANK_PIECE_BYTE]],
+                piece3:  vec![vec![overworld::level_names::BLANK_PIECE_BYTE]],
+                entries: vec![
+                    overworld::level_names::LevelNameEntry { piece1: 0, piece2: 0, piece3: 0 };
+                    overworld::level_names::LEVEL_NAMES_COUNT
+                ],
+            }
+        });
+
         log::info!("Parsing sprite tweaker bytes");
         let sprite_tweakers = SpriteTweakers::parse(&disassembly.rom).unwrap_or_else(|e| {
             log::warn!("Could not parse sprite tweaker bytes: {e}");
@@ -155,6 +170,7 @@ impl SmwRom {
             overworld,
             overworld_events,
             translevel_events,
+            ow_level_names,
             sprite_tweakers,
             message_boxes,
             title_credits,
