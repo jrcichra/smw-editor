@@ -201,6 +201,96 @@ impl TranslevelEvents {
     }
 }
 
+/// Per-event index into the Layer-2 reveal records (`DATA_04E359`,
+/// bank_04.asm): u16 record indices, one per event plus a terminator; event
+/// `n` reveals records `starts[n]..starts[n+1]`.
+pub const OW_L2_EVENT_INDEX_SNES: AddrSnes = AddrSnes(0x04E359);
+pub const OW_L2_EVENT_INDEX_COUNT: usize = 121;
+/// Layer-2 reveal records (`DATA_04DD8D`): 4 bytes each,
+/// `[source stream index u16][Layer-2 tilemap byte offset u16]`.
+pub const OW_L2_EVENT_RECORDS_SNES: AddrSnes = AddrSnes(0x04DD8D);
+pub const OW_L2_EVENT_RECORD_COUNT: usize = 371;
+
+/// One Layer-2 event reveal: `CODE_04E496` copies a block of tiles from the
+/// pristine decompressed Layer-2 streams (tile numbers from ROM, attributes
+/// from WRAM $7F0000) at `source_index` into the live Layer-2 tilemap
+/// ($7F4000) at `dest_offset`. Source indices `< 0x900` reveal a 6×6-tile
+/// block (`CODE_04E520`), others a 2×2 block (`CODE_04E4D0`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Layer2EventRecord {
+    pub source_index: u16,
+    pub dest_offset:  u16,
+}
+
+impl Layer2EventRecord {
+    /// Number of 8×8 tiles on each side of the revealed square block.
+    pub fn block_size(&self) -> u32 {
+        if self.source_index < 0x900 {
+            6
+        } else {
+            2
+        }
+    }
+
+    /// Top-left `(x, y)` of the revealed block in 8×8-tile coordinates on the
+    /// composed 64×64 Layer-2 map (four 32×32 screens, 2 across × 2 down,
+    /// 2 bytes per tile — the same layout `OWLayer2Tilemap` uses).
+    pub fn dest_tile_xy(&self) -> (u32, u32) {
+        let offset = self.dest_offset as u32;
+        let screen = offset / 0x800;
+        let idx = (offset & 0x7FF) / 2;
+        ((idx % 32) + (screen % 2) * 32, (idx / 32) + (screen / 2) * 32)
+    }
+}
+
+/// The Layer-2 side of overworld events: which background tiles (paths,
+/// bridges, …) each event reveals. Fixed-size tables, read-only for now.
+#[derive(Debug, Clone)]
+pub struct Layer2EventTiles {
+    /// Per-event start indices into `records`, plus one terminator entry.
+    pub event_starts: Vec<u16>,
+    pub records:      Vec<Layer2EventRecord>,
+}
+
+impl Layer2EventTiles {
+    pub fn parse(rom: &Rom) -> anyhow::Result<Self> {
+        let idx_pc = AddrPc::try_from_lorom(OW_L2_EVENT_INDEX_SNES)
+            .map_err(|e| anyhow::anyhow!("L2 event index addr conversion: {e}"))?
+            .0 as usize;
+        let rec_pc = AddrPc::try_from_lorom(OW_L2_EVENT_RECORDS_SNES)
+            .map_err(|e| anyhow::anyhow!("L2 event records addr conversion: {e}"))?
+            .0 as usize;
+        let idx_end = idx_pc + OW_L2_EVENT_INDEX_COUNT * 2;
+        let rec_end = rec_pc + OW_L2_EVENT_RECORD_COUNT * 4;
+        if idx_end > rom.0.len() || rec_end > rom.0.len() {
+            anyhow::bail!("L2 event tables extend past end of ROM");
+        }
+        let event_starts =
+            rom.0[idx_pc..idx_end].chunks_exact(2).map(|w| u16::from_le_bytes([w[0], w[1]])).collect();
+        let records = rom.0[rec_pc..rec_end]
+            .chunks_exact(4)
+            .map(|r| Layer2EventRecord {
+                source_index: u16::from_le_bytes([r[0], r[1]]),
+                dest_offset:  u16::from_le_bytes([r[2], r[3]]),
+            })
+            .collect();
+        Ok(Self { event_starts, records })
+    }
+
+    /// The Layer-2 reveal records event `event` triggers (empty when the
+    /// event only swaps Layer-1 tiles).
+    pub fn records_for_event(&self, event: usize) -> &[Layer2EventRecord] {
+        let (Some(&start), Some(&end)) = (self.event_starts.get(event), self.event_starts.get(event + 1)) else {
+            return &[];
+        };
+        let (start, end) = (start as usize, (end as usize).min(self.records.len()));
+        if start >= end {
+            return &[];
+        }
+        &self.records[start..end]
+    }
+}
+
 /// Overworld "destruction" event data: which tile changes to which other tile
 /// once a given event (numbered 0..[`OW_EVENT_COUNT`]) has been triggered
 /// (typically by beating the level on that tile). Ported from SMWDisX
@@ -393,6 +483,41 @@ mod tests {
         assert_eq!(events.event_for_translevel(1), None);
         assert_eq!(events.event_for_translevel(2), Some(0x03));
         assert_eq!(events.event_for_translevel(0x50), None);
+    }
+
+    #[test]
+    fn l2_event_record_geometry() {
+        let big = Layer2EventRecord { source_index: 0x08FF, dest_offset: 0 };
+        let small = Layer2EventRecord { source_index: 0x0900, dest_offset: 0 };
+        assert_eq!(big.block_size(), 6);
+        assert_eq!(small.block_size(), 2);
+
+        // Screen 0 (top-left): offset 0x42 = row 1, tile 1.
+        assert_eq!(Layer2EventRecord { source_index: 0, dest_offset: 0x042 }.dest_tile_xy(), (1, 1));
+        // Screen 1 (top-right) starts at 0x800.
+        assert_eq!(Layer2EventRecord { source_index: 0, dest_offset: 0x800 }.dest_tile_xy(), (32, 0));
+        // Screen 2 (bottom-left) starts at 0x1000.
+        assert_eq!(Layer2EventRecord { source_index: 0, dest_offset: 0x1000 }.dest_tile_xy(), (0, 32));
+    }
+
+    /// Confirms the L2 event tables parse to the known vanilla bytes. Run
+    /// with `ROM_PATH=... cargo test -p smwe-rom --lib -- --ignored
+    /// l2_event_tables_match_vanilla`.
+    #[test]
+    #[ignore]
+    fn l2_event_tables_match_vanilla() {
+        let rom_path = std::env::var("ROM_PATH").expect("set ROM_PATH");
+        let raw = std::fs::read(rom_path).expect("read ROM");
+        let rom_bytes = if raw.len() % 0x400 == 0x200 { raw[0x200..].to_vec() } else { raw };
+        let tiles = Layer2EventTiles::parse(&Rom(rom_bytes.into())).expect("parse");
+        // First record: source $0900, dest $23CC (DATA_04DD8D in bank_04.asm).
+        assert_eq!(tiles.records[0], Layer2EventRecord { source_index: 0x0900, dest_offset: 0x23CC });
+        // Event 0 reveals nothing; event 1 reveals records 0..0x0D.
+        assert_eq!(tiles.event_starts[0], 0);
+        assert_eq!(tiles.event_starts[1], 0);
+        assert_eq!(tiles.event_starts[2], 0x0D);
+        assert!(tiles.records_for_event(0).is_empty());
+        assert_eq!(tiles.records_for_event(1).len(), 0x0D);
     }
 
     /// Confirms the `DATA_05D608` translevel→event table parses to the known

@@ -31,7 +31,7 @@ use crate::{
     },
     message_boxes::MessageBoxes,
     objects::tilesets::Tilesets,
-    overworld::{level_names::OwLevelNames, OverworldData, OverworldEvents, TranslevelEvents},
+    overworld::{level_names::OwLevelNames, Layer2EventTiles, OverworldData, OverworldEvents, TranslevelEvents},
     snes_utils::{
         addr::AddrSnes,
         rom::{Rom, RomError},
@@ -55,6 +55,7 @@ pub struct SmwRom {
     pub overworld_events:    OverworldEvents,
     pub translevel_events:   TranslevelEvents,
     pub ow_level_names:      OwLevelNames,
+    pub l2_event_tiles:      Layer2EventTiles,
     pub sprite_tweakers:     SpriteTweakers,
     pub message_boxes:       MessageBoxes,
     pub title_credits:       TitleCreditsData,
@@ -123,6 +124,12 @@ impl SmwRom {
             TranslevelEvents { events: vec![overworld::TRANSLEVEL_NO_EVENT; overworld::TRANSLEVEL_EVENTS_COUNT] }
         });
 
+        log::info!("Parsing overworld layer-2 event tiles");
+        let l2_event_tiles = Layer2EventTiles::parse(&disassembly.rom).unwrap_or_else(|e| {
+            log::warn!("Could not parse overworld layer-2 event tiles: {e}");
+            Layer2EventTiles { event_starts: Vec::new(), records: Vec::new() }
+        });
+
         log::info!("Parsing overworld level names");
         let ow_level_names = OwLevelNames::parse(&disassembly.rom).unwrap_or_else(|e| {
             log::warn!("Could not parse overworld level names: {e}");
@@ -173,6 +180,7 @@ impl SmwRom {
             overworld_events,
             translevel_events,
             ow_level_names,
+            l2_event_tiles,
             sprite_tweakers,
             message_boxes,
             title_credits,

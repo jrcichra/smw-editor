@@ -695,10 +695,34 @@ impl UiWorldEditor {
                 let mut changed = false;
                 for (i, active) in self.active_events.iter_mut().enumerate() {
                     let offset = self.rom.overworld_events.tile_offsets.get(i).copied().unwrap_or(0);
-                    if offset == 0 {
+                    let l2_records = self.rom.l2_event_tiles.records_for_event(i);
+                    if offset == 0 && l2_records.is_empty() {
                         continue; // unused event slot
                     }
-                    changed |= ui.checkbox(active, format!("Event {i:3} (tile offset {offset:#06X})")).changed();
+                    let label = if l2_records.is_empty() {
+                        format!("Event {i:3} (tile offset {offset:#06X})")
+                    } else if offset == 0 {
+                        format!("Event {i:3} ({} L2 path tiles)", l2_records.len())
+                    } else {
+                        format!("Event {i:3} (tile offset {offset:#06X}, {} L2)", l2_records.len())
+                    };
+                    let response = ui.checkbox(active, label);
+                    changed |= response.changed();
+                    if !l2_records.is_empty() {
+                        response.on_hover_ui(|ui| {
+                            ui.label("Layer-2 blocks this event reveals (8×8-tile map coords):");
+                            for chunk in l2_records.chunks(4) {
+                                let line: Vec<String> = chunk
+                                    .iter()
+                                    .map(|r| {
+                                        let (x, y) = r.dest_tile_xy();
+                                        format!("({x},{y})×{s}", s = r.block_size())
+                                    })
+                                    .collect();
+                                ui.monospace(line.join("  "));
+                            }
+                        });
+                    }
                 }
                 if changed {
                     self.load_submap();
