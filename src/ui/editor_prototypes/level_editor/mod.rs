@@ -3,6 +3,7 @@ mod central_panel;
 mod editing;
 mod gfx_editor;
 mod message_editor;
+mod mwl;
 
 mod left_panel;
 mod level_renderer;
@@ -307,22 +308,18 @@ impl DockableEditorTool for UiLevelEditor {
             .levels
             .get(level_idx)
             .ok_or_else(|| anyhow::anyhow!("Level {:03X} out of range", self.level_num))?;
-        let vertical = level.secondary_header.vertical_level();
+        // Use the *edited* vertical flag: serialization and the secondary
+        // header must agree on it within a single save, or a toggled
+        // "Vertical Level" checkbox would serialize coordinates in the old
+        // orientation until the second save.
+        let vertical = self.level_properties.is_vertical;
         let header_offset = usize::from(has_smc_header) * 0x200;
 
         // Serialize current editor state.
         let new_l1 = self.layer1.read(|l| l.serialize_layer1_bytes(vertical))?;
         let new_sprites = self.sprites.read(|s| s.serialize_bytes(vertical))?;
 
-        // Reconstruct all 5 primary-header bytes from LevelProperties.
-        let p = &self.level_properties;
-        let new_primary_header: [u8; PRIMARY_HEADER_SIZE] = [
-            (p.palette_bg << 5) | p.level_length,
-            (p.back_area_color << 5) | p.level_mode,
-            ((p.layer3_priority as u8) << 7) | (p.music << 4) | (p.sprite_gfx & 0x0F),
-            (p.timer << 6) | (p.palette_sprite << 3) | p.palette_fg,
-            (p.item_memory << 6) | (p.vertical_scroll << 4) | p.fg_bg_gfx,
-        ];
+        let new_primary_header = self.primary_header_bytes();
 
         // ── Layer 1  (pointer table $05E000, 3-byte LoROM SNES addr each) ──────
         // Block layout on ROM: [5-byte primary header][layer-1 object data]
@@ -493,47 +490,12 @@ impl DockableEditorTool for UiLevelEditor {
         // ── Secondary header byte tables ($05F000/$05F200/$05F400/$05F600) ─────
         // Fully reconstruct all four bytes from level_properties + spawn position.
         {
-            let p = &self.level_properties;
-            let (entrance_screen, local_x, local_y) = if p.is_vertical {
-                let sx = self.mario_spawn_x / 16;
-                let sy = self.mario_spawn_y / 32;
-                let screen = ((sy * 2 + sx) as u8).min(31);
-                let x = (self.mario_spawn_x % 16) as u8;
-                let y = (self.mario_spawn_y % 32) as u8;
-                (screen, x, y)
-            } else {
-                let screen = ((self.mario_spawn_x / 16) as u8).min(31);
-                let x = (self.mario_spawn_x % 16) as u8;
-                let y = self.mario_spawn_y as u8;
-                (screen, x, y)
-            };
-            let entrance_x_half = (local_x / 2).min(7);
-            let entrance_y_half = (local_y / 2).min(15);
-
-            // Byte 0: SSSSSYYY Y  (layer2_scroll[3:0] | entrance_y[3:0])
-            let t0 = AddrPc::try_from_lorom(AddrSnes(0x05F000))?.as_index() + header_offset + level_idx;
-            if let Some(b) = rom_bytes.get_mut(t0) {
-                *b = (p.layer2_scroll << 4) | (entrance_y_half & 0x0F);
-            }
-            // Byte 1: LLAAAXXX  (layer3[1:0] | action[2:0] | entrance_x[2:0])
-            let t1 = AddrPc::try_from_lorom(AddrSnes(0x05F200))?.as_index() + header_offset + level_idx;
-            if let Some(b) = rom_bytes.get_mut(t1) {
-                *b = ((p.layer3 & 0x3) << 6) | ((p.main_entrance_action & 0x7) << 3) | (entrance_x_half & 0x07);
-            }
-            // Byte 2: SSSSFFBB  (midway_screen[3:0] | fg_initial_pos[1:0] | bg_initial_pos[1:0])
-            let t2 = AddrPc::try_from_lorom(AddrSnes(0x05F400))?.as_index() + header_offset + level_idx;
-            if let Some(b) = rom_bytes.get_mut(t2) {
-                *b = ((p.midway_entrance_screen & 0xF) << 4)
-                    | ((p.fg_initial_pos & 0x3) << 2)
-                    | (p.bg_initial_pos & 0x3);
-            }
-            // Byte 3: YUVREEEE  (no_yoshi | unknown_vert | vertical | entrance_screen[4:0])
-            let t3 = AddrPc::try_from_lorom(AddrSnes(0x05F600))?.as_index() + header_offset + level_idx;
-            if let Some(b) = rom_bytes.get_mut(t3) {
-                *b = ((p.no_yoshi_level as u8) << 7)
-                    | ((p.unknown_vertical_pos_level as u8) << 6)
-                    | ((p.is_vertical as u8) << 5)
-                    | (entrance_screen & 0x1F);
+            let secondary = self.secondary_header_bytes();
+            for (byte_i, snes_base) in [0x05F000u32, 0x05F200, 0x05F400, 0x05F600].into_iter().enumerate() {
+                let at = AddrPc::try_from_lorom(AddrSnes(snes_base))?.as_index() + header_offset + level_idx;
+                if let Some(b) = rom_bytes.get_mut(at) {
+                    *b = secondary[byte_i];
+                }
             }
         }
 
@@ -780,39 +742,72 @@ impl UiLevelEditor {
         }
     }
 
-    pub(super) fn load_level(&mut self) {
-        let level_idx = self.level_num as usize;
-        if level_idx >= self.rom.levels.len() {
-            log::warn!("Level {:#X} out of range", self.level_num);
-            return;
-        }
+    /// All 5 primary-header bytes reconstructed from `LevelProperties`.
+    pub(super) fn primary_header_bytes(&self) -> [u8; PRIMARY_HEADER_SIZE] {
+        let p = &self.level_properties;
+        [
+            (p.palette_bg << 5) | p.level_length,
+            (p.back_area_color << 5) | p.level_mode,
+            ((p.layer3_priority as u8) << 7) | (p.music << 4) | (p.sprite_gfx & 0x0F),
+            (p.timer << 6) | (p.palette_sprite << 3) | p.palette_fg,
+            (p.item_memory << 6) | (p.vertical_scroll << 4) | p.fg_bg_gfx,
+        ]
+    }
 
-        let (sprite_layer, is_vertical) = {
-            let level = &self.rom.levels[level_idx];
-            self.level_properties = LevelProperties::from_level(level);
-            let layer1 = EditableObjectLayer::from_level(level);
-            self.layer1 = UndoableData::new(layer1);
-            self.sprites = UndoableData::new(EditableSpriteLayer::from_level(level));
-            match &level.layer2 {
-                Layer2Data::Objects(objects) => {
-                    self.layer2_objects = Some(UndoableData::new(EditableObjectLayer::from_object_layer(
-                        objects,
-                        level.secondary_header.vertical_level(),
-                    )));
-                    self.layer2_background = None;
-                }
-                Layer2Data::Background(bg) => {
-                    self.layer2_objects = None;
-                    self.layer2_background =
-                        Some(UndoableData::new(EditableBackgroundLayer::new(bg.tile_ids().to_vec())));
-                }
-            }
-            (level.sprite_layer.clone(), level.secondary_header.vertical_level())
+    /// All 4 secondary-header bytes ($05F000/$05F200/$05F400/$05F600 lanes)
+    /// reconstructed from `LevelProperties` + the Mario spawn position.
+    pub(super) fn secondary_header_bytes(&self) -> [u8; 4] {
+        let p = &self.level_properties;
+        let (entrance_screen, local_x, local_y) = if p.is_vertical {
+            let sx = self.mario_spawn_x / 16;
+            let sy = self.mario_spawn_y / 32;
+            let screen = ((sy * 2 + sx) as u8).min(31);
+            (screen, (self.mario_spawn_x % 16) as u8, (self.mario_spawn_y % 32) as u8)
+        } else {
+            let screen = ((self.mario_spawn_x / 16) as u8).min(31);
+            (screen, (self.mario_spawn_x % 16) as u8, self.mario_spawn_y as u8)
         };
+        let entrance_x_half = (local_x / 2).min(7);
+        let entrance_y_half = (local_y / 2).min(15);
+        [
+            // Byte 0: SSSSYYYY  (layer2_scroll[3:0] | entrance_y[3:0])
+            (p.layer2_scroll << 4) | (entrance_y_half & 0x0F),
+            // Byte 1: LLAAAXXX  (layer3[1:0] | action[2:0] | entrance_x[2:0])
+            ((p.layer3 & 0x3) << 6) | ((p.main_entrance_action & 0x7) << 3) | (entrance_x_half & 0x07),
+            // Byte 2: SSSSFFBB  (midway_screen[3:0] | fg_initial_pos[1:0] | bg_initial_pos[1:0])
+            ((p.midway_entrance_screen & 0xF) << 4) | ((p.fg_initial_pos & 0x3) << 2) | (p.bg_initial_pos & 0x3),
+            // Byte 3: YUVEEEEE  (no_yoshi | unknown_vert | vertical | entrance_screen[4:0])
+            ((p.no_yoshi_level as u8) << 7)
+                | ((p.unknown_vertical_pos_level as u8) << 6)
+                | ((p.is_vertical as u8) << 5)
+                | (entrance_screen & 0x1F),
+        ]
+    }
+
+    /// Replace all level-editing state and visuals with the given level data
+    /// (which need not come from the ROM — .mwl import passes a freshly
+    /// parsed level here). Emulator-derived visuals (palette, GFX) are
+    /// re-derived from the ROM's copy of this level number.
+    pub(super) fn apply_level_to_editor(&mut self, level: &Level) {
+        let is_vertical = level.secondary_header.vertical_level();
+        self.level_properties = LevelProperties::from_level(level);
+        self.layer1 = UndoableData::new(EditableObjectLayer::from_level(level));
+        self.sprites = UndoableData::new(EditableSpriteLayer::from_level(level));
+        match &level.layer2 {
+            Layer2Data::Objects(objects) => {
+                self.layer2_objects =
+                    Some(UndoableData::new(EditableObjectLayer::from_object_layer(objects, is_vertical)));
+                self.layer2_background = None;
+            }
+            Layer2Data::Background(bg) => {
+                self.layer2_objects = None;
+                self.layer2_background = Some(UndoableData::new(EditableBackgroundLayer::new(bg.tile_ids().to_vec())));
+            }
+        }
+        let sprite_layer = level.sprite_layer.clone();
 
         // Position Mario at the level entrance
-        let level = self.rom.levels[level_idx].clone();
-        self.position_mario_at_entrance(is_vertical, &level);
+        self.position_mario_at_entrance(is_vertical, level);
         self.offset = Vec2::ZERO;
         self.selected_tile = None;
         self.selected_object_indices.clear();
@@ -867,6 +862,17 @@ impl UiLevelEditor {
         // Rebuild the tile picker from the loaded level's tileset.
         self.tile_picker.rebuild(&mut self.cpu);
         self.bg_tile_picker.rebuild(&mut self.cpu);
+    }
+
+    pub(super) fn load_level(&mut self) {
+        let level_idx = self.level_num as usize;
+        if level_idx >= self.rom.levels.len() {
+            log::warn!("Level {:#X} out of range", self.level_num);
+            return;
+        }
+
+        let level = self.rom.levels[level_idx].clone();
+        self.apply_level_to_editor(&level);
 
         // ── Secondary entrance data ──────────────────────────────────────────
         self.secondary_entrance_data = self.rom.secondary_entrances.iter().map(|se| se.bytes()).collect();

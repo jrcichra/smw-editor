@@ -64,16 +64,22 @@ header editor FG/BG-GFX and Sprite-GFX rows show the slot files from
 `OBJECTGFXLIST`/`SPRITEGFXLIST` ($00A92B/$00A8C3, helpers in
 `smwe_rom::graphics`) as jump-buttons into the GFX editor.
 
-### 3. .mwl import/export
+### 3. .mwl import/export — DONE (2026-07-06)
 
-Format spec: https://github.com/kaizoman666/SMW-Data/blob/master/Misc/MWL%20File%20Format.md
-(fetch it; it documents header, per-section offsets — level header, Layer 1,
-Layer 2, sprites, palette, ExAnimation, etc.). Suggested scope for a first
-pass: export/import of header + Layer 1 objects + Layer 2 + sprites for
-vanilla-format levels, refusing files with LM-specific sections we don't
-model yet (better to error clearly than corrupt). Put the codec in
-`smwe-rom` (e.g. `src/mwl.rs`) with round-trip tests against a level
-serialized from the real ROM; wire File-menu items in the level editor.
+Codec `crates/smwe-rom/src/mwl.rs`, editor glue `level_editor/mwl.rs`.
+Spec facts worth keeping: 8 sections of (offset u32, size u32) pointers at
+0x40; Layer-2 section header byte 6 (source-address bank) == $FF marks a
+BG-tilemap level (data = interleaved u16 Map16, vs the ROM's separate
+low/high blocks); sprite extension sizes aren't stored (assume 3
+bytes/sprite for vanilla); LM's 5th secondary-header byte + midway +
+extended bytes are preserved verbatim in `lm_level_info_extra`. Import
+goes through editor state (never straight to ROM), refuses L2-kind
+mismatches, and lists skipped LM-only payloads. Untested against real
+Lunar Magic — if a user has LM handy, verifying an exported .mwl imports
+into LM cleanly (and vice versa) is the remaining validation step.
+Also fixed while in there: saving now uses the *edited* vertical flag
+(toggling "Vertical Level" used to serialize coordinates in the old
+orientation until a second save).
 
 ### 4. Sprite categories — DONE (2026-07-06)
 

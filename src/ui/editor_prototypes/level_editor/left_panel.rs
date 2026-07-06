@@ -249,6 +249,18 @@ impl UiLevelEditor {
             }
         });
         ui.horizontal(|ui| {
+            if ui.button("Export .mwl…").on_hover_text("Save this level as a Lunar Magic .mwl file").clicked() {
+                self.export_mwl();
+            }
+            if ui
+                .button("Import .mwl…")
+                .on_hover_text("Replace this level with a .mwl file's contents (applied on save)")
+                .clicked()
+            {
+                self.import_mwl();
+            }
+        });
+        ui.horizontal(|ui| {
             if ui.button("Title/Credits…").clicked() {
                 self.show_title_credits_editor = true;
             }

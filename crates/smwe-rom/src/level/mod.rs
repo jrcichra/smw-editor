@@ -7,7 +7,7 @@ use thiserror::Error;
 
 pub use self::{
     background::{BackgroundData, BackgroundTileID},
-    headers::{PrimaryHeader, SecondaryHeader, SpriteHeader, PRIMARY_HEADER_SIZE, SPRITE_HEADER_SIZE},
+    headers::{PrimaryHeader, SecondaryHeader, SpriteHeader, PRIMARY_HEADER_SIZE, SECONDARY_HEADER_SIZE, SPRITE_HEADER_SIZE},
     object_layer::ObjectLayer,
     sprite_layer::SpriteLayer,
 };

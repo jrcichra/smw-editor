@@ -7,6 +7,7 @@ pub mod graphics;
 pub mod internal_header;
 pub mod level;
 pub mod message_boxes;
+pub mod mwl;
 pub mod objects;
 pub mod overworld;
 pub mod snes_utils;
