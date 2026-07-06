@@ -103,6 +103,37 @@ fn translevel_to_level_number(translevel: u8) -> u8 {
     if translevel < 0x25 { translevel } else { translevel - 0x24 }
 }
 
+/// Highest level number directly representable through the vanilla translevel
+/// remap (see `translevel_to_level_number`): `0xFF - 0x24`.
+pub const MAX_ASSIGNABLE_LEVEL_NUMBER: u8 = 0xDB;
+
+/// SNES address of the 3-byte operand of `LDA.L $7ED000,X` in `bank_05.asm`
+/// (right before `CODE_05D8A2`), confirmed byte-for-byte against a real ROM
+/// (`BF 00 D0 7E` at PC `$02D89B`). Repointing this operand from
+/// `OWLayer1Translevel` (WRAM, vanilla) to a custom ROM table (same `0x800`-
+/// byte layout as `layer1_tiles`) lets each OW tile's level number be freely
+/// assigned, without inserting any new code — see
+/// `encode_custom_level_number` for why this doesn't need a JSL hijack.
+pub const LEVEL_NUMBER_PATCH_OPERAND_SNES: AddrSnes = AddrSnes(0x05D89C);
+
+/// Encode a desired level number so that, after the vanilla remap this ROM
+/// patch leaves untouched (`translevel_to_level_number`), the tile resolves
+/// to exactly `level_number`. This is why free level-number assignment here
+/// doesn't need new ASM: we only ever change *what data* the existing
+/// instruction reads, not the instruction itself or the remap that follows it.
+///
+/// Returns `None` if `level_number > MAX_ASSIGNABLE_LEVEL_NUMBER` (the remap's
+/// u8 range can't represent it without a deeper ASM change).
+pub fn encode_custom_level_number(level_number: u8) -> Option<u8> {
+    if level_number < 0x25 {
+        Some(level_number)
+    } else if level_number <= MAX_ASSIGNABLE_LEVEL_NUMBER {
+        Some(level_number + 0x24)
+    } else {
+        None
+    }
+}
+
 /// Number of "destruction" events (castles/fortresses/switch palaces changing
 /// tile after being beaten). Confirmed in SMWDisX `bank_04.asm` (the caller of
 /// `CODE_04DA49` loops until `_F == 0x6F`).
@@ -200,6 +231,25 @@ mod tests {
     }
 
     #[test]
+    fn encode_custom_level_number_inverts_the_vanilla_remap_exhaustively() {
+        for level_number in 0..=MAX_ASSIGNABLE_LEVEL_NUMBER {
+            let encoded = encode_custom_level_number(level_number)
+                .unwrap_or_else(|| panic!("{level_number:#04X} should be representable"));
+            assert_eq!(
+                translevel_to_level_number(encoded),
+                level_number,
+                "round-trip failed for level_number={level_number:#04X} (encoded={encoded:#04X})"
+            );
+        }
+    }
+
+    #[test]
+    fn encode_custom_level_number_rejects_out_of_range() {
+        assert_eq!(encode_custom_level_number(0xDC), None);
+        assert_eq!(encode_custom_level_number(0xFF), None);
+    }
+
+    #[test]
     fn translevel_numbers_assigned_in_scan_order() {
         let data = OverworldData { layer1_tiles: tiles_with_level_ids_at(&[5, 70, 130]) };
         assert_eq!(data.translevel_at(5, 0), Some(0));
@@ -279,5 +329,22 @@ mod tests {
         let active = vec![false; 9];
         events.apply(&mut tiles, &active);
         assert_eq!(tiles[0x0469], 0x6E);
+    }
+
+    /// Confirms `LEVEL_NUMBER_PATCH_OPERAND_SNES` resolves to the exact bytes
+    /// of the `LDA.L $7ED000,X` operand, byte-for-byte against a real ROM.
+    /// Run with `ROM_PATH=/path/to/smw.smc cargo test -p smwe-rom --lib --
+    /// --ignored level_number_patch_operand_is_correct`.
+    #[test]
+    #[ignore]
+    fn level_number_patch_operand_is_correct() {
+        let rom_path = std::env::var("ROM_PATH").expect("set ROM_PATH");
+        let raw = std::fs::read(rom_path).expect("read ROM");
+        let rom_bytes = if raw.len() % 0x400 == 0x200 { raw[0x200..].to_vec() } else { raw };
+
+        let opcode_pc = AddrPc::try_from_lorom(LEVEL_NUMBER_PATCH_OPERAND_SNES).unwrap().0 as usize - 1;
+        assert_eq!(rom_bytes[opcode_pc], 0xBF, "expected LDA.L opcode right before the patch operand");
+        let operand = &rom_bytes[opcode_pc + 1..opcode_pc + 4];
+        assert_eq!(operand, &[0x00, 0xD0, 0x7E], "expected the operand to currently point at OWLayer1Translevel ($7ED000)");
     }
 }

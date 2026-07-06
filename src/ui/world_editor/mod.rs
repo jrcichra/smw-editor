@@ -13,6 +13,7 @@ mod editing;
 mod ow_tile_picker;
 
 use std::{
+    collections::HashMap,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
@@ -226,6 +227,15 @@ pub struct UiWorldEditor {
     /// considered active for preview purposes. Defaults to all-on, matching the
     /// previous blanket "activate everything" behavior.
     active_events: Vec<bool>,
+
+    /// Per-tile (index into `layer1_tiles`) level-number overrides. Absent
+    /// entries use the vanilla scan-order-derived level number unchanged.
+    /// Applying these requires patching a single ROM instruction operand to
+    /// read a custom table instead of the WRAM-computed one — see
+    /// `smwe_rom::overworld::LEVEL_NUMBER_PATCH_OPERAND_SNES` for why this
+    /// doesn't need new ASM code, just different data.
+    custom_level_numbers: HashMap<usize, u8>,
+    level_numbers_dirty: bool,
 }
 
 impl UiWorldEditor {
@@ -269,6 +279,8 @@ impl UiWorldEditor {
             has_unsavable_changes: false,
             edit_state,
             active_events: vec![true; smwe_rom::overworld::OW_EVENT_COUNT],
+            custom_level_numbers: HashMap::new(),
+            level_numbers_dirty: false,
         };
         editor.load_submap();
         editor
@@ -364,6 +376,45 @@ impl DockableEditorTool for UiWorldEditor {
             &attr_compressed,
             "OWTilemap",
         )?;
+
+        // ── Custom per-tile level-number assignment ─────────────────────────
+        // Only touches the ROM if the user has actually overridden a level
+        // number: leaving this alone keeps overworld behavior byte-for-byte
+        // vanilla (translevel/scan-order-derived) for hacks that don't use it.
+        //
+        // Known limitation: each save that has overrides allocates a fresh
+        // freespace table rather than reusing/growing a previously-patched
+        // one, so repeated saves with active overrides accumulate small
+        // (0x800-byte) orphaned regions in ROM. Harmless but wasteful; a
+        // follow-up could detect and reuse an already-owned table in place.
+        if !self.custom_level_numbers.is_empty() {
+            let tiles = self.edit_state.read(|s| s.layer1_tiles.clone());
+            let mut table = vec![0u8; tiles.len()];
+            for (idx, slot) in table.iter_mut().enumerate() {
+                if let Some(vanilla_level_num) = smwe_rom::overworld::level_number_for_index(&tiles, idx) {
+                    let effective = self.custom_level_numbers.get(&idx).copied().unwrap_or(vanilla_level_num);
+                    *slot = smwe_rom::overworld::encode_custom_level_number(effective).ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Level number {effective:#04X} at tile index {idx} exceeds the maximum \
+                             assignable value ({:#04X})",
+                            smwe_rom::overworld::MAX_ASSIGNABLE_LEVEL_NUMBER
+                        )
+                    })?;
+                }
+            }
+
+            let table_pc = find_free_space(rom_bytes, table.len(), 0x008000, header_offset).ok_or_else(|| {
+                anyhow::anyhow!("No free space for the custom level-number table ({} bytes)", table.len())
+            })?;
+            rom_bytes[table_pc + header_offset..table_pc + header_offset + table.len()].copy_from_slice(&table);
+
+            let table_snes = AddrSnes::try_from_lorom(AddrPc(table_pc as u32))?;
+            let patch_pc =
+                AddrPc::try_from_lorom(smwe_rom::overworld::LEVEL_NUMBER_PATCH_OPERAND_SNES)?.as_index() + header_offset;
+            let bytes = table_snes.0.to_le_bytes();
+            rom_bytes[patch_pc..patch_pc + 3].copy_from_slice(&bytes[..3]);
+        }
+
         Ok(())
     }
 }
@@ -675,10 +726,39 @@ impl UiWorldEditor {
                     }
                     if let Some(idx) = self.source_l1_index_for_view(x, y) {
                         let tiles = self.edit_state.read(|s| s.layer1_tiles.clone());
-                        if let Some(level_num) = smwe_rom::overworld::level_number_for_index(&tiles, idx) {
+                        if let Some(vanilla_level_num) = smwe_rom::overworld::level_number_for_index(&tiles, idx) {
                             let translevel = smwe_rom::overworld::translevel_for_index(&tiles, idx).unwrap_or(0);
-                            ui.monospace(format!("  Level tile: #{level_num:03X} (translevel {translevel:#04X})"));
-                            ui.small("  order-derived — moving/inserting level tiles elsewhere renumbers this");
+                            ui.monospace(format!(
+                                "  Level tile: #{vanilla_level_num:03X} (translevel {translevel:#04X})"
+                            ));
+                            ui.small(
+                                "  vanilla number is order-derived — moving/inserting level tiles elsewhere \
+                                 renumbers it unless overridden below",
+                            );
+
+                            let current = self.custom_level_numbers.get(&idx).copied().unwrap_or(vanilla_level_num);
+                            let mut new_num = current as i32;
+                            ui.horizontal(|ui| {
+                                ui.label("  Assign level:");
+                                let changed = ui
+                                    .add(
+                                        egui::Slider::new(&mut new_num, 0..=smwe_rom::overworld::MAX_ASSIGNABLE_LEVEL_NUMBER as i32)
+                                            .hexadecimal(2, false, false),
+                                    )
+                                    .changed();
+                                if changed {
+                                    if new_num as u8 == vanilla_level_num {
+                                        self.custom_level_numbers.remove(&idx);
+                                    } else {
+                                        self.custom_level_numbers.insert(idx, new_num as u8);
+                                    }
+                                    self.level_numbers_dirty = true;
+                                    self.has_edits = true;
+                                }
+                            });
+                            if self.custom_level_numbers.contains_key(&idx) {
+                                ui.colored_label(egui::Color32::from_rgb(220, 160, 60), "  Overridden — needs the level-number patch on save");
+                            }
                         }
                     }
                 } else {
