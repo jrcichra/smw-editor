@@ -242,6 +242,9 @@ impl UiLevelEditor {
             if ui.button("GFX Editor…").clicked() {
                 self.show_gfx_editor = true;
             }
+            if ui.button("Messages…").clicked() {
+                self.show_message_editor = true;
+            }
         });
 
         ui.separator();

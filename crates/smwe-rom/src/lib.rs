@@ -5,6 +5,7 @@ pub mod disassembler;
 pub mod graphics;
 pub mod internal_header;
 pub mod level;
+pub mod message_boxes;
 pub mod objects;
 pub mod overworld;
 pub mod snes_utils;
@@ -23,6 +24,7 @@ use crate::{
         secondary_entrance::{SecondaryEntrance, SECONDARY_ENTRANCE_TABLE},
         Level, LEVEL_COUNT,
     },
+    message_boxes::MessageBoxes,
     objects::tilesets::Tilesets,
     overworld::{OverworldData, OverworldEvents},
     sprite_tweakers::SpriteTweakers,
@@ -46,6 +48,7 @@ pub struct SmwRom {
     pub overworld: OverworldData,
     pub overworld_events: OverworldEvents,
     pub sprite_tweakers: SpriteTweakers,
+    pub message_boxes: MessageBoxes,
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -119,6 +122,12 @@ impl SmwRom {
             }
         });
 
+        log::info!("Parsing message box text");
+        let message_boxes = MessageBoxes::parse(&disassembly.rom).unwrap_or_else(|e| {
+            log::warn!("Could not parse message box text: {e}");
+            MessageBoxes { messages: vec![Vec::new(); message_boxes::MESSAGE_COUNT] }
+        });
+
         Ok(Self {
             disassembly,
             internal_header,
@@ -129,6 +138,7 @@ impl SmwRom {
             overworld,
             overworld_events,
             sprite_tweakers,
+            message_boxes,
         })
     }
 

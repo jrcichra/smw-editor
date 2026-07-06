@@ -22,7 +22,7 @@ X"), and player (Mario/Yoshi) graphics customization.
 | Feature | Status | Notes |
 |---|---|---|
 | Object placement/move/resize (layer 1) | ✅ | `level_editor/object_layer.rs`, `editing.rs` |
-| Sprite placement | ✅ | `sprite_layer.rs`, `sprite_catalog.rs` (names only, no behavior editing) |
+| Sprite placement | ✅ | `sprite_layer.rs`, `sprite_catalog.rs`; global per-ID behavior editable via `sprite_tweaker_editor.rs` (see Sprites section) |
 | Primary/secondary header editing | ✅ | `properties.rs`, `left_panel.rs` — raw byte fields |
 | Screen exits / secondary entrances | ✅ | `secondary_entrance_editor.rs` |
 | Map16 tile picker & editor | ✅ | `tile_picker.rs`, `map16_editor.rs` |
@@ -30,7 +30,7 @@ X"), and player (Mario/Yoshi) graphics customization.
 | Layer 2/3 background editing | 🟡 | `background_layer.rs` minimal (~510 bytes); L2 header copied verbatim, not user-editable (`level_editor/mod.rs:342`) |
 | Music selection | 🟡 | Raw nibble slider only, no track-name mapping |
 | Custom level names (overworld name table) | ⛔ | Not found |
-| Message box / dialog text editor | ⛔ | Sprite catalog has a "Message Box" sprite entry but no text editor |
+| Message box / dialog text editor | 🟡 | `crates/smwe-rom/src/message_boxes.rs` + `level_editor/message_editor.rs` — edits all 22 vanilla messages as raw font-tile-index bytes (0x00-0x7F), verified against real ROM (exact byte boundaries derived from `symbols/SMW_U.sym` label addresses, cross-checked: total size matches the ROM's already-100%-utilized 2854-byte budget exactly). No WYSIWYG readable-text preview yet — the message font's GFX source (drawn via Layer 3 "dynamic stripe image") hasn't been identified, so bytes are edited as raw tile indices, not typed letters |
 | Import/export level as `.mwl` | ⛔ | Not found |
 | Move/resize via drag handles (LM-style) | ⛔ | Object editing exists but unclear if drag-resize UX matches LM |
 
@@ -124,10 +124,10 @@ X"), and player (Mario/Yoshi) graphics customization.
 
 ## Biggest gaps to close for parity (suggested priority)
 
-1. **Message box / dialog text editor** — sprite exists in the catalog but is inert. Now the largest remaining gap with zero progress.
+1. **Message box font/WYSIWYG preview** — raw tile-index byte editing works and is verified against real ROM data; still needed: identify the message font's GFX source (Layer 3 "dynamic stripe image") so users can see/type readable text instead of raw tile numbers.
 2. **Overworld event *ownership* editing** — which level/action triggers which event (`$05D608`?) is still unmapped; reveal-tile preview toggling itself now works.
 3. **Overworld level-number free reassignment (ASM hijack)** — read-only vanilla-accurate display now works; matching LM's free-assignment UX requires ASM code injection, a distinct and larger undertaking.
 4. **Custom sprite insertion / cluster-extended-generator sprite category editing** — tweaker byte editing now covers the ~0xC9 normal sprite IDs; the other categories still have no dedicated support.
 5. **ExGFX colored preview + per-level slot browser cross-linking** — the core import/export loop works now; this is the remaining UX polish.
-6. **General freespace/repoint manager** — GFX/level/sprite/overworld-L2 writes each implement their own repoint logic now; still not unified into one shared utility.
+6. **General freespace/repoint manager** — GFX/level/sprite/overworld-L2/message-box writes each implement their own repoint logic now; still not unified into one shared utility.
 7. **Block editor** — already tracked in README as next planned work.

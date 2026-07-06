@@ -2,6 +2,8 @@ mod background_layer;
 mod central_panel;
 mod editing;
 mod gfx_editor;
+mod message_editor;
+
 mod left_panel;
 mod level_renderer;
 mod map16_editor;
@@ -138,6 +140,12 @@ pub struct UiLevelEditor {
     gfx_edits: HashMap<usize, Vec<u8>>,
     show_gfx_editor: bool,
     gfx_editor_file_num: usize,
+
+    // Message box (dialog text) editor: global, raw tile-index bytes.
+    message_boxes: smwe_rom::message_boxes::MessageBoxes,
+    message_boxes_dirty: bool,
+    show_message_editor: bool,
+    message_editor_selected: usize,
 }
 
 impl UiLevelEditor {
@@ -151,6 +159,7 @@ impl UiLevelEditor {
         emu_rom.load_symbols(include_str!("../../../../symbols/SMW_U.sym"));
         let cpu = smwe_emu::Cpu::new(CheckedMem::new(Arc::new(emu_rom)));
         let sprite_tweakers = rom.sprite_tweakers.clone();
+        let message_boxes = rom.message_boxes.clone();
 
         let mut editor = Self {
             gl,
@@ -220,6 +229,10 @@ impl UiLevelEditor {
             gfx_edits: HashMap::new(),
             show_gfx_editor: false,
             gfx_editor_file_num: 0,
+            message_boxes,
+            message_boxes_dirty: false,
+            show_message_editor: false,
+            message_editor_selected: 0,
         };
         editor.load_level();
         Ok(editor)
@@ -237,6 +250,7 @@ impl DockableEditorTool for UiLevelEditor {
         self.map16_editor_window(&ctx);
         self.sprite_tweaker_editor_window(&ctx);
         self.gfx_editor_window(&ctx);
+        self.message_editor_window(&ctx);
         SidePanel::left("level_editor.left_panel").resizable(false).show_inside(ui, |ui| self.left_panel(ui));
         CentralPanel::default().frame(Frame::NONE.inner_margin(0.)).show_inside(ui, |ui| self.central_panel(ui));
     }
@@ -564,6 +578,26 @@ impl DockableEditorTool for UiLevelEditor {
             rom_bytes[dest..dest + compressed.len()].copy_from_slice(&compressed);
             if dest == old_pc && compressed.len() < old_len {
                 rom_bytes[dest + compressed.len()..dest + old_len].fill(0xFF);
+            }
+        }
+
+        // ── Message box text (global, $05A5D9 blob + $05A5A7 pointer table) ──
+        if self.message_boxes_dirty {
+            let (blob, pointers) = self.message_boxes.to_blob_and_pointers()?;
+
+            let blob_pc = AddrPc::try_from_lorom(smwe_rom::message_boxes::MESSAGE_BOXES_SNES)?.as_index() + header_offset;
+            rom_bytes[blob_pc..blob_pc + blob.len()].copy_from_slice(&blob);
+            // Zero-fill any shrunk tail so it doesn't look like stray data.
+            let max_end = blob_pc + smwe_rom::message_boxes::MESSAGE_BOXES_MAX_SIZE;
+            if blob_pc + blob.len() < max_end {
+                rom_bytes[blob_pc + blob.len()..max_end].fill(0xFF);
+            }
+
+            let ptr_pc = AddrPc::try_from_lorom(smwe_rom::message_boxes::MESSAGE_POINTER_TABLE_SNES)?.as_index() + header_offset;
+            for (i, &offset) in pointers.iter().enumerate() {
+                let [lo, hi] = offset.to_le_bytes();
+                rom_bytes[ptr_pc + i * 2] = lo;
+                rom_bytes[ptr_pc + i * 2 + 1] = hi;
             }
         }
 
