@@ -44,6 +44,7 @@ use self::{
     tile_picker::{BgTilePicker, TilePicker},
 };
 use crate::{
+    rom_freespace::{find_free_space, find_free_space_in},
     ui::{editing_mode::EditingMode, tool::DockableEditorTool},
     undo::UndoableData,
 };
@@ -657,50 +658,6 @@ impl DockableEditorTool for UiLevelEditor {
     }
 }
 
-// ── ROM save helpers ────────────────────────────────────────────────────────
-
-/// Scan `rom_bytes` for `needed` consecutive `0xFF` bytes, starting at
-/// `pc_start` (PC address, *without* the SMC header offset), anywhere up to
-/// the end of the ROM.  Returns the PC address of the first byte of the run,
-/// or `None` if no suitable region is found.
-///
-/// LoROM banks are 32 KB each; a run may not cross a bank boundary because the
-/// SNES mapper cannot address such a block as a single contiguous region.
-fn find_free_space(rom_bytes: &[u8], needed: usize, pc_start: usize, header_offset: usize) -> Option<usize> {
-    let pc_end = rom_bytes.len().saturating_sub(header_offset);
-    find_free_space_in(rom_bytes, needed, pc_start, pc_end, header_offset)
-}
-
-/// Like `find_free_space` but restricted to the PC range `[pc_start, pc_end)`.
-fn find_free_space_in(
-    rom_bytes: &[u8], needed: usize, pc_start: usize, pc_end: usize, header_offset: usize,
-) -> Option<usize> {
-    const BANK: usize = 0x8000;
-    let mut run_start: Option<usize> = None;
-    let mut run_len = 0usize;
-    for pc in pc_start..pc_end {
-        // Never span a LoROM bank boundary.
-        if pc % BANK == 0 && pc != pc_start {
-            run_start = None;
-            run_len = 0;
-        }
-        let file = pc + header_offset;
-        if file >= rom_bytes.len() {
-            break;
-        }
-        if rom_bytes[file] == 0xFF {
-            run_start.get_or_insert(pc);
-            run_len += 1;
-            if run_len >= needed {
-                return run_start;
-            }
-        } else {
-            run_start = None;
-            run_len = 0;
-        }
-    }
-    None
-}
 
 fn read_u16(rom_bytes: &[u8], file_off: usize) -> Option<u16> {
     let b = rom_bytes.get(file_off..file_off + 2)?;

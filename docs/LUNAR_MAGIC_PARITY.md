@@ -91,7 +91,7 @@ X"), and player (Mario/Yoshi) graphics customization.
 | BPS/IPS patch libraries | ✅ (library only) | `smwe-bps`, `smwe-ips` crates exist |
 | ASM insertion tool / hijack manager | ⛔ | No user-facing ASM editor |
 | 65816 disassembler | ✅ (library only) | `crates/smwe-rom/src/disassembler`, `crates/wdc65816` — not exposed as a user-facing ASM editor |
-| ROM expansion (expand to 3/4MB, freespace tracking) | 🟡 | `find_free_space`/`find_free_space_in` exist and are used for level layer1/layer2/sprite data (`level_editor/mod.rs`) *and* overworld L2 (`world_editor/mod.rs`) — corrected from an earlier pass that said overworld-only. Still per-feature bank-scoped search, not a general expand-ROM/global-freespace-map tool like LM's |
+| ROM expansion (expand to 3/4MB, freespace tracking) | 🟡 | `src/rom_freespace.rs::find_free_space`/`find_free_space_in` (unified, tested) used by level layer1/layer2/sprite data, GFX files, message boxes, and overworld L2. Still a bank-scoped free-space *scanner*, not a general expand-ROM/global-freespace-map tool like LM's (no way to grow the ROM itself) |
 | Title screen editor | ⛔ | Not found |
 | Credits editor | ⛔ | Not found |
 
@@ -101,7 +101,7 @@ X"), and player (Mario/Yoshi) graphics customization.
 |---|---|---|
 | Save to ROM | ✅ | `src/ui/mod.rs::save_rom`/`save_rom_as`/`write_rom_to_path` |
 | SMC header detection on save | ✅ | `write_rom_to_path` |
-| Repointing / freespace allocation | 🟡 | Implemented per-feature (level L1/L2/sprite data, overworld L2), each with its own bank-scoped search — not a general/global freespace manager |
+| Repointing / freespace allocation | 🟡 | Free-space *scanning* is now unified in `src/rom_freespace.rs` (with tests), used by level L1/L2/sprite data, GFX files, message boxes, and overworld L2 — previously duplicated verbatim in two places. Writing the new pointer bytes themselves is still feature-specific (different pointer table layouts per feature: 3-byte SNES pointers, GFX's 3-lookup-table split, message boxes' 25-entry u16 table, etc.), which is inherent to the ROM format rather than something to further unify |
 
 ## Misc Tools
 
@@ -129,5 +129,5 @@ X"), and player (Mario/Yoshi) graphics customization.
 3. **Overworld level-number free reassignment (ASM hijack)** — read-only vanilla-accurate display now works; matching LM's free-assignment UX requires ASM code injection, a distinct and larger undertaking.
 4. **Custom sprite insertion / cluster-extended-generator sprite category editing** — tweaker byte editing now covers the ~0xC9 normal sprite IDs; the other categories still have no dedicated support.
 5. **ExGFX colored preview + per-level slot browser cross-linking** — the core import/export loop works now; this is the remaining UX polish.
-6. **General freespace/repoint manager** — GFX/level/sprite/overworld-L2/message-box writes each implement their own repoint logic now; still not unified into one shared utility.
+6. **ROM expansion** — free-space *scanning* is now unified (`src/rom_freespace.rs`), but there's still no way to grow the ROM itself (LM's "expand to 3/4MB") for when a hack runs out of space entirely.
 7. **Block editor** — already tracked in README as next planned work.

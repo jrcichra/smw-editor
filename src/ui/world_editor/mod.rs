@@ -35,6 +35,7 @@ use smwe_rom::{
 };
 
 use crate::{
+    rom_freespace::find_free_space,
     ui::{editing_mode::EditingMode, style::toggle_button, tool::DockableEditorTool},
     undo::{Undo, UndoableData},
 };
@@ -1002,34 +1003,6 @@ fn patch_snes_pointer(rom_bytes: &mut [u8], old_snes: u32, new_snes: u32, label:
         }
     }
     anyhow::bail!("{label} could not find pointer to SNES ${old_snes:06X} for repointing")
-}
-
-fn find_free_space(rom_bytes: &[u8], needed: usize, pc_start: usize, header_offset: usize) -> Option<usize> {
-    const BANK: usize = 0x8000;
-    let pc_end = rom_bytes.len().saturating_sub(header_offset);
-    let mut run_start: Option<usize> = None;
-    let mut run_len = 0usize;
-    for pc in pc_start..pc_end {
-        if pc % BANK == 0 && pc != pc_start {
-            run_start = None;
-            run_len = 0;
-        }
-        let file = pc + header_offset;
-        if file >= rom_bytes.len() {
-            break;
-        }
-        if rom_bytes[file] == 0xFF {
-            run_start.get_or_insert(pc);
-            run_len += 1;
-            if run_len >= needed {
-                return run_start;
-            }
-        } else {
-            run_start = None;
-            run_len = 0;
-        }
-    }
-    None
 }
 
 fn ow_l1_addr(col: u32, row: u32) -> usize {
