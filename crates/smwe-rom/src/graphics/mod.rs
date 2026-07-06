@@ -23,6 +23,33 @@ pub mod palette;
 
 // -------------------------------------------------------------------------------------------------
 
+/// `SPRITEGFXLIST` ($00A8C3, bank_00.asm `UploadSpriteGFX`): 4 GFX file
+/// numbers per sprite tileset, uploaded to VRAM $6000/$6800/$7000/$7800 in
+/// table order — i.e. slots SP1..SP4 in Lunar Magic's naming.
+pub const SPRITE_GFX_LIST_SNES: AddrSnes = AddrSnes(0x00A8C3);
+/// `OBJECTGFXLIST` ($00A92B): 4 GFX file numbers per FG/BG tileset, uploaded
+/// to VRAM $0000/$0800/$1000/$1800 — slots FG1/FG2/BG1/FG3 in LM's naming.
+pub const OBJECT_GFX_LIST_SNES: AddrSnes = AddrSnes(0x00A92B);
+
+/// The GFX file numbers the given sprite-GFX header setting loads into slots
+/// SP1..SP4, read from the ROM's `SPRITEGFXLIST` table.
+pub fn sprite_gfx_files_for_tileset(rom: &crate::snes_utils::rom::Rom, tileset: u8) -> Option<[u8; 4]> {
+    gfx_list_row(rom, SPRITE_GFX_LIST_SNES, tileset)
+}
+
+/// The GFX file numbers the given FG/BG-GFX header setting loads into slots
+/// FG1/FG2/BG1/FG3, read from the ROM's `OBJECTGFXLIST` table.
+pub fn object_gfx_files_for_tileset(rom: &crate::snes_utils::rom::Rom, tileset: u8) -> Option<[u8; 4]> {
+    gfx_list_row(rom, OBJECT_GFX_LIST_SNES, tileset)
+}
+
+fn gfx_list_row(rom: &crate::snes_utils::rom::Rom, table: AddrSnes, tileset: u8) -> Option<[u8; 4]> {
+    let pc = crate::snes_utils::addr::AddrPc::try_from_lorom(table).ok()?.0 as usize + tileset as usize * 4;
+    rom.0.get(pc..pc + 4).map(|row| [row[0], row[1], row[2], row[3]])
+}
+
+// -------------------------------------------------------------------------------------------------
+
 #[derive(Debug, Error)]
 #[error("Cannot get GFX tile at WRAM address ${0:X}")]
 pub struct TileFromWramError(AddrSnes);

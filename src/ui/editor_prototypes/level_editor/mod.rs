@@ -144,6 +144,14 @@ pub struct UiLevelEditor {
     gfx_edits:           HashMap<usize, Vec<u8>>,
     show_gfx_editor:     bool,
     gfx_editor_file_num: usize,
+    /// CGRAM palette row used to colorize the GFX editor preview.
+    gfx_editor_palette_row: u8,
+    gfx_preview_tex:        Option<egui::TextureHandle>,
+    /// `(file_num, palette_row, gfx_edits_generation)` the cached preview
+    /// texture was rendered for.
+    gfx_preview_key:        Option<(usize, u8, u64)>,
+    /// Bumped on every import so the preview cache invalidates.
+    gfx_edits_generation:   u64,
 
     // Message box (dialog text) editor: global, raw tile-index bytes.
     message_boxes:           smwe_rom::message_boxes::MessageBoxes,
@@ -244,6 +252,10 @@ impl UiLevelEditor {
             gfx_edits: HashMap::new(),
             show_gfx_editor: false,
             gfx_editor_file_num: 0,
+            gfx_editor_palette_row: 0,
+            gfx_preview_tex: None,
+            gfx_preview_key: None,
+            gfx_edits_generation: 0,
             message_boxes,
             message_boxes_dirty: false,
             show_message_editor: false,

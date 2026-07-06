@@ -543,6 +543,7 @@ impl UiLevelEditor {
             let mut rebuild_tiles = false;
             let mut refresh_sprites = false;
             let mut changed = false;
+            let mut open_gfx_editor_at = None;
 
             ui.strong("Primary Header");
             egui::Grid::new("primary_header_grid").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
@@ -594,6 +595,26 @@ impl UiLevelEditor {
                 }
                 ui.end_row();
 
+                // Which GFX files that setting loads (OBJECTGFXLIST row);
+                // clicking one jumps to it in the GFX editor.
+                if let Some(files) =
+                    smwe_rom::graphics::object_gfx_files_for_tileset(&self.rom.disassembly.rom, p.fg_bg_gfx)
+                {
+                    ui.label("");
+                    ui.horizontal(|ui| {
+                        for (slot, file) in ["FG1", "FG2", "BG1", "FG3"].iter().zip(files) {
+                            if ui
+                                .small_button(format!("{slot} {file:02X}"))
+                                .on_hover_text(format!("Open GFX file {file:02X} ({slot} slot) in the GFX editor"))
+                                .clicked()
+                            {
+                                open_gfx_editor_at = Some(file as usize);
+                            }
+                        }
+                    });
+                    ui.end_row();
+                }
+
                 ui.label("Sprite GFX:");
                 {
                     let mut v = p.sprite_gfx as i32;
@@ -604,6 +625,25 @@ impl UiLevelEditor {
                     }
                 }
                 ui.end_row();
+
+                // SPRITEGFXLIST row for the sprite-GFX setting (slots SP1-SP4).
+                if let Some(files) =
+                    smwe_rom::graphics::sprite_gfx_files_for_tileset(&self.rom.disassembly.rom, p.sprite_gfx)
+                {
+                    ui.label("");
+                    ui.horizontal(|ui| {
+                        for (slot, file) in ["SP1", "SP2", "SP3", "SP4"].iter().zip(files) {
+                            if ui
+                                .small_button(format!("{slot} {file:02X}"))
+                                .on_hover_text(format!("Open GFX file {file:02X} ({slot} slot) in the GFX editor"))
+                                .clicked()
+                            {
+                                open_gfx_editor_at = Some(file as usize);
+                            }
+                        }
+                    });
+                    ui.end_row();
+                }
 
                 ui.label("Music:");
                 {
@@ -687,6 +727,10 @@ impl UiLevelEditor {
             }
             if refresh_sprites {
                 self.refresh_sprite_gfx();
+            }
+            if let Some(file_num) = open_gfx_editor_at {
+                self.gfx_editor_file_num = file_num;
+                self.show_gfx_editor = true;
             }
         });
         self.show_level_header = open;

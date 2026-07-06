@@ -57,16 +57,12 @@ unverified, unmapped). Rebuild uses dedupe + substring sharing (vanilla needs
 441/460 bytes). Real-ROM tests: `vanilla_level_names_decode_correctly`,
 `vanilla_level_names_round_trip` (run with `ROM_PATH=... --ignored`).
 
-### 2. ExGFX colored preview + per-level GFX slot cross-link
+### 2. ExGFX colored preview + per-level GFX slot cross-link — DONE (2026-07-06)
 
-Pure UX, no research risk. `level_editor/gfx_editor.rs` currently
-exports/imports grayscale index PNGs (deliberate, lossless). Add: (a) a
-palette-aware colored preview of the selected GFX file (pick a palette row
-from CGRAM after level load — `render_sub_tile` in `tile_picker.rs` shows
-how to decode+colorize); (b) buttons in `properties.rs`/`left_panel.rs` next
-to the FG/BG GFX and Sprite GFX nibbles that open the GFX editor at the
-slots those nibbles select (slot→file mapping comes from the level's
-tileset tables already parsed in `smwe-rom`).
+GFX editor shows a CGRAM-row-colorized preview (reflects pending imports);
+header editor FG/BG-GFX and Sprite-GFX rows show the slot files from
+`OBJECTGFXLIST`/`SPRITEGFXLIST` ($00A92B/$00A8C3, helpers in
+`smwe_rom::graphics`) as jump-buttons into the GFX editor.
 
 ### 3. .mwl import/export
 

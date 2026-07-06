@@ -52,9 +52,52 @@ impl UiLevelEditor {
                         self.import_gfx_file(file_num);
                     }
                 });
+
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label("Preview palette row:");
+                    let mut row = self.gfx_editor_palette_row as i32;
+                    if ui.add(Slider::new(&mut row, 0..=15).hexadecimal(1, false, false)).changed() {
+                        self.gfx_editor_palette_row = row as u8;
+                    }
+                });
+                ui.small("Colors come from the loaded level's CGRAM; pick the row a tile is drawn with in-game.");
+                self.colored_gfx_preview(ui, file_num);
             },
         );
         self.show_gfx_editor = open;
+    }
+
+    /// Palette-colorized preview of the selected GFX file (reflects pending
+    /// imports). Purely visual — export/import stay index-grayscale.
+    fn colored_gfx_preview(&mut self, ui: &mut egui::Ui, file_num: usize) {
+        let key = (file_num, self.gfx_editor_palette_row, self.gfx_edits_generation);
+        if self.gfx_preview_key != Some(key) {
+            let format = gfx_file::tile_format_of(file_num);
+            let pending;
+            let tiles: &[Tile] = match self.gfx_edits.get(&file_num) {
+                Some(raw_bytes) => {
+                    pending = raw_bytes_to_tiles(raw_bytes, format);
+                    &pending
+                }
+                None => match self.rom.gfx.files.get(file_num) {
+                    Some(file) => &file.tiles,
+                    None => &[],
+                },
+            };
+            let image = colorize_tiles(tiles, &self.cpu.mem.cgram, self.gfx_editor_palette_row);
+            self.gfx_preview_tex =
+                image.map(|img| ui.ctx().load_texture("gfx_editor_preview", img, egui::TextureOptions::NEAREST));
+            self.gfx_preview_key = Some(key);
+        }
+        if let Some(tex) = &self.gfx_preview_tex {
+            let size = tex.size_vec2() * 2.0;
+            egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                ui.image((tex.id(), size));
+            });
+        } else {
+            ui.small("(empty file)");
+        }
     }
 
     fn export_gfx_file(&mut self, file_num: usize) {
@@ -101,8 +144,65 @@ impl UiLevelEditor {
 
         let raw_bytes = GfxFile { tile_format: format, tiles }.to_raw_bytes();
         self.gfx_edits.insert(file_num, raw_bytes);
+        self.gfx_edits_generation += 1;
         self.has_edits = true;
     }
+}
+
+/// Parse raw (uncompressed) GFX bytes back into tiles for previewing pending
+/// imports. Trailing bytes that don't fill a whole tile are ignored.
+fn raw_bytes_to_tiles(bytes: &[u8], format: gfx_file::TileFormat) -> Vec<Tile> {
+    use gfx_file::TileFormat::*;
+    let parse = match format {
+        Tile2bpp => Tile::from_2bpp,
+        Tile3bpp => Tile::from_3bpp,
+        Tile4bpp => Tile::from_4bpp,
+        Tile8bpp => Tile::from_8bpp,
+        Tile3bppMode7 => Tile::from_3bpp_mode7,
+    };
+    bytes.chunks_exact(tile_byte_size(format)).filter_map(|chunk| parse(chunk).ok().map(|(_, tile)| tile)).collect()
+}
+
+/// Render tiles as an RGBA sheet colorized with one CGRAM palette row
+/// (`GFX_IMAGE_COLS` tiles per row). Color index 0 renders as a dark
+/// checkerboard to read as "transparent".
+fn colorize_tiles(tiles: &[Tile], cgram: &[u8], palette_row: u8) -> Option<egui::ColorImage> {
+    if tiles.is_empty() {
+        return None;
+    }
+    let rows = tiles.len().div_ceil(GFX_IMAGE_COLS);
+    let (w, h) = (GFX_IMAGE_COLS * 8, rows * 8);
+    let mut img = egui::ColorImage::new([w, h], egui::Color32::TRANSPARENT);
+    for (i, tile) in tiles.iter().enumerate() {
+        let (tx, ty) = ((i % GFX_IMAGE_COLS) * 8, (i / GFX_IMAGE_COLS) * 8);
+        for py in 0..8usize {
+            for px in 0..8usize {
+                let idx = tile.color_indices[py * 8 + px] as usize;
+                let color = if idx == 0 {
+                    let dark = ((tx + px) / 4 + (ty + py) / 4) % 2 == 0;
+                    if dark {
+                        egui::Color32::from_gray(28)
+                    } else {
+                        egui::Color32::from_gray(38)
+                    }
+                } else {
+                    let off = (palette_row as usize * 16 + idx) * 2;
+                    if off + 1 >= cgram.len() {
+                        egui::Color32::BLACK
+                    } else {
+                        let rgb = cgram[off] as u16 | ((cgram[off + 1] as u16) << 8);
+                        egui::Color32::from_rgb(
+                            ((rgb & 0x1F) << 3) as u8,
+                            (((rgb >> 5) & 0x1F) << 3) as u8,
+                            (((rgb >> 10) & 0x1F) << 3) as u8,
+                        )
+                    }
+                };
+                img.pixels[(ty + py) * w + tx + px] = color;
+            }
+        }
+    }
+    Some(img)
 }
 
 fn tile_byte_size(format: gfx_file::TileFormat) -> usize {
