@@ -10,6 +10,7 @@ mod properties;
 mod secondary_entrance_editor;
 mod sprite_catalog;
 mod sprite_layer;
+mod sprite_tweaker_editor;
 mod tile_picker;
 
 use std::{
@@ -122,6 +123,13 @@ pub struct UiLevelEditor {
     map16_edits: HashMap<u16, [u16; 4]>,
     map16_block_ptrs: Vec<u32>, // SNES address of each block's data (512 entries)
     selected_map16_block_for_edit: Option<u16>,
+
+    // Sprite tweaker byte editor (global, per-sprite-ID behavior; shared across
+    // every placement of that sprite, matching Lunar Magic's Sprite Header Editor)
+    sprite_tweakers: smwe_rom::sprite_tweakers::SpriteTweakers,
+    sprite_tweakers_dirty: bool,
+    show_sprite_tweaker_editor: bool,
+    tweaker_editor_sprite_id: u8,
 }
 
 impl UiLevelEditor {
@@ -134,6 +142,7 @@ impl UiLevelEditor {
         let mut emu_rom = EmuRom::new(rom_bytes);
         emu_rom.load_symbols(include_str!("../../../../symbols/SMW_U.sym"));
         let cpu = smwe_emu::Cpu::new(CheckedMem::new(Arc::new(emu_rom)));
+        let sprite_tweakers = rom.sprite_tweakers.clone();
 
         let mut editor = Self {
             gl,
@@ -196,6 +205,10 @@ impl UiLevelEditor {
             map16_edits: HashMap::new(),
             map16_block_ptrs: Vec::new(),
             selected_map16_block_for_edit: None,
+            sprite_tweakers,
+            sprite_tweakers_dirty: false,
+            show_sprite_tweaker_editor: false,
+            tweaker_editor_sprite_id: 0,
         };
         editor.load_level();
         Ok(editor)
@@ -211,6 +224,7 @@ impl DockableEditorTool for UiLevelEditor {
         self.secondary_entrance_editor_window(&ctx);
         self.palette_editor_window(&ctx);
         self.map16_editor_window(&ctx);
+        self.sprite_tweaker_editor_window(&ctx);
         SidePanel::left("level_editor.left_panel").resizable(false).show_inside(ui, |ui| self.left_panel(ui));
         CentralPanel::default().frame(Frame::NONE.inner_margin(0.)).show_inside(ui, |ui| self.central_panel(ui));
     }
@@ -457,6 +471,26 @@ impl DockableEditorTool for UiLevelEditor {
                 for (idx, bytes) in self.secondary_entrance_data.iter().enumerate() {
                     if let Some(b) = rom_bytes.get_mut(pc_base + idx) {
                         *b = bytes[byte_i];
+                    }
+                }
+            }
+        }
+
+        // ── Sprite tweaker bytes (global, $07F26C/$07F335/$07F3FE/$07F4C7/$07F590/$07F659) ──
+        if self.sprite_tweakers_dirty {
+            let tables = [
+                (smwe_rom::sprite_tweakers::SPRITE_TWEAKER_A_SNES, &self.sprite_tweakers.tweaker_a),
+                (smwe_rom::sprite_tweakers::SPRITE_TWEAKER_B_SNES, &self.sprite_tweakers.tweaker_b),
+                (smwe_rom::sprite_tweakers::SPRITE_TWEAKER_C_SNES, &self.sprite_tweakers.tweaker_c),
+                (smwe_rom::sprite_tweakers::SPRITE_TWEAKER_D_SNES, &self.sprite_tweakers.tweaker_d),
+                (smwe_rom::sprite_tweakers::SPRITE_TWEAKER_E_SNES, &self.sprite_tweakers.tweaker_e),
+                (smwe_rom::sprite_tweakers::SPRITE_TWEAKER_F_SNES, &self.sprite_tweakers.tweaker_f),
+            ];
+            for (snes_addr, table) in tables {
+                let pc_base = AddrPc::try_from_lorom(snes_addr)?.as_index() + header_offset;
+                for (idx, &byte) in table.iter().enumerate() {
+                    if let Some(b) = rom_bytes.get_mut(pc_base + idx) {
+                        *b = byte;
                     }
                 }
             }

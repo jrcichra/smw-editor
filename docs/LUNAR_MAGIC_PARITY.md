@@ -71,8 +71,8 @@ X"), and player (Mario/Yoshi) graphics customization.
 | Sprite placement in levels | ✅ | See above |
 | Sprite extra bits (2-bit position field per sprite) | ✅ | `sprite_layer.rs`, `left_panel.rs:103` — confirmed editable, corrected from an earlier pass that missed it |
 | Sprite Map / OAM tile editor | ✅ | `src/ui/editor_prototypes/sprite_map_editor/` |
-| Sprite header/behavior tables (SDT, tweak bytes) | ⛔ | Only the 2-bit extra-bits field is exposed; no full tweak-byte/SDT editing |
-| Sprite category distinction (cluster/extended/generator vs. normal) | ⛔ | No `SpriteCategory`/`SpriteKind` type found — editor treats all sprites uniformly |
+| Sprite tweaker/behavior byte editing (6 global tables, "Sprite Header Editor") | ✅ | `crates/smwe-rom/src/sprite_tweakers.rs` parses the 6 ROM tables ($07F26C/$07F335/$07F3FE/$07F4C7/$07F590/$07F659, 0xC9 entries each) with named bit accessors (+ tests); `sprite_tweaker_editor.rs` in the level editor exposes all of them with save-to-ROM support. Verified against real ROM: Goomba (0x0F) shows `can_be_jumped_on=true`, `dies_when_jumped_on=false`, matching known vanilla behavior. Edits are global (affect every placement of that sprite ID), matching how LM's own editor works |
+| Sprite category distinction (cluster/extended/generator vs. normal) | 🟡 | `SpriteTweakers::has_tweakers()` now encodes the boundary (IDs `>= 0xC9` don't have tweaker bytes) and the tweaker editor warns when selecting one; no dedicated `SpriteCategory` type or separate editing UI for those categories yet |
 | Custom sprite insertion (SA-1/UberASM-style dropins) | ⛔ | Not found |
 
 ## Music / Sound
@@ -122,10 +122,10 @@ X"), and player (Mario/Yoshi) graphics customization.
 
 ## Biggest gaps to close for parity (suggested priority)
 
-1. **Overworld event *ownership* editing** — which level/action triggers which event (`$05D608`?) is still unmapped; reveal-tile preview toggling itself now works.
-2. **Overworld level-number free reassignment (ASM hijack)** — read-only vanilla-accurate display now works; matching LM's free-assignment UX requires ASM code injection, a distinct and larger undertaking.
-3. **ExGFX support** — no way to bring in custom graphics at all right now.
-4. **Sprite header/SDT editing** — sprite placement exists but custom sprite behavior can't be configured.
+1. **ExGFX support** — no way to bring in custom graphics at all right now; the biggest remaining gap with no partial progress.
+2. **Overworld event *ownership* editing** — which level/action triggers which event (`$05D608`?) is still unmapped; reveal-tile preview toggling itself now works.
+3. **Overworld level-number free reassignment (ASM hijack)** — read-only vanilla-accurate display now works; matching LM's free-assignment UX requires ASM code injection, a distinct and larger undertaking.
+4. **Custom sprite insertion / cluster-extended-generator sprite category editing** — tweaker byte editing now covers the ~0xC9 normal sprite IDs; the other categories still have no dedicated support.
 5. **Message box / dialog text editor** — sprite exists in the catalog but is inert.
 6. **General freespace/repoint manager** — currently one-off for overworld L2 only; levels/sprites will need it too as more editors gain write support.
 7. **Block editor** — already tracked in README as next planned work.

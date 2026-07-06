@@ -235,6 +235,11 @@ impl UiLevelEditor {
                 self.show_map16_editor = true;
             }
         });
+        ui.horizontal(|ui| {
+            if ui.button("Sprite Behavior…").clicked() {
+                self.show_sprite_tweaker_editor = true;
+            }
+        });
 
         ui.separator();
 

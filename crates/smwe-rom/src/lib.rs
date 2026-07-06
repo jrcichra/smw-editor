@@ -8,6 +8,7 @@ pub mod level;
 pub mod objects;
 pub mod overworld;
 pub mod snes_utils;
+pub mod sprite_tweakers;
 
 use std::{fs, path::Path};
 
@@ -24,6 +25,7 @@ use crate::{
     },
     objects::tilesets::Tilesets,
     overworld::{OverworldData, OverworldEvents},
+    sprite_tweakers::SpriteTweakers,
     snes_utils::{
         addr::AddrSnes,
         rom::{Rom, RomError},
@@ -43,6 +45,7 @@ pub struct SmwRom {
     pub map16_tilesets: Tilesets,
     pub overworld: OverworldData,
     pub overworld_events: OverworldEvents,
+    pub sprite_tweakers: SpriteTweakers,
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -103,6 +106,19 @@ impl SmwRom {
             }
         });
 
+        log::info!("Parsing sprite tweaker bytes");
+        let sprite_tweakers = SpriteTweakers::parse(&disassembly.rom).unwrap_or_else(|e| {
+            log::warn!("Could not parse sprite tweaker bytes: {e}");
+            SpriteTweakers {
+                tweaker_a: vec![0u8; sprite_tweakers::SPRITE_TWEAKER_COUNT],
+                tweaker_b: vec![0u8; sprite_tweakers::SPRITE_TWEAKER_COUNT],
+                tweaker_c: vec![0u8; sprite_tweakers::SPRITE_TWEAKER_COUNT],
+                tweaker_d: vec![0u8; sprite_tweakers::SPRITE_TWEAKER_COUNT],
+                tweaker_e: vec![0u8; sprite_tweakers::SPRITE_TWEAKER_COUNT],
+                tweaker_f: vec![0u8; sprite_tweakers::SPRITE_TWEAKER_COUNT],
+            }
+        });
+
         Ok(Self {
             disassembly,
             internal_header,
@@ -112,6 +128,7 @@ impl SmwRom {
             map16_tilesets,
             overworld,
             overworld_events,
+            sprite_tweakers,
         })
     }
 
