@@ -564,11 +564,6 @@ impl DockableEditorTool for UiWorldEditor {
         // number: leaving this alone keeps overworld behavior byte-for-byte
         // vanilla (translevel/scan-order-derived) for hacks that don't use it.
         //
-        // Known limitation: each save that has overrides allocates a fresh
-        // freespace table rather than reusing/growing a previously-patched
-        // one, so repeated saves with active overrides accumulate small
-        // (0x800-byte) orphaned regions in ROM. Harmless but wasteful; a
-        // follow-up could detect and reuse an already-owned table in place.
         if !self.custom_level_numbers.is_empty() {
             let tiles = self.edit_state.read(|s| s.layer1_tiles.clone());
             let mut table = vec![0u8; tiles.len()];
@@ -585,14 +580,32 @@ impl DockableEditorTool for UiWorldEditor {
                 }
             }
 
-            let table_pc = find_free_space(rom_bytes, table.len(), 0x008000, header_offset).ok_or_else(|| {
-                anyhow::anyhow!("No free space for the custom level-number table ({} bytes)", table.len())
-            })?;
+            let patch_pc = AddrPc::try_from_lorom(smwe_rom::overworld::LEVEL_NUMBER_PATCH_OPERAND_SNES)?.as_index()
+                + header_offset;
+
+            // If a previous save already patched the operand to point at a
+            // ROM table we own, rewrite that table in place; only a
+            // still-vanilla operand ($7ED000, WRAM) allocates fresh space.
+            // This keeps repeated saves from orphaning 0x800-byte regions.
+            let current_operand =
+                u32::from_le_bytes([rom_bytes[patch_pc], rom_bytes[patch_pc + 1], rom_bytes[patch_pc + 2], 0]);
+            let reusable_pc = if current_operand == 0x7ED000 {
+                None
+            } else {
+                AddrPc::try_from_lorom(AddrSnes(current_operand))
+                    .ok()
+                    .map(|pc| pc.as_index())
+                    .filter(|&pc| pc + header_offset + table.len() <= rom_bytes.len())
+            };
+            let table_pc = match reusable_pc {
+                Some(pc) => pc,
+                None => find_free_space(rom_bytes, table.len(), 0x008000, header_offset).ok_or_else(|| {
+                    anyhow::anyhow!("No free space for the custom level-number table ({} bytes)", table.len())
+                })?,
+            };
             rom_bytes[table_pc + header_offset..table_pc + header_offset + table.len()].copy_from_slice(&table);
 
             let table_snes = AddrSnes::try_from_lorom(AddrPc(table_pc as u32))?;
-            let patch_pc = AddrPc::try_from_lorom(smwe_rom::overworld::LEVEL_NUMBER_PATCH_OPERAND_SNES)?.as_index()
-                + header_offset;
             let bytes = table_snes.0.to_le_bytes();
             rom_bytes[patch_pc..patch_pc + 3].copy_from_slice(&bytes[..3]);
         }

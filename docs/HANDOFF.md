@@ -107,8 +107,9 @@ instead of landing.
   approach extends trivially — the measurement harness is described in
   memory `custom-layer2-background`.
 - SA-1 / ExLoROM / ExHiROM mapper support still missing (parity doc, Misc).
-- Repeated saves with OW level-number overrides orphan 0x800-byte tables
-  (documented in `world_editor/mod.rs::save_to_rom`).
+- ~~Repeated saves with OW level-number overrides orphan 0x800-byte tables~~
+  Fixed 2026-07-06: `save_to_rom` now reuses the table the patch operand
+  already points at; only a still-vanilla operand ($7ED000) allocates.
 - `docs/LUNAR_MAGIC_PARITY.md` still lists smaller ⛔ rows (animated OW
   tiles, Layer-2 event tiles at `$04DD8D`, L2 scroll settings, 8x8 tile
   import/export, custom OW level names — item 1 above); keep flipping rows
