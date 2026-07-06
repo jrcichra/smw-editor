@@ -35,7 +35,9 @@ impl UiLevelEditor {
                 };
                 ui.colored_label(color, format!("Total: {total} / {MESSAGE_BOXES_MAX_SIZE} bytes"));
                 if total == MESSAGE_BOXES_MAX_SIZE {
-                    ui.small("Vanilla already uses the full budget — lengthening one message requires shortening another.");
+                    ui.small(
+                        "Vanilla already uses the full budget — lengthening one message requires shortening another.",
+                    );
                 }
                 ui.separator();
 
@@ -71,10 +73,7 @@ impl UiLevelEditor {
                                 let mut changed = false;
                                 for (byte_i, byte) in self.message_boxes.messages[i].iter_mut().enumerate() {
                                     let mut v = *byte as i32;
-                                    if ui
-                                        .add(Slider::new(&mut v, 0..=0x7F).hexadecimal(2, false, false))
-                                        .changed()
-                                    {
+                                    if ui.add(Slider::new(&mut v, 0..=0x7F).hexadecimal(2, false, false)).changed() {
                                         *byte = v as u8;
                                         changed = true;
                                     }

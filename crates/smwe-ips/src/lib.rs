@@ -127,11 +127,7 @@ fn find_most_common_byte(data: &[u8]) -> u8 {
     for &byte in data {
         counts[byte as usize] += 1;
     }
-    let (byte, _) = counts
-        .iter()
-        .enumerate()
-        .max_by_key(|(_, &count)| count)
-        .unwrap();
+    let (byte, _) = counts.iter().enumerate().max_by_key(|(_, &count)| count).unwrap();
     byte as u8
 }
 

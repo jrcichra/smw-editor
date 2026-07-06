@@ -187,7 +187,9 @@ impl RomDisassembly {
                     if old_data_block.kind != data_block.kind {
                         log::error!(
                             "Block kind mismatch at {:?}: expected {:?}, found {:?} — using existing block",
-                            data_block.slice.begin, old_data_block.kind, data_block.kind
+                            data_block.slice.begin,
+                            old_data_block.kind,
+                            data_block.kind
                         );
                         data_block = old_data_block;
                     }

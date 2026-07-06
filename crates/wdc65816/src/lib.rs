@@ -33,25 +33,25 @@ const COP_VEC16: u16 = 0xFFE4;
 
 #[derive(Debug, Clone)]
 pub struct Cpu<M: Mem> {
-    pub a:         u16,
-    pub x:         u16,
-    pub y:         u16,
+    pub a: u16,
+    pub x: u16,
+    pub y: u16,
     /// Stack pointer
-    pub s:         u16,
+    pub s: u16,
     /// Data bank register. Bank for all memory accesses.
-    pub dbr:       u8,
+    pub dbr: u8,
     /// Program bank register. Opcodes are fetched from this bank.
-    pub pbr:       u8,
+    pub pbr: u8,
     /// Direct (page) register. Address offset for all instruction using "direct addressing" mode.
-    pub d:         u16,
+    pub d: u16,
     /// Program counter. Note that PBR is not changed on pc overflow, so code can not span
     /// multiple banks (without `jml` or `jsr`).
-    pub pc:        u16,
-    p:             StatusReg,
+    pub pc: u16,
+    p: StatusReg,
     pub emulation: bool,
     /// Set to true when executing a WAI instruction. Stops the processor from dispatching further
     /// instructions until an interrupt is triggered.
-    wai:           bool,
+    wai: bool,
 
     /// CPU clock cycle counter for the current instruction.
     cy: u16,
@@ -60,7 +60,7 @@ pub struct Cpu<M: Mem> {
     pub ill: bool,
 
     pub trace: bool,
-    pub mem:   M,
+    pub mem: M,
 }
 
 impl<M: Mem> Cpu<M> {
@@ -439,8 +439,18 @@ impl<M: Mem> Cpu<M> {
             0xa0 => instr!(ldy immediate_index),
             0xac => instr!(ldy absolute),
             0xbc => instr!(ldy absolute_indexed_x),
-            0x54 => { if self.trace { self.trace_op(pc, op, "mvn", None); } self.mvn(); }
-            0x44 => { if self.trace { self.trace_op(pc, op, "mvp", None); } self.mvp(); }
+            0x54 => {
+                if self.trace {
+                    self.trace_op(pc, op, "mvn", None);
+                }
+                self.mvn();
+            }
+            0x44 => {
+                if self.trace {
+                    self.trace_op(pc, op, "mvp", None);
+                }
+                self.mvp();
+            }
 
             // Bit operations
             0x24 => instr!(bit direct),

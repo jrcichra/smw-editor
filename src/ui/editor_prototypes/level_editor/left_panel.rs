@@ -152,7 +152,8 @@ impl UiLevelEditor {
                 ui.small("Layer 2 background mode uses background tile IDs and repeats across the background strip.");
             }
 
-            let tex = if bg_l2_mode { self.bg_tile_picker.texture(ui.ctx()) } else { self.tile_picker.texture(ui.ctx()) };
+            let tex =
+                if bg_l2_mode { self.bg_tile_picker.texture(ui.ctx()) } else { self.tile_picker.texture(ui.ctx()) };
             let tex_size = tex.size();
             let max_w = ui.available_width().min(300.0);
             let display_w = max_w.min(tex_size[0] as f32 * 2.0);
@@ -197,13 +198,12 @@ impl UiLevelEditor {
                 rect.min + vec2(sel_col as f32 * block_px * scale_x, sel_row as f32 * block_px * scale_y),
                 vec2(block_px * scale_x, block_px * scale_y),
             );
-            ui.painter()
-                .rect_stroke(
-                    sel_rect,
-                    egui::CornerRadius::ZERO,
-                    egui::Stroke::new(2.0, Color32::YELLOW),
-                    egui::StrokeKind::Outside,
-                );
+            ui.painter().rect_stroke(
+                sel_rect,
+                egui::CornerRadius::ZERO,
+                egui::Stroke::new(2.0, Color32::YELLOW),
+                egui::StrokeKind::Outside,
+            );
         }
 
         ui.separator();
@@ -211,10 +211,12 @@ impl UiLevelEditor {
         let is_vertical = self.level_properties.is_vertical;
         {
             let props = self.level_properties;
-            ui.label(format!("Screens: {}  Size: {}x{} tiles",
+            ui.label(format!(
+                "Screens: {}  Size: {}x{} tiles",
                 props.num_screens(),
                 props.level_dimensions_in_tiles().0,
-                props.level_dimensions_in_tiles().1));
+                props.level_dimensions_in_tiles().1
+            ));
         }
 
         // ── Editor launchers ────────────────────────────────────
@@ -244,6 +246,11 @@ impl UiLevelEditor {
             }
             if ui.button("Messages…").clicked() {
                 self.show_message_editor = true;
+            }
+        });
+        ui.horizontal(|ui| {
+            if ui.button("Title/Credits…").clicked() {
+                self.show_title_credits_editor = true;
             }
         });
 
@@ -478,20 +485,21 @@ impl UiLevelEditor {
             return tex.clone();
         }
 
-        let (mut image, mut best_score) = if let Some(preferred_tileset) = super::sprite_catalog::preview_sprite_tileset(sprite_id) {
-            let mut cpu_pref = self.cpu.clone();
-            smwe_emu::emu::upload_sprite_tileset(&mut cpu_pref, preferred_tileset);
-            let tiles_pref = smwe_emu::emu::sprite_oam_tiles(&mut cpu_pref, sprite_id);
-            let image_pref = super::tile_picker::render_sprite_preview_image(&tiles_pref, &mut cpu_pref);
-            let score_pref = score_sprite_preview(&image_pref);
-            (image_pref, score_pref)
-        } else {
-            let mut cpu = self.cpu.clone();
-            let sprite_tiles = self.sprite_oam_tiles(sprite_id);
-            let image = super::tile_picker::render_sprite_preview_image(&sprite_tiles, &mut cpu);
-            let score = score_sprite_preview(&image);
-            (image, score)
-        };
+        let (mut image, mut best_score) =
+            if let Some(preferred_tileset) = super::sprite_catalog::preview_sprite_tileset(sprite_id) {
+                let mut cpu_pref = self.cpu.clone();
+                smwe_emu::emu::upload_sprite_tileset(&mut cpu_pref, preferred_tileset);
+                let tiles_pref = smwe_emu::emu::sprite_oam_tiles(&mut cpu_pref, sprite_id);
+                let image_pref = super::tile_picker::render_sprite_preview_image(&tiles_pref, &mut cpu_pref);
+                let score_pref = score_sprite_preview(&image_pref);
+                (image_pref, score_pref)
+            } else {
+                let mut cpu = self.cpu.clone();
+                let sprite_tiles = self.sprite_oam_tiles(sprite_id);
+                let image = super::tile_picker::render_sprite_preview_image(&sprite_tiles, &mut cpu);
+                let score = score_sprite_preview(&image);
+                (image, score)
+            };
 
         // If the initial preview is weak, search the vanilla sprite tilesets
         // using the real UploadSpriteGFX path.
@@ -531,138 +539,129 @@ impl UiLevelEditor {
             return;
         }
         let mut open = self.show_level_header;
-        egui::Window::new("Level Header")
-            .open(&mut open)
-            .resizable(false)
-            .show(ctx, |ui| {
-                let mut rebuild_tiles = false;
-                let mut refresh_sprites = false;
-                let mut changed = false;
+        egui::Window::new("Level Header").open(&mut open).resizable(false).show(ctx, |ui| {
+            let mut rebuild_tiles = false;
+            let mut refresh_sprites = false;
+            let mut changed = false;
 
-                ui.strong("Primary Header");
-                egui::Grid::new("primary_header_grid")
-                    .num_columns(2)
-                    .spacing([12.0, 4.0])
-                    .show(ui, |ui| {
-                        let p = &mut self.level_properties;
+            ui.strong("Primary Header");
+            egui::Grid::new("primary_header_grid").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+                let p = &mut self.level_properties;
 
-                        macro_rules! row_slider {
-                            ($label:expr, $field:expr, $range:expr) => {{
-                                ui.label($label);
-                                let mut v = $field as i32;
-                                if ui.add(Slider::new(&mut v, $range)).changed() {
-                                    $field = v as _;
-                                    changed = true;
-                                }
-                                ui.end_row();
-                            }};
-                        }
-                        macro_rules! row_slider_hex {
-                            ($label:expr, $field:expr, $range:expr, $digits:expr) => {{
-                                ui.label($label);
-                                let mut v = $field as i32;
-                                if ui.add(Slider::new(&mut v, $range).hexadecimal($digits, false, false)).changed() {
-                                    $field = v as _;
-                                    changed = true;
-                                }
-                                ui.end_row();
-                            }};
-                        }
-                        macro_rules! row_check {
-                            ($label:expr, $field:expr) => {{
-                                ui.label($label);
-                                if ui.checkbox(&mut $field, "").changed() {
-                                    changed = true;
-                                }
-                                ui.end_row();
-                            }};
-                        }
-
-                        row_slider!("Level Length:", p.level_length, 0..=31_i32);
-                        row_slider_hex!("Level Mode:", p.level_mode, 0..=31_i32, 2);
-
-                        ui.label("FG/BG GFX:");
-                        {
-                            let mut v = p.fg_bg_gfx as i32;
-                            if ui.add(Slider::new(&mut v, 0..=15_i32).hexadecimal(1, false, false)).changed() {
-                                p.fg_bg_gfx = v as u8;
-                                changed = true;
-                                rebuild_tiles = true;
-                            }
+                macro_rules! row_slider {
+                    ($label:expr, $field:expr, $range:expr) => {{
+                        ui.label($label);
+                        let mut v = $field as i32;
+                        if ui.add(Slider::new(&mut v, $range)).changed() {
+                            $field = v as _;
+                            changed = true;
                         }
                         ui.end_row();
-
-                        ui.label("Sprite GFX:");
-                        {
-                            let mut v = p.sprite_gfx as i32;
-                            if ui.add(Slider::new(&mut v, 0..=15_i32).hexadecimal(1, false, false)).changed() {
-                                p.sprite_gfx = v as u8;
-                                changed = true;
-                                refresh_sprites = true;
-                            }
+                    }};
+                }
+                macro_rules! row_slider_hex {
+                    ($label:expr, $field:expr, $range:expr, $digits:expr) => {{
+                        ui.label($label);
+                        let mut v = $field as i32;
+                        if ui.add(Slider::new(&mut v, $range).hexadecimal($digits, false, false)).changed() {
+                            $field = v as _;
+                            changed = true;
                         }
                         ui.end_row();
-
-                        row_slider!("Music:", p.music, 0..=7_i32);
-                        row_slider!("Timer:", p.timer, 0..=3_i32);
-                        row_slider_hex!("BG Palette:", p.palette_bg, 0..=7_i32, 1);
-                        row_slider_hex!("FG Palette:", p.palette_fg, 0..=7_i32, 1);
-                        row_slider_hex!("Sprite Palette:", p.palette_sprite, 0..=7_i32, 1);
-                        row_slider_hex!("Back Area Color:", p.back_area_color, 0..=7_i32, 1);
-                        row_slider!("Item Memory:", p.item_memory, 0..=3_i32);
-                        row_slider!("Vertical Scroll:", p.vertical_scroll, 0..=3_i32);
-                        row_check!("Layer 3 Priority:", p.layer3_priority);
-                    });
-
-                ui.separator();
-                ui.strong("Secondary Header");
-                egui::Grid::new("secondary_header_grid")
-                    .num_columns(2)
-                    .spacing([12.0, 4.0])
-                    .show(ui, |ui| {
-                        let p = &mut self.level_properties;
-
-                        macro_rules! row_slider {
-                            ($label:expr, $field:expr, $range:expr) => {{
-                                ui.label($label);
-                                let mut v = $field as i32;
-                                if ui.add(Slider::new(&mut v, $range)).changed() {
-                                    $field = v as _;
-                                    changed = true;
-                                }
-                                ui.end_row();
-                            }};
+                    }};
+                }
+                macro_rules! row_check {
+                    ($label:expr, $field:expr) => {{
+                        ui.label($label);
+                        if ui.checkbox(&mut $field, "").changed() {
+                            changed = true;
                         }
-                        macro_rules! row_check {
-                            ($label:expr, $field:expr) => {{
-                                ui.label($label);
-                                if ui.checkbox(&mut $field, "").changed() {
-                                    changed = true;
-                                }
-                                ui.end_row();
-                            }};
-                        }
+                        ui.end_row();
+                    }};
+                }
 
-                        row_check!("Vertical Level:", p.is_vertical);
-                        row_check!("No Yoshi:", p.no_yoshi_level);
-                        row_slider!("Layer 2 Scroll:", p.layer2_scroll, 0..=15_i32);
-                        row_slider!("Layer 3:", p.layer3, 0..=3_i32);
-                        row_slider!("Entrance Action:", p.main_entrance_action, 0..=7_i32);
-                        row_slider!("Midway Screen:", p.midway_entrance_screen, 0..=15_i32);
-                        row_slider!("FG Initial Pos:", p.fg_initial_pos, 0..=3_i32);
-                        row_slider!("BG Initial Pos:", p.bg_initial_pos, 0..=3_i32);
-                    });
+                row_slider!("Level Length:", p.level_length, 0..=31_i32);
+                row_slider_hex!("Level Mode:", p.level_mode, 0..=31_i32, 2);
 
-                if changed {
-                    self.mark_edited();
+                ui.label("FG/BG GFX:");
+                {
+                    let mut v = p.fg_bg_gfx as i32;
+                    if ui.add(Slider::new(&mut v, 0..=15_i32).hexadecimal(1, false, false)).changed() {
+                        p.fg_bg_gfx = v as u8;
+                        changed = true;
+                        rebuild_tiles = true;
+                    }
                 }
-                if rebuild_tiles {
-                    self.rebuild_tiles();
+                ui.end_row();
+
+                ui.label("Sprite GFX:");
+                {
+                    let mut v = p.sprite_gfx as i32;
+                    if ui.add(Slider::new(&mut v, 0..=15_i32).hexadecimal(1, false, false)).changed() {
+                        p.sprite_gfx = v as u8;
+                        changed = true;
+                        refresh_sprites = true;
+                    }
                 }
-                if refresh_sprites {
-                    self.refresh_sprite_gfx();
-                }
+                ui.end_row();
+
+                row_slider!("Music:", p.music, 0..=7_i32);
+                row_slider!("Timer:", p.timer, 0..=3_i32);
+                row_slider_hex!("BG Palette:", p.palette_bg, 0..=7_i32, 1);
+                row_slider_hex!("FG Palette:", p.palette_fg, 0..=7_i32, 1);
+                row_slider_hex!("Sprite Palette:", p.palette_sprite, 0..=7_i32, 1);
+                row_slider_hex!("Back Area Color:", p.back_area_color, 0..=7_i32, 1);
+                row_slider!("Item Memory:", p.item_memory, 0..=3_i32);
+                row_slider!("Vertical Scroll:", p.vertical_scroll, 0..=3_i32);
+                row_check!("Layer 3 Priority:", p.layer3_priority);
             });
+
+            ui.separator();
+            ui.strong("Secondary Header");
+            egui::Grid::new("secondary_header_grid").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+                let p = &mut self.level_properties;
+
+                macro_rules! row_slider {
+                    ($label:expr, $field:expr, $range:expr) => {{
+                        ui.label($label);
+                        let mut v = $field as i32;
+                        if ui.add(Slider::new(&mut v, $range)).changed() {
+                            $field = v as _;
+                            changed = true;
+                        }
+                        ui.end_row();
+                    }};
+                }
+                macro_rules! row_check {
+                    ($label:expr, $field:expr) => {{
+                        ui.label($label);
+                        if ui.checkbox(&mut $field, "").changed() {
+                            changed = true;
+                        }
+                        ui.end_row();
+                    }};
+                }
+
+                row_check!("Vertical Level:", p.is_vertical);
+                row_check!("No Yoshi:", p.no_yoshi_level);
+                row_slider!("Layer 2 Scroll:", p.layer2_scroll, 0..=15_i32);
+                row_slider!("Layer 3:", p.layer3, 0..=3_i32);
+                row_slider!("Entrance Action:", p.main_entrance_action, 0..=7_i32);
+                row_slider!("Midway Screen:", p.midway_entrance_screen, 0..=15_i32);
+                row_slider!("FG Initial Pos:", p.fg_initial_pos, 0..=3_i32);
+                row_slider!("BG Initial Pos:", p.bg_initial_pos, 0..=3_i32);
+            });
+
+            if changed {
+                self.mark_edited();
+            }
+            if rebuild_tiles {
+                self.rebuild_tiles();
+            }
+            if refresh_sprites {
+                self.refresh_sprite_gfx();
+            }
+        });
         self.show_level_header = open;
     }
 }
@@ -724,12 +723,7 @@ fn largest_opaque_component(mask: &[bool], w: usize, h: usize) -> usize {
 
             while let Some((cx, cy)) = stack.pop() {
                 size += 1;
-                for (nx, ny) in [
-                    (cx.wrapping_sub(1), cy),
-                    (cx + 1, cy),
-                    (cx, cy.wrapping_sub(1)),
-                    (cx, cy + 1),
-                ] {
+                for (nx, ny) in [(cx.wrapping_sub(1), cy), (cx + 1, cy), (cx, cy.wrapping_sub(1)), (cx, cy + 1)] {
                     if nx >= w || ny >= h {
                         continue;
                     }

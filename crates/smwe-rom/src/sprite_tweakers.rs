@@ -26,7 +26,10 @@
 //!   sprites, w=weird ground behavior, y=stay in Yoshi's mouth, e=inedible
 //! - Tweaker F ($190F): single-bit "is two tiles high" flag per sprite.
 
-use crate::snes_utils::{addr::{AddrPc, AddrSnes}, rom::Rom};
+use crate::snes_utils::{
+    addr::{AddrPc, AddrSnes},
+    rom::Rom,
+};
 
 /// Number of sprite IDs with tweaker bytes (`$00`-`$C8`). IDs above this are
 /// cluster/extended/generator sprites that don't use the standard tweaker

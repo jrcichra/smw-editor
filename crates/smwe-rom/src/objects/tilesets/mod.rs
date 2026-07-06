@@ -369,7 +369,8 @@ fn parse_lm_map16(disasm: &mut RomDisassembly) -> Result<LmMap16, TilesetParseEr
         } else {
             let size = TILESETS_COUNT * 0x100 * 8;
             let slice = SnesSlice::new(base, size);
-            match disasm.rom_slice_at_block(DataBlock { slice, kind: DataKind::Tileset }, |_| TilesetParseError::Slice(slice))
+            match disasm
+                .rom_slice_at_block(DataBlock { slice, kind: DataKind::Tileset }, |_| TilesetParseError::Slice(slice))
             {
                 Ok(bytes) => {
                     let bytes = bytes.as_bytes()?;

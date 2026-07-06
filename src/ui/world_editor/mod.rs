@@ -30,7 +30,7 @@ use smwe_render::{
 };
 use smwe_rom::compression::lc_rle2;
 use smwe_rom::{
-    overworld::{OWL1_TILE_DATA_SNES, OWL1_TILE_DATA_SIZE, SUBMAP_NAMES},
+    overworld::{OWL1_TILE_DATA_SIZE, OWL1_TILE_DATA_SNES, SUBMAP_NAMES},
     snes_utils::addr::{AddrPc, AddrSnes},
     SmwRom,
 };
@@ -249,10 +249,8 @@ impl UiWorldEditor {
         let cpu = Cpu::new(CheckedMem::new(Arc::new(emu_rom)));
 
         let source_layer1_tiles = rom.overworld.layer1_tiles.clone();
-        let edit_state = UndoableData::new(OverworldEditState {
-            layer1_tiles: source_layer1_tiles,
-            layer2_words: Vec::new(),
-        });
+        let edit_state =
+            UndoableData::new(OverworldEditState { layer1_tiles: source_layer1_tiles, layer2_words: Vec::new() });
         let mut editor = Self {
             gl,
             rom,
@@ -409,8 +407,8 @@ impl DockableEditorTool for UiWorldEditor {
             rom_bytes[table_pc + header_offset..table_pc + header_offset + table.len()].copy_from_slice(&table);
 
             let table_snes = AddrSnes::try_from_lorom(AddrPc(table_pc as u32))?;
-            let patch_pc =
-                AddrPc::try_from_lorom(smwe_rom::overworld::LEVEL_NUMBER_PATCH_OPERAND_SNES)?.as_index() + header_offset;
+            let patch_pc = AddrPc::try_from_lorom(smwe_rom::overworld::LEVEL_NUMBER_PATCH_OPERAND_SNES)?.as_index()
+                + header_offset;
             let bytes = table_snes.0.to_le_bytes();
             rom_bytes[patch_pc..patch_pc + 3].copy_from_slice(&bytes[..3]);
         }
@@ -423,7 +421,11 @@ impl DockableEditorTool for UiWorldEditor {
 
 impl UiWorldEditor {
     fn source_l1_offset(&self) -> usize {
-        if self.submap == 0 { 0 } else { 0x400 }
+        if self.submap == 0 {
+            0
+        } else {
+            0x400
+        }
     }
 
     fn source_l1_index_for_view(&self, map16_x: u32, map16_y: u32) -> Option<usize> {
@@ -742,8 +744,11 @@ impl UiWorldEditor {
                                 ui.label("  Assign level:");
                                 let changed = ui
                                     .add(
-                                        egui::Slider::new(&mut new_num, 0..=smwe_rom::overworld::MAX_ASSIGNABLE_LEVEL_NUMBER as i32)
-                                            .hexadecimal(2, false, false),
+                                        egui::Slider::new(
+                                            &mut new_num,
+                                            0..=smwe_rom::overworld::MAX_ASSIGNABLE_LEVEL_NUMBER as i32,
+                                        )
+                                        .hexadecimal(2, false, false),
                                     )
                                     .changed();
                                 if changed {
@@ -757,7 +762,10 @@ impl UiWorldEditor {
                                 }
                             });
                             if self.custom_level_numbers.contains_key(&idx) {
-                                ui.colored_label(egui::Color32::from_rgb(220, 160, 60), "  Overridden — needs the level-number patch on save");
+                                ui.colored_label(
+                                    egui::Color32::from_rgb(220, 160, 60),
+                                    "  Overridden — needs the level-number patch on save",
+                                );
                             }
                         }
                     }
@@ -917,7 +925,12 @@ impl UiWorldEditor {
                 let tile_id = u16::from_le_bytes([self.cpu.mem.vram[addr], self.cpu.mem.vram[addr + 1]]) & 0x03FF;
                 let tile_rect =
                     Rect::from_min_size(origin + vec2(x as f32 * map16_sz, y as f32 * map16_sz), Vec2::splat(map16_sz));
-                painter.rect_stroke(tile_rect, CornerRadius::ZERO, Stroke::new(1.0, Color32::WHITE), StrokeKind::Outside);
+                painter.rect_stroke(
+                    tile_rect,
+                    CornerRadius::ZERO,
+                    Stroke::new(1.0, Color32::WHITE),
+                    StrokeKind::Outside,
+                );
 
                 if resp.clicked_by(egui::PointerButton::Primary)
                     && (self.editing_mode == EditingMode::Select || ui.input(|i| i.modifiers.alt))
@@ -960,7 +973,12 @@ impl UiWorldEditor {
         // ── Selected tile highlight ───────────────────────────────────────────
         if let Some((x, y)) = self.selected_tile {
             let r = Rect::from_min_size(origin + vec2(x as f32 * map16_sz, y as f32 * map16_sz), Vec2::splat(map16_sz));
-            painter.rect_stroke(r, CornerRadius::ZERO, Stroke::new(2.0, Color32::from_rgb(255, 220, 0)), StrokeKind::Outside);
+            painter.rect_stroke(
+                r,
+                CornerRadius::ZERO,
+                Stroke::new(2.0, Color32::from_rgb(255, 220, 0)),
+                StrokeKind::Outside,
+            );
         }
     }
 }
@@ -1037,9 +1055,7 @@ fn write_overworld_l2_stream(
     let header_offset = usize::from(has_smc_header) * 0x200;
     let start = start_pc_no_header + header_offset;
     let old_size = lc_rle2::compressed_size_for_output(
-        rom_bytes
-            .get(start..)
-            .ok_or_else(|| anyhow::anyhow!("{label} ROM source start out of bounds"))?,
+        rom_bytes.get(start..).ok_or_else(|| anyhow::anyhow!("{label} ROM source start out of bounds"))?,
         output_len,
     );
     if compressed.len() <= old_size {
@@ -1137,10 +1153,9 @@ fn render_preview_tile(
             let b2 = vram[row_off + 16];
             let b3 = vram[row_off + 17];
             let bit = 7 - px as usize;
-            let color_idx = (((b0 >> bit) & 1)
-                | (((b1 >> bit) & 1) << 1)
-                | (((b2 >> bit) & 1) << 2)
-                | (((b3 >> bit) & 1) << 3)) as usize;
+            let color_idx =
+                (((b0 >> bit) & 1) | (((b1 >> bit) & 1) << 1) | (((b2 >> bit) & 1) << 2) | (((b3 >> bit) & 1) << 3))
+                    as usize;
             if color_idx == 0 {
                 continue;
             }

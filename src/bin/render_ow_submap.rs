@@ -15,18 +15,10 @@ fn main() {
         .iter()
         .find_map(|a| a.strip_prefix("--rom="))
         .map(Path::new)
-        .or_else(|| {
-            args.iter()
-                .skip(1)
-                .find(|a| !a.starts_with("--"))
-                .map(|a| Path::new(a))
-        })
+        .or_else(|| args.iter().skip(1).find(|a| !a.starts_with("--")).map(|a| Path::new(a)))
         .unwrap_or_else(|| Path::new("smw.smc"));
     let submap = args.iter().find_map(|a| a.strip_prefix("--submap=")).and_then(|s| s.parse::<u8>().ok()).unwrap_or(3);
-    let output = args
-        .iter()
-        .find_map(|a| a.strip_prefix("--out="))
-        .unwrap_or("ow_render.png");
+    let output = args.iter().find_map(|a| a.strip_prefix("--out=")).unwrap_or("ow_render.png");
     let full = args.iter().any(|a| a == "--full");
     let activate_events = !args.iter().any(|a| a == "--no-events");
 
@@ -114,8 +106,12 @@ fn dump_l1_atlas(cpu: &mut Cpu, output: &str) {
 
         let char_ptr = cpu.mem.load_u16(ptr_base + tile_id * 2) as u32;
         let gfx_addr = char_bank | char_ptr;
-        let sub_tiles =
-            [cpu.mem.load_u16(gfx_addr), cpu.mem.load_u16(gfx_addr + 2), cpu.mem.load_u16(gfx_addr + 4), cpu.mem.load_u16(gfx_addr + 6)];
+        let sub_tiles = [
+            cpu.mem.load_u16(gfx_addr),
+            cpu.mem.load_u16(gfx_addr + 2),
+            cpu.mem.load_u16(gfx_addr + 4),
+            cpu.mem.load_u16(gfx_addr + 6),
+        ];
 
         let sub_offsets = [(0u32, 0u32), (0, 8), (8, 0), (8, 8)];
         for (sub_i, (sx, sy)) in sub_offsets.into_iter().enumerate() {
@@ -124,7 +120,18 @@ fn dump_l1_atlas(cpu: &mut Cpu, output: &str) {
             let pal = ((t >> 10) & 0x7) as usize;
             let flip_x = (t & 0x4000) != 0;
             let flip_y = (t & 0x8000) != 0;
-            render_l1_sub_tile_2x(&cpu.mem.vram, &cpu.mem.cgram, tile_num, pal, flip_x, flip_y, x0 + sx * 2, y0 + sy * 2, w, &mut pixels);
+            render_l1_sub_tile_2x(
+                &cpu.mem.vram,
+                &cpu.mem.cgram,
+                tile_num,
+                pal,
+                flip_x,
+                flip_y,
+                x0 + sx * 2,
+                y0 + sy * 2,
+                w,
+                &mut pixels,
+            );
         }
         draw_hex_label(tile_id as u8, x0, y0 - LABEL_PX as u32, w, &mut pixels);
     }
@@ -281,7 +288,9 @@ fn tilemap_vram_addr(base: usize, col: u32, row: u32) -> usize {
     base + idx as usize
 }
 
-fn render_bg(vram: &[u8], tilemap_base: usize, scroll_x: i32, scroll_y: i32, _width: u32, cgram: &[u8], pixels: &mut [u8]) {
+fn render_bg(
+    vram: &[u8], tilemap_base: usize, scroll_x: i32, scroll_y: i32, _width: u32, cgram: &[u8], pixels: &mut [u8],
+) {
     for row in 0..OW_L2_ROWS {
         for col in 0..OW_L2_COLS {
             let addr = tilemap_vram_addr(tilemap_base, col, row);

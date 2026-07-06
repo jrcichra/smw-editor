@@ -15,8 +15,8 @@ const MAX_RECENT_FILES: usize = 10;
 #[derive(Debug)]
 pub struct Project {
     pub title: String,
-    pub rom:   Arc<SmwRom>,
-    pub path:  PathBuf,
+    pub rom: Arc<SmwRom>,
+    pub path: PathBuf,
 }
 
 pub type ProjectRef = Rc<RefCell<Project>>;
@@ -24,10 +24,8 @@ pub type ProjectRef = Rc<RefCell<Project>>;
 impl Project {
     pub fn new(rom_path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let path = rom_path.as_ref().to_path_buf();
-        let title = path
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_else(|| String::from("Unnamed"));
+        let title =
+            path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| String::from("Unnamed"));
         let rom = SmwRom::from_file(&path)?;
         Ok(Self { title, rom: Arc::new(rom), path })
     }
@@ -45,12 +43,7 @@ impl Project {
         let path = PathBuf::from(home).join(RECENT_FILES_PATH);
         if let Ok(data) = std::fs::read_to_string(&path) {
             if let Ok(files) = serde_json::from_str::<Vec<String>>(&data) {
-                return files
-                    .into_iter()
-                    .map(PathBuf::from)
-                    .filter(|p| p.exists())
-                    .take(MAX_RECENT_FILES)
-                    .collect();
+                return files.into_iter().map(PathBuf::from).filter(|p| p.exists()).take(MAX_RECENT_FILES).collect();
             }
         }
         Vec::new()

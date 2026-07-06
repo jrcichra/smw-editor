@@ -2,16 +2,12 @@ use std::env;
 
 use eframe::{NativeOptions, Renderer};
 use egui::{vec2, ViewportBuilder};
-use smw_editor::{
-    project::Project,
-    ui::UiMainWindow,
-};
+use smw_editor::{project::Project, ui::UiMainWindow};
 
 fn main() -> eframe::Result<()> {
     if log4rs::init_file("log4rs.yaml", Default::default()).is_err() {
-        let stderr = log4rs::append::console::ConsoleAppender::builder()
-            .target(log4rs::append::console::Target::Stderr)
-            .build();
+        let stderr =
+            log4rs::append::console::ConsoleAppender::builder().target(log4rs::append::console::Target::Stderr).build();
         let config = log4rs::Config::builder()
             .appender(log4rs::config::Appender::builder().build("stderr", Box::new(stderr)))
             .build(log4rs::config::Root::builder().appender("stderr").build(log::LevelFilter::Warn))
@@ -40,11 +36,7 @@ fn main() -> eframe::Result<()> {
 }
 
 fn run_nogui(args: &[String]) -> eframe::Result<()> {
-    let level_num = args
-        .iter()
-        .find_map(|a| a.strip_prefix("--level="))
-        .and_then(parse_level_arg)
-        .unwrap_or(0x000);
+    let level_num = args.iter().find_map(|a| a.strip_prefix("--level=")).and_then(parse_level_arg).unwrap_or(0x000);
 
     let rom_path = resolve_rom_path(args).unwrap_or_else(|| {
         log::error!("No ROM path defined (ROM_PATH not set, --rom missing, ./smw.smc not found)");
@@ -75,11 +67,7 @@ fn run_nogui(args: &[String]) -> eframe::Result<()> {
     let level_length = level.primary_header.level_length();
     let screens = level_length as u32 + 1;
     let (screen_w, screen_h) = if is_vertical { (32_u32, 16_u32) } else { (16_u32, 27_u32) };
-    let (level_w, level_h) = if is_vertical {
-        (screen_w, screen_h * screens)
-    } else {
-        (screen_w * screens, screen_h)
-    };
+    let (level_w, level_h) = if is_vertical { (screen_w, screen_h * screens) } else { (screen_w * screens, screen_h) };
 
     println!("SMW Editor nogui");
     println!("ROM: {}", project.path.display());
@@ -125,11 +113,8 @@ fn run_nogui(args: &[String]) -> eframe::Result<()> {
             current_screen = current_screen.saturating_add(1);
         }
 
-        let (local_x, local_y) = if is_vertical {
-            (obj.y() as u32, obj.x() as u32)
-        } else {
-            (obj.x() as u32, obj.y() as u32)
-        };
+        let (local_x, local_y) =
+            if is_vertical { (obj.y() as u32, obj.x() as u32) } else { (obj.x() as u32, obj.y() as u32) };
         let abs_x = local_x + if is_vertical { 0 } else { current_screen * 16 };
         let abs_y = local_y + if is_vertical { current_screen * 16 } else { 0 };
 
@@ -160,10 +145,7 @@ fn run_nogui(args: &[String]) -> eframe::Result<()> {
         }
     }
 
-    println!(
-        "Counts: standard={} extended={} exits={} screen_jumps={}",
-        standard, extended, exits, screen_jumps
-    );
+    println!("Counts: standard={} extended={} exits={} screen_jumps={}", standard, extended, exits, screen_jumps);
     Ok(())
 }
 
@@ -174,7 +156,6 @@ fn parse_level_arg(value: &str) -> Option<u16> {
         value.parse::<u16>().ok()
     }
 }
-
 
 fn resolve_rom_path(args: &[String]) -> Option<String> {
     if let Some(arg) = args.iter().find_map(|a| a.strip_prefix("--rom=")) {

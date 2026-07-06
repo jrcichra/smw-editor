@@ -149,10 +149,10 @@ impl UiSpriteMapEditor {
                 let screen_size = canvas_rect.size() * self.pixels_per_point;
                 let zoom = self.zoom;
                 Arc::new(CallbackFn::new(move |_info, painter| {
-                    sprite_renderer
-                        .lock()
-                        .expect("Cannot lock mutex on sprite renderer")
-                        .paint(painter.gl().as_ref(), &TileUniforms { gfx_bufs, screen_size, offset: Vec2::ZERO, zoom });
+                    sprite_renderer.lock().expect("Cannot lock mutex on sprite renderer").paint(
+                        painter.gl().as_ref(),
+                        &TileUniforms { gfx_bufs, screen_size, offset: Vec2::ZERO, zoom },
+                    );
                 }))
             },
         });

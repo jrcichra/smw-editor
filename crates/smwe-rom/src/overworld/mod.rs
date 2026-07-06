@@ -6,7 +6,10 @@
 //! Layer 1 (interactive tiles) lives uncompressed at ROM $0CF7DF → WRAM $7EC800.
 //! Layer 2 (background) is RLE-compressed at $04A533/$04C02B → WRAM $7F4000.
 
-use crate::snes_utils::{addr::{AddrPc, AddrSnes}, rom::Rom};
+use crate::snes_utils::{
+    addr::{AddrPc, AddrSnes},
+    rom::Rom,
+};
 
 pub const SUBMAP_COUNT: usize = 7;
 
@@ -100,7 +103,11 @@ pub fn level_number_for_index(tiles: &[u8], idx: usize) -> Option<u8> {
 }
 
 fn translevel_to_level_number(translevel: u8) -> u8 {
-    if translevel < 0x25 { translevel } else { translevel - 0x24 }
+    if translevel < 0x25 {
+        translevel
+    } else {
+        translevel - 0x24
+    }
 }
 
 /// Highest level number directly representable through the vanilla translevel
@@ -184,10 +191,8 @@ impl OverworldEvents {
             anyhow::bail!("OW event data extends past end of ROM");
         }
 
-        let tile_offsets = rom.0[offsets_pc..offsets_end]
-            .chunks_exact(2)
-            .map(|w| u16::from_le_bytes([w[0], w[1]]))
-            .collect();
+        let tile_offsets =
+            rom.0[offsets_pc..offsets_end].chunks_exact(2).map(|w| u16::from_le_bytes([w[0], w[1]])).collect();
         let reveal_before = rom.0[before_pc..before_end].to_vec();
         let reveal_after = rom.0[after_pc..after_end].to_vec();
 
@@ -253,8 +258,14 @@ mod tests {
     fn translevel_numbers_assigned_in_scan_order() {
         let data = OverworldData { layer1_tiles: tiles_with_level_ids_at(&[5, 70, 130]) };
         assert_eq!(data.translevel_at(5, 0), Some(0));
-        assert_eq!(data.translevel_at(70 % OW_WIDTH_TILES as usize as u32, 70 / OW_WIDTH_TILES as usize as u32), Some(1));
-        assert_eq!(data.translevel_at(130 % OW_WIDTH_TILES as usize as u32, 130 / OW_WIDTH_TILES as usize as u32), Some(2));
+        assert_eq!(
+            data.translevel_at(70 % OW_WIDTH_TILES as usize as u32, 70 / OW_WIDTH_TILES as usize as u32),
+            Some(1)
+        );
+        assert_eq!(
+            data.translevel_at(130 % OW_WIDTH_TILES as usize as u32, 130 / OW_WIDTH_TILES as usize as u32),
+            Some(2)
+        );
         // Not a level tile.
         assert_eq!(data.translevel_at(0, 0), None);
     }
@@ -345,6 +356,10 @@ mod tests {
         let opcode_pc = AddrPc::try_from_lorom(LEVEL_NUMBER_PATCH_OPERAND_SNES).unwrap().0 as usize - 1;
         assert_eq!(rom_bytes[opcode_pc], 0xBF, "expected LDA.L opcode right before the patch operand");
         let operand = &rom_bytes[opcode_pc + 1..opcode_pc + 4];
-        assert_eq!(operand, &[0x00, 0xD0, 0x7E], "expected the operand to currently point at OWLayer1Translevel ($7ED000)");
+        assert_eq!(
+            operand,
+            &[0x00, 0xD0, 0x7E],
+            "expected the operand to currently point at OWLayer1Translevel ($7ED000)"
+        );
     }
 }

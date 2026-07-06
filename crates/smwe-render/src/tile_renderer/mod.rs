@@ -21,10 +21,10 @@ pub struct TileRenderer {
 
 #[derive(Debug)]
 pub struct TileUniforms {
-    pub gfx_bufs:    GfxBuffers,
+    pub gfx_bufs: GfxBuffers,
     pub screen_size: Vec2,
-    pub offset:      Vec2,
-    pub zoom:        f32,
+    pub offset: Vec2,
+    pub zoom: f32,
 }
 
 #[derive(Copy, Clone, Debug, Default, Shrinkwrap)]
@@ -33,13 +33,13 @@ pub struct Tile(pub [u32; 4]);
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TileJson {
-    x:         u32,
-    y:         u32,
-    tile_id:   u32,
-    scale:     u8,
+    x: u32,
+    y: u32,
+    tile_id: u32,
+    scale: u8,
     color_row: u8,
-    flip_x:    bool,
-    flip_y:    bool,
+    flip_x: bool,
+    flip_y: bool,
 }
 
 #[derive(Debug, Error)]
@@ -49,12 +49,11 @@ pub struct TileDeserializeError;
 impl TileRenderer {
     pub fn new(gl: &Context) -> Self {
         let shader_sources = ShaderSources {
-            vertex_shader:   VERTEX_SHADER_SRC,
+            vertex_shader: VERTEX_SHADER_SRC,
             geometry_shader: Some(GEOMETRY_SHADER_SRC),
             fragment_shader: FRAGMENT_SHADER_SRC,
         };
-        let vertex_attribute =
-            GlVertexAttribute { index: 0, size: 4, data_type: INT, stride: 0, offset: 0 };
+        let vertex_attribute = GlVertexAttribute { index: 0, size: 4, data_type: INT, stride: 0, offset: 0 };
         let renderer = BasicRenderer::new(gl, shader_sources, vertex_attribute, POINTS);
         Self { renderer }
     }
@@ -198,13 +197,13 @@ impl Tile {
 impl From<Tile> for TileJson {
     fn from(value: Tile) -> Self {
         Self {
-            x:         value[0],
-            y:         value[1],
-            tile_id:   value.tile_num(),
-            scale:     value.scale() as u8,
+            x: value[0],
+            y: value[1],
+            tile_id: value.tile_num(),
+            scale: value.scale() as u8,
             color_row: value.color_row() as u8,
-            flip_x:    value.flip_x(),
-            flip_y:    value.flip_y(),
+            flip_x: value.flip_x(),
+            flip_y: value.flip_y(),
         }
     }
 }

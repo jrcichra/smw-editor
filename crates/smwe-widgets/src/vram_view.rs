@@ -27,11 +27,11 @@ pub enum VramSelectionMode {
 
 #[derive(Debug)]
 pub struct VramView<'a> {
-    renderer:     Arc<Mutex<TileRenderer>>,
-    gfx_bufs:     GfxBuffers,
+    renderer: Arc<Mutex<TileRenderer>>,
+    gfx_bufs: GfxBuffers,
     viewed_tiles: ViewedVramTiles,
-    selection:    Option<(VramSelectionMode, &'a mut (u32, u32))>,
-    zoom:         f32,
+    selection: Option<(VramSelectionMode, &'a mut (u32, u32))>,
+    zoom: f32,
 }
 
 impl<'a> VramView<'a> {
@@ -98,12 +98,10 @@ impl Widget for VramView<'_> {
         ui.painter().add(PaintCallback {
             rect,
             callback: Arc::new(CallbackFn::new(move |_info, painter| {
-                renderer.lock().expect("Cannot lock mutex on VRAM renderer").paint(painter.gl(), &TileUniforms {
-                    gfx_bufs,
-                    screen_size,
-                    offset,
-                    zoom,
-                });
+                renderer
+                    .lock()
+                    .expect("Cannot lock mutex on VRAM renderer")
+                    .paint(painter.gl(), &TileUniforms { gfx_bufs, screen_size, offset, zoom });
             })),
         });
 

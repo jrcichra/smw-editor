@@ -90,7 +90,11 @@ impl UiLevelEditor {
         let tiles = match image_to_tiles(&img, format) {
             Ok(tiles) => tiles,
             Err(msg) => {
-                MessageDialog::new().set_level(MessageLevel::Error).set_buttons(MessageButtons::Ok).set_description(msg).show();
+                MessageDialog::new()
+                    .set_level(MessageLevel::Error)
+                    .set_buttons(MessageButtons::Ok)
+                    .set_description(msg)
+                    .show();
                 return;
             }
         };

@@ -4,27 +4,27 @@ use itertools::Itertools;
 #[derive(Clone, Debug)]
 pub struct BasicRenderer {
     shader_program: Program,
-    vao:            VertexArray,
-    vbo:            Buffer,
-    vertex_count:   usize,
+    vao: VertexArray,
+    vbo: Buffer,
+    vertex_count: usize,
     primitive_type: u32,
-    destroyed:      bool,
+    destroyed: bool,
 }
 
 #[derive(Copy, Clone, Debug)]
 pub struct ShaderSources {
-    pub vertex_shader:   &'static str,
+    pub vertex_shader: &'static str,
     pub geometry_shader: Option<&'static str>,
     pub fragment_shader: &'static str,
 }
 
 #[derive(Copy, Clone, Debug)]
 pub struct GlVertexAttribute {
-    pub index:     u32,
-    pub size:      i32,
+    pub index: u32,
+    pub size: i32,
     pub data_type: u32,
-    pub stride:    i32,
-    pub offset:    i32,
+    pub stride: i32,
+    pub offset: i32,
 }
 
 pub trait BindUniforms {

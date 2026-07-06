@@ -57,7 +57,8 @@ pub fn create_patch(source: &[u8], target: &[u8], config: BpsConfig) -> Result<V
             while source_offset + length < source.len()
                 && target_offset + length < target.len()
                 && source[source_offset + length] == target[target_offset + length]
-                && length < 0x1000000 // Reasonable limit
+                && length < 0x1000000
+            // Reasonable limit
             {
                 length += 1;
             }
@@ -71,7 +72,8 @@ pub fn create_patch(source: &[u8], target: &[u8], config: BpsConfig) -> Result<V
             // Use TargetRead for differing bytes
             let mut length = 0;
             while target_offset + length < target.len()
-                && (source_offset + length >= source.len() || source[source_offset + length] != target[target_offset + length])
+                && (source_offset + length >= source.len()
+                    || source[source_offset + length] != target[target_offset + length])
                 && length < 0x1000000
             {
                 // Skip if we'd get a better match with SourceRead
@@ -147,9 +149,7 @@ mod tests {
         let target = b"best";
         let metadata = b"<?xml version=\"1.0\"?><patch><author>Test</author></patch>";
 
-        let config = BpsConfig {
-            metadata: metadata.to_vec(),
-        };
+        let config = BpsConfig { metadata: metadata.to_vec() };
         let patch = create_patch(source, target, config).expect("patch creation failed");
 
         assert!(patch.starts_with(b"BPS1"));

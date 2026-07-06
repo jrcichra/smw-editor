@@ -217,7 +217,18 @@ impl OwL1TilePicker {
                 let flip_x = (t & 0x4000) != 0;
                 let flip_y = (t & 0x8000) != 0;
 
-                render_l1_sub_tile(vram, cgram, tile_num, pal, flip_x, flip_y, x0 + sx, y0 + sy, &mut self.pixels, L1_TEX_W);
+                render_l1_sub_tile(
+                    vram,
+                    cgram,
+                    tile_num,
+                    pal,
+                    flip_x,
+                    flip_y,
+                    x0 + sx,
+                    y0 + sy,
+                    &mut self.pixels,
+                    L1_TEX_W,
+                );
             }
         }
 
@@ -281,10 +292,9 @@ fn render_l1_sub_tile(
             let b2 = vram[row_off + 16];
             let b3 = vram[row_off + 17];
             let bit = 7 - px as usize;
-            let color_idx = (((b0 >> bit) & 1)
-                | (((b1 >> bit) & 1) << 1)
-                | (((b2 >> bit) & 1) << 2)
-                | (((b3 >> bit) & 1) << 3)) as usize;
+            let color_idx =
+                (((b0 >> bit) & 1) | (((b1 >> bit) & 1) << 1) | (((b2 >> bit) & 1) << 2) | (((b3 >> bit) & 1) << 3))
+                    as usize;
 
             if color_idx == 0 {
                 continue;

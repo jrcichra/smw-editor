@@ -242,9 +242,7 @@ impl UiMainWindow {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "output.smc".to_string());
 
-        self.save_as_dialog = FileDialog::new()
-            .initial_directory(initial_dir)
-            .default_file_name(&initial_name);
+        self.save_as_dialog = FileDialog::new().initial_directory(initial_dir).default_file_name(&initial_name);
         self.save_as_dialog.save_file();
     }
 
@@ -262,9 +260,7 @@ impl UiMainWindow {
             .map(|n| format!("{}.bps", n.to_string_lossy()))
             .unwrap_or_else(|| "output.bps".to_string());
 
-        self.bps_export_dialog = FileDialog::new()
-            .initial_directory(initial_dir)
-            .default_file_name(&initial_name);
+        self.bps_export_dialog = FileDialog::new().initial_directory(initial_dir).default_file_name(&initial_name);
         self.bps_export_dialog.save_file();
     }
 
@@ -282,9 +278,7 @@ impl UiMainWindow {
             .map(|n| format!("{}.ips", n.to_string_lossy()))
             .unwrap_or_else(|| "output.ips".to_string());
 
-        self.ips_export_dialog = FileDialog::new()
-            .initial_directory(initial_dir)
-            .default_file_name(&initial_name);
+        self.ips_export_dialog = FileDialog::new().initial_directory(initial_dir).default_file_name(&initial_name);
         self.ips_export_dialog.save_file();
     }
 
@@ -330,10 +324,7 @@ impl UiMainWindow {
     }
 
     fn create_bps_patch(
-        &self,
-        _rom: &Arc<SmwRom>,
-        original_rom_path: &std::path::Path,
-        patch_dest: &std::path::Path,
+        &self, _rom: &Arc<SmwRom>, original_rom_path: &std::path::Path, patch_dest: &std::path::Path,
     ) -> anyhow::Result<()> {
         // Read the original ROM to generate patch against it
         let original_bytes = std::fs::read(original_rom_path)
@@ -378,10 +369,7 @@ impl UiMainWindow {
     }
 
     fn create_ips_patch(
-        &self,
-        _rom: &Arc<SmwRom>,
-        original_rom_path: &std::path::Path,
-        patch_dest: &std::path::Path,
+        &self, _rom: &Arc<SmwRom>, original_rom_path: &std::path::Path, patch_dest: &std::path::Path,
     ) -> anyhow::Result<()> {
         // Read the original ROM to generate patch against it
         let original_bytes = std::fs::read(original_rom_path)
@@ -472,7 +460,6 @@ impl UiMainWindow {
                             self.open_tool(UiSpriteMapEditor::new(Arc::clone(&self.gl), Arc::clone(rom.unwrap())));
                             ui.close_menu();
                         }
-
                     });
                 });
 
@@ -497,8 +484,8 @@ impl UiMainWindow {
     }
 
     fn write_rom_to_path(&self, source_path: &std::path::Path, dest_path: &std::path::Path) -> anyhow::Result<()> {
-        let mut rom_bytes = std::fs::read(source_path)
-            .with_context(|| format!("Failed to read ROM from {}", source_path.display()))?;
+        let mut rom_bytes =
+            std::fs::read(source_path).with_context(|| format!("Failed to read ROM from {}", source_path.display()))?;
         let has_smc_header = rom_bytes.len() % 0x400 == 0x200;
         for (_, tab) in self.dock_state.iter_all_tabs() {
             tab.save_to_rom(&mut rom_bytes, has_smc_header)?;

@@ -371,7 +371,9 @@ pub(super) fn render_sprite_preview_image(sprite_tiles: &[SpriteOamTile], cpu: &
     }
 }
 
-fn render_signed_sprite_sub_tile(vram: &[u8], cgram: &[u8], t: u16, x0: i32, y0: i32, pixels: &mut [u8], stride: usize) {
+fn render_signed_sprite_sub_tile(
+    vram: &[u8], cgram: &[u8], t: u16, x0: i32, y0: i32, pixels: &mut [u8], stride: usize,
+) {
     let tile_num = ((t & 0x01FF) as usize) + 0x600;
     let pal = (((t >> 9) & 0x7) as usize) + 8;
     let flip_x = (t & 0x4000) != 0;

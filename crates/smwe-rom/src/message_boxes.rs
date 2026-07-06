@@ -27,7 +27,10 @@
 //! `ClearMessageStripe`), which is exact ground truth for the vanilla U ROM,
 //! not a guess: each message's length is exactly the gap to the next label.
 
-use crate::snes_utils::{addr::{AddrPc, AddrSnes}, rom::Rom};
+use crate::snes_utils::{
+    addr::{AddrPc, AddrSnes},
+    rom::Rom,
+};
 
 pub const MESSAGE_BOXES_SNES: AddrSnes = AddrSnes(0x05A5D9);
 /// Exclusive end of the message data (start of `ClearMessageStripe`, real

@@ -54,8 +54,8 @@ impl Mapper {
 
 #[derive(Debug, Clone)]
 pub struct Rom {
-    buf:     Vec<u8>,
-    mapper:  Mapper,
+    buf: Vec<u8>,
+    mapper: Mapper,
     symbols: HashMap<String, u32>,
 }
 
@@ -99,7 +99,9 @@ pub fn detect_mapper(buf: &[u8]) -> Mapper {
     // not model; warn so garbled output is at least explained.
     if let Some(&rom_type) = buf.get(0x7FD6).filter(|_| lo_ok).or_else(|| buf.get(0xFFD6).filter(|_| hi_ok)) {
         match rom_type & 0xF0 {
-            0x30 => log::warn!("ROM declares SA-1 ($33-$36); SA-1 mapping is not yet supported and rendering may be wrong"),
+            0x30 => {
+                log::warn!("ROM declares SA-1 ($33-$36); SA-1 mapping is not yet supported and rendering may be wrong")
+            }
             0x10 => log::warn!("ROM declares SuperFX; this mapper is not supported"),
             _ => {}
         }

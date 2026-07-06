@@ -142,29 +142,29 @@ impl UiLevelEditor {
         // ── Draw exit markers (subtle gold badges over GL tiles) ───
         if let Some(layer_data) = self.editing_objects() {
             layer_data.read(|layer| {
-            for exit in &layer.exits {
-                let sx = if props.is_vertical { 0 } else { exit.screen as u32 };
-                let sy = if props.is_vertical { exit.screen as u32 } else { 0 };
-                let ex = (sx * scr_w) as f32 * tile_sz;
-                let ey = (sy * scr_h) as f32 * tile_sz;
-                let er = Rect::from_min_size(origin + vec2(ex, ey), Vec2::splat(tile_sz * 2.0));
-                painter.rect_filled(er, CornerRadius::same(3), Color32::from_rgba_unmultiplied(255, 220, 0, 120));
-                painter.rect_stroke(
-                    er,
-                    CornerRadius::same(3),
-                    Stroke::new(1.5, Color32::from_rgba_unmultiplied(255, 200, 0, 200)),
-                    StrokeKind::Outside,
-                );
-                if z >= 0.8 {
-                    painter.text(
-                        er.center(),
-                        Align2::CENTER_CENTER,
-                        format!("→{:03X}", exit.id),
-                        FontId::proportional(7.0 * z.min(1.5)),
-                        Color32::BLACK,
+                for exit in &layer.exits {
+                    let sx = if props.is_vertical { 0 } else { exit.screen as u32 };
+                    let sy = if props.is_vertical { exit.screen as u32 } else { 0 };
+                    let ex = (sx * scr_w) as f32 * tile_sz;
+                    let ey = (sy * scr_h) as f32 * tile_sz;
+                    let er = Rect::from_min_size(origin + vec2(ex, ey), Vec2::splat(tile_sz * 2.0));
+                    painter.rect_filled(er, CornerRadius::same(3), Color32::from_rgba_unmultiplied(255, 220, 0, 120));
+                    painter.rect_stroke(
+                        er,
+                        CornerRadius::same(3),
+                        Stroke::new(1.5, Color32::from_rgba_unmultiplied(255, 200, 0, 200)),
+                        StrokeKind::Outside,
                     );
+                    if z >= 0.8 {
+                        painter.text(
+                            er.center(),
+                            Align2::CENTER_CENTER,
+                            format!("→{:03X}", exit.id),
+                            FontId::proportional(7.0 * z.min(1.5)),
+                            Color32::BLACK,
+                        );
+                    }
                 }
-            }
             });
         }
 
@@ -173,7 +173,8 @@ impl UiLevelEditor {
             let spawn_x = self.mario_spawn_x as f32 * tile_sz;
             let spawn_y = self.mario_spawn_y as f32 * tile_sz;
             let spawn_pos = origin + vec2(spawn_x, spawn_y);
-            let spawn_rect = Rect::from_center_size(spawn_pos + vec2(tile_sz / 2.0, tile_sz / 2.0), Vec2::splat(tile_sz));
+            let spawn_rect =
+                Rect::from_center_size(spawn_pos + vec2(tile_sz / 2.0, tile_sz / 2.0), Vec2::splat(tile_sz));
 
             let is_hovering = resp.hover_pos().is_some_and(|p| spawn_rect.contains(p));
             let spawn_color = if self.dragging_spawn || is_hovering {
@@ -250,59 +251,59 @@ impl UiLevelEditor {
 
             if let Some(layer_data) = self.editing_objects() {
                 layer_data.read(|layer| {
-                for (i, obj) in layer.objects.iter().enumerate() {
-                    let (w, h) = if obj.is_extended {
-                        (1_u32, 1_u32)
-                    } else {
-                        let w = (obj.settings & 0x0F) as u32 + 1;
-                        let h = (obj.settings >> 4) as u32 + 1;
-                        (w.max(1), h.max(1))
-                    };
+                    for (i, obj) in layer.objects.iter().enumerate() {
+                        let (w, h) = if obj.is_extended {
+                            (1_u32, 1_u32)
+                        } else {
+                            let w = (obj.settings & 0x0F) as u32 + 1;
+                            let h = (obj.settings >> 4) as u32 + 1;
+                            (w.max(1), h.max(1))
+                        };
 
-                    let pos = origin + vec2(obj.x as f32 * tile_sz, obj.y as f32 * tile_sz);
-                    let rect = Rect::from_min_size(pos, vec2(w as f32 * tile_sz, h as f32 * tile_sz));
-                    if rect.max.x < view_rect.min.x
-                        || rect.min.x > view_rect.max.x
-                        || rect.max.y < view_rect.min.y
-                        || rect.min.y > view_rect.max.y
-                    {
-                        continue;
-                    }
+                        let pos = origin + vec2(obj.x as f32 * tile_sz, obj.y as f32 * tile_sz);
+                        let rect = Rect::from_min_size(pos, vec2(w as f32 * tile_sz, h as f32 * tile_sz));
+                        if rect.max.x < view_rect.min.x
+                            || rect.min.x > view_rect.max.x
+                            || rect.max.y < view_rect.min.y
+                            || rect.min.y > view_rect.max.y
+                        {
+                            continue;
+                        }
 
-                    let selected = self.selected_object_indices.contains(&i);
-                    let fill = obj_color(obj.id, obj.is_extended);
-                    painter.rect_filled(rect, CornerRadius::same(2), fill);
-                    painter.rect_stroke(
-                        rect,
-                        CornerRadius::same(2),
-                        Stroke::new(1.0, fill.linear_multiply(2.0)),
-                        StrokeKind::Outside,
-                    );
-
-                    if selected {
+                        let selected = self.selected_object_indices.contains(&i);
+                        let fill = obj_color(obj.id, obj.is_extended);
+                        painter.rect_filled(rect, CornerRadius::same(2), fill);
                         painter.rect_stroke(
-                            rect.expand(1.0),
+                            rect,
                             CornerRadius::same(2),
-                            Stroke::new(2.0, Color32::from_rgb(255, 220, 0)),
+                            Stroke::new(1.0, fill.linear_multiply(2.0)),
                             StrokeKind::Outside,
                         );
-                    }
 
-                    if self.show_object_labels && z >= 0.9 {
-                        let label = if obj.is_extended {
-                            format!("E{:02X}", obj.extended_id)
-                        } else {
-                            format!("{:02X}", obj.id)
-                        };
-                        painter.text(
-                            rect.left_top() + vec2(2.0, 2.0),
-                            Align2::LEFT_TOP,
-                            label,
-                            FontId::monospace(9.0),
-                            Color32::BLACK,
-                        );
+                        if selected {
+                            painter.rect_stroke(
+                                rect.expand(1.0),
+                                CornerRadius::same(2),
+                                Stroke::new(2.0, Color32::from_rgb(255, 220, 0)),
+                                StrokeKind::Outside,
+                            );
+                        }
+
+                        if self.show_object_labels && z >= 0.9 {
+                            let label = if obj.is_extended {
+                                format!("E{:02X}", obj.extended_id)
+                            } else {
+                                format!("{:02X}", obj.id)
+                            };
+                            painter.text(
+                                rect.left_top() + vec2(2.0, 2.0),
+                                Align2::LEFT_TOP,
+                                label,
+                                FontId::monospace(9.0),
+                                Color32::BLACK,
+                            );
+                        }
                     }
-                }
                 });
             }
         }
@@ -310,41 +311,43 @@ impl UiLevelEditor {
         if self.show_sprite_overlay || self.edit_sprites || !self.selected_sprite_indices.is_empty() {
             let sprite_entries = self.sprites.read(|sprites| sprites.sprites.clone());
             for (i, spr) in sprite_entries.iter().enumerate() {
-                    let (min_dx, min_dy, max_dx, max_dy) =
-                        self.sprite_pixel_bounds(spr.sprite_id).unwrap_or((0, 0, 16, 16));
-                    let pos = origin + vec2(spr.x as f32 * tile_sz + min_dx as f32 * z, spr.y as f32 * tile_sz + min_dy as f32 * z);
-                    let rect = Rect::from_min_size(
-                        pos,
-                        vec2((max_dx - min_dx) as f32 * z, (max_dy - min_dy) as f32 * z),
+                let (min_dx, min_dy, max_dx, max_dy) =
+                    self.sprite_pixel_bounds(spr.sprite_id).unwrap_or((0, 0, 16, 16));
+                let pos = origin
+                    + vec2(spr.x as f32 * tile_sz + min_dx as f32 * z, spr.y as f32 * tile_sz + min_dy as f32 * z);
+                let rect = Rect::from_min_size(pos, vec2((max_dx - min_dx) as f32 * z, (max_dy - min_dy) as f32 * z));
+                if rect.max.x < view_rect.min.x
+                    || rect.min.x > view_rect.max.x
+                    || rect.max.y < view_rect.min.y
+                    || rect.min.y > view_rect.max.y
+                {
+                    continue;
+                }
+                let selected = self.selected_sprite_indices.contains(&i);
+                let fill = if selected {
+                    Color32::from_rgba_unmultiplied(255, 120, 0, 50)
+                } else {
+                    Color32::from_rgba_unmultiplied(255, 80, 80, 28)
+                };
+                painter.rect_filled(rect, CornerRadius::same(2), fill);
+                painter.rect_stroke(
+                    rect,
+                    CornerRadius::same(2),
+                    Stroke::new(
+                        2.0,
+                        if selected { Color32::from_rgb(255, 120, 0) } else { Color32::from_rgb(255, 80, 80) },
+                    ),
+                    StrokeKind::Outside,
+                );
+                if self.show_object_labels && z >= 0.9 {
+                    painter.text(
+                        rect.left_top() + vec2(2.0, 2.0),
+                        Align2::LEFT_TOP,
+                        format!("S{:02X}", spr.sprite_id),
+                        FontId::monospace(9.0),
+                        Color32::WHITE,
                     );
-                    if rect.max.x < view_rect.min.x
-                        || rect.min.x > view_rect.max.x
-                        || rect.max.y < view_rect.min.y
-                        || rect.min.y > view_rect.max.y
-                    {
-                        continue;
-                    }
-                    let selected = self.selected_sprite_indices.contains(&i);
-                    let fill = if selected {
-                        Color32::from_rgba_unmultiplied(255, 120, 0, 50)
-                    } else {
-                        Color32::from_rgba_unmultiplied(255, 80, 80, 28)
-                    };
-                    painter.rect_filled(rect, CornerRadius::same(2), fill);
-                    painter.rect_stroke(rect, CornerRadius::same(2), Stroke::new(2.0, if selected {
-                        Color32::from_rgb(255, 120, 0)
-                    } else {
-                        Color32::from_rgb(255, 80, 80)
-                    }), StrokeKind::Outside);
-                    if self.show_object_labels && z >= 0.9 {
-                        painter.text(
-                            rect.left_top() + vec2(2.0, 2.0),
-                            Align2::LEFT_TOP,
-                            format!("S{:02X}", spr.sprite_id),
-                            FontId::monospace(9.0),
-                            Color32::WHITE,
-                        );
-                    }
+                }
             }
         }
 
@@ -356,7 +359,12 @@ impl UiLevelEditor {
             if tx >= 0 && ty >= 0 && (tx as u32) < level_w && (ty as u32) < level_h {
                 let tile_rect =
                     Rect::from_min_size(origin + vec2(tx as f32 * tile_sz, ty as f32 * tile_sz), Vec2::splat(tile_sz));
-                painter.rect_stroke(tile_rect, CornerRadius::ZERO, Stroke::new(1.0, Color32::WHITE), StrokeKind::Outside);
+                painter.rect_stroke(
+                    tile_rect,
+                    CornerRadius::ZERO,
+                    Stroke::new(1.0, Color32::WHITE),
+                    StrokeKind::Outside,
+                );
 
                 // Tile inspection click (only in Select mode with no object selected,
                 // or always when holding Alt for quick inspection)
@@ -409,7 +417,12 @@ impl UiLevelEditor {
         // ── Selected tile highlight ────────────────────────────
         if let Some((x, y)) = self.selected_tile {
             let r = Rect::from_min_size(origin + vec2(x as f32 * tile_sz, y as f32 * tile_sz), Vec2::splat(tile_sz));
-            painter.rect_stroke(r, CornerRadius::ZERO, Stroke::new(2.0, Color32::from_rgb(255, 220, 0)), StrokeKind::Outside);
+            painter.rect_stroke(
+                r,
+                CornerRadius::ZERO,
+                Stroke::new(2.0, Color32::from_rgb(255, 220, 0)),
+                StrokeKind::Outside,
+            );
         }
 
         // ── Unsaved changes dialog ────────────────────────────

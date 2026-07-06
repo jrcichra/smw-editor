@@ -1,4 +1,4 @@
-use egui::{Color32, Context, Rect, Sense, Ui, Vec2, vec2};
+use egui::{vec2, Color32, Context, Rect, Sense, Ui, Vec2};
 
 use super::UiLevelEditor;
 
@@ -11,19 +11,16 @@ impl UiLevelEditor {
             return;
         }
         let mut open = self.show_palette_editor;
-        egui::Window::new("Palette Editor")
-            .open(&mut open)
-            .resizable(false)
-            .show(ctx, |ui| {
-                ui.label("Click a color swatch to edit it. Changes save with Ctrl+S.");
-                ui.separator();
+        egui::Window::new("Palette Editor").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.label("Click a color swatch to edit it. Changes save with Ctrl+S.");
+            ui.separator();
 
-                self.palette_group(ui, "BG Palette", 0);
-                ui.separator();
-                self.palette_group(ui, "FG Palette", 1);
-                ui.separator();
-                self.palette_group(ui, "Sprite Palette", 2);
-            });
+            self.palette_group(ui, "BG Palette", 0);
+            ui.separator();
+            self.palette_group(ui, "FG Palette", 1);
+            ui.separator();
+            self.palette_group(ui, "Sprite Palette", 2);
+        });
         self.show_palette_editor = open;
     }
 

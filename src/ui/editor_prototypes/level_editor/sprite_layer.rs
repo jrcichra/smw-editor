@@ -87,12 +87,7 @@ impl Undo for EditableSpriteLayer {
             let x = b1 >> 4;
             let screen = (b1 & 0x0F) | ((b0 & 0x02) << 3);
             let extra_bits = (b0 >> 2) & 0x03;
-            sprites.push(EditableSprite {
-                x: (screen as u32) * 16 + x as u32,
-                y: y as u32,
-                sprite_id,
-                extra_bits,
-            });
+            sprites.push(EditableSprite { x: (screen as u32) * 16 + x as u32, y: y as u32, sprite_id, extra_bits });
             i += 3;
         }
         Self { sprites }

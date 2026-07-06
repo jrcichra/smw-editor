@@ -38,20 +38,20 @@ pub struct EmptyAnimationError;
 
 #[derive(Clone)]
 pub struct AnimationState {
-    id:            Id,
-    atlas:         TextureHandle,
-    frame_count:   usize,
-    frame_size:    [usize; 2],
+    id: Id,
+    atlas: TextureHandle,
+    frame_count: usize,
+    frame_size: [usize; 2],
     loop_progress: f32,
-    started:       bool,
+    started: bool,
 }
 
 pub struct Flipbook<'a> {
     animation: &'a mut AnimationState,
-    size:      Vec2,
-    duration:  f32,
-    looped:    bool,
-    reverse:   bool,
+    size: Vec2,
+    duration: f32,
+    looped: bool,
+    reverse: bool,
 }
 
 // -------------------------------------------------------------------------------------------------

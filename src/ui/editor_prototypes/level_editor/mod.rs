@@ -15,6 +15,7 @@ mod sprite_catalog;
 mod sprite_layer;
 mod sprite_tweaker_editor;
 mod tile_picker;
+mod title_credits_editor;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -39,7 +40,9 @@ use smwe_rom::{
 
 use self::{
     background_layer::EditableBackgroundLayer,
-    level_renderer::LevelRenderer, object_layer::EditableObjectLayer, properties::LevelProperties,
+    level_renderer::LevelRenderer,
+    object_layer::EditableObjectLayer,
+    properties::LevelProperties,
     sprite_layer::EditableSpriteLayer,
     tile_picker::{BgTilePicker, TilePicker},
 };
@@ -147,6 +150,12 @@ pub struct UiLevelEditor {
     message_boxes_dirty: bool,
     show_message_editor: bool,
     message_editor_selected: usize,
+
+    // Title screen / ending credits fixed-location data.
+    title_credits: smwe_rom::title_credits::TitleCreditsData,
+    title_credits_dirty: bool,
+    show_title_credits_editor: bool,
+    credits_editor_selected: usize,
 }
 
 impl UiLevelEditor {
@@ -161,6 +170,7 @@ impl UiLevelEditor {
         let cpu = smwe_emu::Cpu::new(CheckedMem::new(Arc::new(emu_rom)));
         let sprite_tweakers = rom.sprite_tweakers.clone();
         let message_boxes = rom.message_boxes.clone();
+        let title_credits = rom.title_credits.clone();
 
         let mut editor = Self {
             gl,
@@ -234,6 +244,10 @@ impl UiLevelEditor {
             message_boxes_dirty: false,
             show_message_editor: false,
             message_editor_selected: 0,
+            title_credits,
+            title_credits_dirty: false,
+            show_title_credits_editor: false,
+            credits_editor_selected: 0,
         };
         editor.load_level();
         Ok(editor)
@@ -252,6 +266,7 @@ impl DockableEditorTool for UiLevelEditor {
         self.sprite_tweaker_editor_window(&ctx);
         self.gfx_editor_window(&ctx);
         self.message_editor_window(&ctx);
+        self.title_credits_editor_window(&ctx);
         SidePanel::left("level_editor.left_panel").resizable(false).show_inside(ui, |ui| self.left_panel(ui));
         CentralPanel::default().frame(Frame::NONE.inner_margin(0.)).show_inside(ui, |ui| self.central_panel(ui));
     }
@@ -297,8 +312,8 @@ impl DockableEditorTool for UiLevelEditor {
         {
             let tbl_pc = AddrPc::try_from_lorom(AddrSnes(0x05E000))?.as_index();
             let ptr_off = tbl_pc + header_offset + level_idx * 3;
-            let old_snes = read_u24(rom_bytes, ptr_off)
-                .ok_or_else(|| anyhow::anyhow!("L1 pointer table out of range"))?;
+            let old_snes =
+                read_u24(rom_bytes, ptr_off).ok_or_else(|| anyhow::anyhow!("L1 pointer table out of range"))?;
             let old_file = AddrPc::try_from_lorom(AddrSnes(old_snes))?.as_index() + header_offset;
 
             let old_block = PRIMARY_HEADER_SIZE + level.layer1.as_bytes().len();
@@ -307,9 +322,9 @@ impl DockableEditorTool for UiLevelEditor {
             let dest = if new_block <= old_block {
                 old_file
             } else {
-                let pc = find_free_space(rom_bytes, new_block, 0x008000, header_offset)
-                    .ok_or_else(|| anyhow::anyhow!(
-                        "No free space for level {:03X} layer 1 ({} bytes)", self.level_num, new_block))?;
+                let pc = find_free_space(rom_bytes, new_block, 0x008000, header_offset).ok_or_else(|| {
+                    anyhow::anyhow!("No free space for level {:03X} layer 1 ({} bytes)", self.level_num, new_block)
+                })?;
                 rom_bytes[old_file..old_file + old_block].fill(0xFF);
                 let b = AddrSnes::try_from_lorom(AddrPc(pc as u32))?.0.to_le_bytes();
                 rom_bytes[ptr_off..ptr_off + 3].copy_from_slice(&b[..3]);
@@ -331,14 +346,14 @@ impl DockableEditorTool for UiLevelEditor {
         {
             let tbl_pc = AddrPc::try_from_lorom(AddrSnes(0x05EC00))?.as_index();
             let ptr_off = tbl_pc + header_offset + level_idx * 2;
-            let old_offset = read_u16(rom_bytes, ptr_off)
-                .ok_or_else(|| anyhow::anyhow!("Sprite pointer table out of range"))?;
+            let old_offset =
+                read_u16(rom_bytes, ptr_off).ok_or_else(|| anyhow::anyhow!("Sprite pointer table out of range"))?;
             let old_snes = AddrSnes(old_offset as u32 | 0x070000);
             let old_file = AddrPc::try_from_lorom(old_snes)?.as_index() + header_offset;
 
             // Read sprite-header byte before any possible erasure.
-            let sprite_hdr = *rom_bytes.get(old_file)
-                .ok_or_else(|| anyhow::anyhow!("Sprite header byte out of range"))?;
+            let sprite_hdr =
+                *rom_bytes.get(old_file).ok_or_else(|| anyhow::anyhow!("Sprite header byte out of range"))?;
             let old_block = 1 + level.sprite_layer.as_bytes().len();
             let new_block = 1 + new_sprites.len();
 
@@ -348,9 +363,15 @@ impl DockableEditorTool for UiLevelEditor {
                 // Must stay in bank $07: SNES $078000-$07FFFF = PC $038000-$03FFFF.
                 let bank7_start = AddrPc::try_from_lorom(AddrSnes(0x078000))?.as_index();
                 let bank7_end = bank7_start + 0x8000;
-                let pc = find_free_space_in(rom_bytes, new_block, bank7_start, bank7_end, header_offset)
-                    .ok_or_else(|| anyhow::anyhow!(
-                        "No free space in bank $07 for level {:03X} sprite data ({} bytes)", self.level_num, new_block))?;
+                let pc = find_free_space_in(rom_bytes, new_block, bank7_start, bank7_end, header_offset).ok_or_else(
+                    || {
+                        anyhow::anyhow!(
+                            "No free space in bank $07 for level {:03X} sprite data ({} bytes)",
+                            self.level_num,
+                            new_block
+                        )
+                    },
+                )?;
                 rom_bytes[old_file..old_file + old_block].fill(0xFF);
                 let new_off = AddrSnes::try_from_lorom(AddrPc(pc as u32))?.0 as u16;
                 rom_bytes[ptr_off..ptr_off + 2].copy_from_slice(&new_off.to_le_bytes());
@@ -372,8 +393,8 @@ impl DockableEditorTool for UiLevelEditor {
         {
             let tbl_pc = AddrPc::try_from_lorom(AddrSnes(0x05E600))?.as_index();
             let ptr_off = tbl_pc + header_offset + level_idx * 3;
-            let l2_raw = read_u24(rom_bytes, ptr_off)
-                .ok_or_else(|| anyhow::anyhow!("L2 pointer table out of range"))?;
+            let l2_raw =
+                read_u24(rom_bytes, ptr_off).ok_or_else(|| anyhow::anyhow!("L2 pointer table out of range"))?;
 
             match (&level.layer2, &self.layer2_objects, &self.layer2_background) {
                 (Layer2Data::Objects(objects), Some(layer2), _) => {
@@ -390,9 +411,13 @@ impl DockableEditorTool for UiLevelEditor {
                         // Save the existing L2 header before erasing.
                         let mut l2_hdr = [0u8; PRIMARY_HEADER_SIZE];
                         l2_hdr.copy_from_slice(&rom_bytes[old_file..old_file + PRIMARY_HEADER_SIZE]);
-                        let pc = find_free_space(rom_bytes, new_block, 0x008000, header_offset)
-                            .ok_or_else(|| anyhow::anyhow!(
-                                "No free space for level {:03X} layer 2 ({} bytes)", self.level_num, new_block))?;
+                        let pc = find_free_space(rom_bytes, new_block, 0x008000, header_offset).ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "No free space for level {:03X} layer 2 ({} bytes)",
+                                self.level_num,
+                                new_block
+                            )
+                        })?;
                         rom_bytes[old_file..old_file + old_block].fill(0xFF);
                         let b = AddrSnes::try_from_lorom(AddrPc(pc as u32))?.0.to_le_bytes();
                         rom_bytes[ptr_off..ptr_off + 3].copy_from_slice(&b[..3]);
@@ -421,9 +446,15 @@ impl DockableEditorTool for UiLevelEditor {
                         // Background data lives in bank $0C: SNES $0C8000-$0CFFFF = PC $060000-$067FFF.
                         let bank0c_start = AddrPc::try_from_lorom(AddrSnes(0x0C8000))?.as_index();
                         let bank0c_end = bank0c_start + 0x8000;
-                        let pc = find_free_space_in(rom_bytes, compressed.len(), bank0c_start, bank0c_end, header_offset)
-                            .ok_or_else(|| anyhow::anyhow!(
-                                "No free space in bank $0C for level {:03X} layer 2 bg ({} bytes)", self.level_num, compressed.len()))?;
+                        let pc =
+                            find_free_space_in(rom_bytes, compressed.len(), bank0c_start, bank0c_end, header_offset)
+                                .ok_or_else(|| {
+                                    anyhow::anyhow!(
+                                        "No free space in bank $0C for level {:03X} layer 2 bg ({} bytes)",
+                                        self.level_num,
+                                        compressed.len()
+                                    )
+                                })?;
                         rom_bytes[old_file..old_file + old_size].fill(0xFF);
                         // Pointer stores bank $FF with the same 16-bit offset used in bank $0C.
                         let new_snes_0c = AddrSnes::try_from_lorom(AddrPc(pc as u32))?;
@@ -586,7 +617,8 @@ impl DockableEditorTool for UiLevelEditor {
         if self.message_boxes_dirty {
             let (blob, pointers) = self.message_boxes.to_blob_and_pointers()?;
 
-            let blob_pc = AddrPc::try_from_lorom(smwe_rom::message_boxes::MESSAGE_BOXES_SNES)?.as_index() + header_offset;
+            let blob_pc =
+                AddrPc::try_from_lorom(smwe_rom::message_boxes::MESSAGE_BOXES_SNES)?.as_index() + header_offset;
             rom_bytes[blob_pc..blob_pc + blob.len()].copy_from_slice(&blob);
             // Zero-fill any shrunk tail so it doesn't look like stray data.
             let max_end = blob_pc + smwe_rom::message_boxes::MESSAGE_BOXES_MAX_SIZE;
@@ -594,11 +626,55 @@ impl DockableEditorTool for UiLevelEditor {
                 rom_bytes[blob_pc + blob.len()..max_end].fill(0xFF);
             }
 
-            let ptr_pc = AddrPc::try_from_lorom(smwe_rom::message_boxes::MESSAGE_POINTER_TABLE_SNES)?.as_index() + header_offset;
+            let ptr_pc =
+                AddrPc::try_from_lorom(smwe_rom::message_boxes::MESSAGE_POINTER_TABLE_SNES)?.as_index() + header_offset;
             for (i, &offset) in pointers.iter().enumerate() {
                 let [lo, hi] = offset.to_le_bytes();
                 rom_bytes[ptr_pc + i * 2] = lo;
                 rom_bytes[ptr_pc + i * 2 + 1] = hi;
+            }
+        }
+
+        // ── Title screen / credits fixed-location data ───────────────────────
+        if self.title_credits_dirty {
+            let title_submap_pc =
+                AddrPc::try_from_lorom(smwe_rom::title_credits::TITLE_SUBMAP_OPERAND_SNES)?.as_index() + header_offset;
+            *rom_bytes
+                .get_mut(title_submap_pc)
+                .ok_or_else(|| anyhow::anyhow!("Title submap operand out of range"))? = self.title_credits.title_submap;
+
+            let input_pc =
+                AddrPc::try_from_lorom(smwe_rom::title_credits::TITLE_INPUT_SEQ_SNES)?.as_index() + header_offset;
+            let input_bytes = self.title_credits.title_input_bytes()?;
+            let input_end = input_pc + smwe_rom::title_credits::TITLE_INPUT_SEQ_MAX_SIZE;
+            rom_bytes
+                .get_mut(input_pc..input_end)
+                .ok_or_else(|| anyhow::anyhow!("Title input sequence out of range"))?
+                .fill(0xFF);
+            rom_bytes[input_pc..input_pc + input_bytes.len()].copy_from_slice(&input_bytes);
+
+            self.title_credits.validate_title_screen_stripe()?;
+            let title_stripe_pc =
+                AddrPc::try_from_lorom(smwe_rom::title_credits::TITLE_SCREEN_STRIPE_SNES)?.as_index() + header_offset;
+            let title_stripe_end = title_stripe_pc + smwe_rom::title_credits::TITLE_SCREEN_STRIPE_MAX_SIZE;
+            rom_bytes
+                .get_mut(title_stripe_pc..title_stripe_end)
+                .ok_or_else(|| anyhow::anyhow!("Title screen stripe image out of range"))?
+                .fill(0xFF);
+            rom_bytes[title_stripe_pc..title_stripe_pc + self.title_credits.title_screen_stripe.len()]
+                .copy_from_slice(&self.title_credits.title_screen_stripe);
+
+            for (i, stripe) in self.title_credits.enemy_name_stripes.iter().enumerate() {
+                let slot_size = smwe_rom::title_credits::TitleCreditsData::enemy_name_slot_size(i);
+                smwe_rom::title_credits::TitleCreditsData::validate_enemy_name_stripe(i, stripe)?;
+                let pc = AddrPc::try_from_lorom(smwe_rom::title_credits::ENEMY_NAME_STRIPE_STARTS[i])?.as_index()
+                    + header_offset;
+                let end = pc + slot_size;
+                rom_bytes
+                    .get_mut(pc..end)
+                    .ok_or_else(|| anyhow::anyhow!("Credits enemy stripe {i:02X} out of range"))?
+                    .fill(0xFF);
+                rom_bytes[pc..pc + stripe.len()].copy_from_slice(stripe);
             }
         }
 
@@ -653,11 +729,11 @@ impl DockableEditorTool for UiLevelEditor {
     fn on_save_succeeded(&mut self) {
         self.has_edits = false;
         self.palette_dirty = false;
+        self.title_credits_dirty = false;
         self.initial_spawn_x = self.mario_spawn_x;
         self.initial_spawn_y = self.mario_spawn_y;
     }
 }
-
 
 fn read_u16(rom_bytes: &[u8], file_off: usize) -> Option<u16> {
     let b = rom_bytes.get(file_off..file_off + 2)?;
@@ -710,7 +786,8 @@ impl UiLevelEditor {
                 }
                 Layer2Data::Background(bg) => {
                     self.layer2_objects = None;
-                    self.layer2_background = Some(UndoableData::new(EditableBackgroundLayer::new(bg.tile_ids().to_vec())));
+                    self.layer2_background =
+                        Some(UndoableData::new(EditableBackgroundLayer::new(bg.tile_ids().to_vec())));
                 }
             }
             (level.sprite_layer.clone(), level.secondary_header.vertical_level())
@@ -767,12 +844,7 @@ impl UiLevelEditor {
         renderer.upload_gfx(&self.gl, &self.cpu.mem.vram);
         renderer.upload_level(&self.gl, &mut self.cpu, &self.rom, self.level_properties.fg_bg_gfx);
         let sprite_list = self.sprites.read(|sprites| sprites.sprites.clone());
-        renderer.upload_editable_sprites(
-            &self.gl,
-            &sprite_list,
-            &oam_map,
-            is_vertical,
-        );
+        renderer.upload_editable_sprites(&self.gl, &sprite_list, &oam_map, is_vertical);
         drop(renderer);
 
         // Rebuild the tile picker from the loaded level's tileset.
@@ -780,8 +852,7 @@ impl UiLevelEditor {
         self.bg_tile_picker.rebuild(&mut self.cpu);
 
         // ── Secondary entrance data ──────────────────────────────────────────
-        self.secondary_entrance_data =
-            self.rom.secondary_entrances.iter().map(|se| se.bytes()).collect();
+        self.secondary_entrance_data = self.rom.secondary_entrances.iter().map(|se| se.bytes()).collect();
 
         // ── Palette data ─────────────────────────────────────────────────────
         {
@@ -843,7 +914,8 @@ impl UiLevelEditor {
             return;
         }
         let is_vertical = self.rom.levels[level_idx].secondary_header.vertical_level();
-        let mut unique_ids: Vec<u8> = self.sprites.read(|sprites| sprites.sprites.iter().map(|s| s.sprite_id).collect());
+        let mut unique_ids: Vec<u8> =
+            self.sprites.read(|sprites| sprites.sprites.iter().map(|s| s.sprite_id).collect());
         unique_ids.sort_unstable();
         unique_ids.dedup();
 

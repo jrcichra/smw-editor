@@ -17,12 +17,12 @@ where
     V: Numeric,
     L: Into<WidgetText>,
 {
-    value:            &'a mut V,
-    label:            L,
-    buttons:          ValueSwitcherButtons,
-    range:            RangeInclusive<V>,
+    value: &'a mut V,
+    label: L,
+    buttons: ValueSwitcherButtons,
+    range: RangeInclusive<V>,
     custom_formatter: Option<NumFormatter<'a>>,
-    custom_parser:    Option<NumParser<'a>>,
+    custom_parser: Option<NumParser<'a>>,
 }
 
 impl<'a, V, L> ValueSwitcher<'a, V, L>

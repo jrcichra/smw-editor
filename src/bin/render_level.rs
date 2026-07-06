@@ -6,18 +6,17 @@ use smwe_emu::{emu::CheckedMem, rom::Rom as EmuRom, Cpu};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let level = args.iter().find_map(|a| a.strip_prefix("--level=")).and_then(|s| u16::from_str_radix(s.trim_start_matches("0x"), 16).ok()).unwrap_or(0x105);
+    let level = args
+        .iter()
+        .find_map(|a| a.strip_prefix("--level="))
+        .and_then(|s| u16::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+        .unwrap_or(0x105);
     let output = args.iter().find_map(|a| a.strip_prefix("--out=")).unwrap_or("/tmp/level.png");
     let rom_path = args
         .iter()
         .find_map(|a| a.strip_prefix("--rom="))
         .map(Path::new)
-        .or_else(|| {
-            args.iter()
-                .skip(1)
-                .find(|a| !a.starts_with("--"))
-                .map(|a| Path::new(a))
-        })
+        .or_else(|| args.iter().skip(1).find(|a| !a.starts_with("--")).map(|a| Path::new(a)))
         .unwrap_or_else(|| Path::new("smw.smc"));
     let inspect = args.iter().find_map(|a| a.strip_prefix("--inspect=")).and_then(|s| {
         let (x, y) = s.split_once(',')?;
@@ -295,8 +294,8 @@ fn render_sp_tile(vram: &[u8], cgram: &[u8], x: u32, y: u32, t: u16, width: u32,
 
 #[allow(clippy::too_many_arguments)]
 fn render_tile(
-    vram: &[u8], cgram: &[u8], tile_id: usize, palette: usize, flip_x: bool, flip_y: bool, x0: u32, y0: u32, width: u32,
-    pixels: &mut [u8],
+    vram: &[u8], cgram: &[u8], tile_id: usize, palette: usize, flip_x: bool, flip_y: bool, x0: u32, y0: u32,
+    width: u32, pixels: &mut [u8],
 ) {
     let tile_base = tile_id * 32;
     for ty in 0..8u32 {

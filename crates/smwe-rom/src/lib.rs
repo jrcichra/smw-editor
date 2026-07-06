@@ -11,6 +11,7 @@ pub mod objects;
 pub mod overworld;
 pub mod snes_utils;
 pub mod sprite_tweakers;
+pub mod title_credits;
 
 use std::{fs, path::Path};
 
@@ -28,12 +29,13 @@ use crate::{
     message_boxes::MessageBoxes,
     objects::tilesets::Tilesets,
     overworld::{OverworldData, OverworldEvents},
-    sprite_tweakers::SpriteTweakers,
     snes_utils::{
         addr::AddrSnes,
         rom::{Rom, RomError},
         rom_slice::SnesSlice,
     },
+    sprite_tweakers::SpriteTweakers,
+    title_credits::TitleCreditsData,
 };
 
 // -------------------------------------------------------------------------------------------------
@@ -50,6 +52,7 @@ pub struct SmwRom {
     pub overworld_events: OverworldEvents,
     pub sprite_tweakers: SpriteTweakers,
     pub message_boxes: MessageBoxes,
+    pub title_credits: TitleCreditsData,
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -94,11 +97,10 @@ impl SmwRom {
         let map16_tilesets = Tilesets::parse(&mut disassembly)?;
 
         log::info!("Parsing overworld data");
-        let overworld = OverworldData::parse(&disassembly.rom)
-            .unwrap_or_else(|e| {
-                log::warn!("Could not parse overworld data: {e}");
-                OverworldData { layer1_tiles: vec![0u8; overworld::OWL1_TILE_DATA_SIZE] }
-            });
+        let overworld = OverworldData::parse(&disassembly.rom).unwrap_or_else(|e| {
+            log::warn!("Could not parse overworld data: {e}");
+            OverworldData { layer1_tiles: vec![0u8; overworld::OWL1_TILE_DATA_SIZE] }
+        });
 
         log::info!("Parsing overworld event data");
         let overworld_events = OverworldEvents::parse(&disassembly.rom).unwrap_or_else(|e| {
@@ -129,6 +131,12 @@ impl SmwRom {
             MessageBoxes { messages: vec![Vec::new(); message_boxes::MESSAGE_COUNT] }
         });
 
+        log::info!("Parsing title screen / credits data");
+        let title_credits = TitleCreditsData::parse(&disassembly.rom).unwrap_or_else(|e| {
+            log::warn!("Could not parse title screen / credits data: {e}");
+            TitleCreditsData::empty()
+        });
+
         Ok(Self {
             disassembly,
             internal_header,
@@ -140,6 +148,7 @@ impl SmwRom {
             overworld_events,
             sprite_tweakers,
             message_boxes,
+            title_credits,
         })
     }
 
@@ -193,11 +202,7 @@ impl SmwRom {
     ///   <description>A description of your ROM hack</description>
     /// </patch>
     /// ```
-    pub fn create_bps_patch_with_metadata(
-        &self,
-        original_rom: &[u8],
-        metadata: Vec<u8>,
-    ) -> anyhow::Result<Vec<u8>> {
+    pub fn create_bps_patch_with_metadata(&self, original_rom: &[u8], metadata: Vec<u8>) -> anyhow::Result<Vec<u8>> {
         let modified_rom = self.disassembly.rom.0.to_vec();
         let config = smwe_bps::BpsConfig { metadata };
         let patch = smwe_bps::create_patch(original_rom, &modified_rom, config)?;

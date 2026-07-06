@@ -457,7 +457,10 @@ mod encode_tests {
     #[test]
     #[ignore]
     fn real_gfx_file_tile_encode_round_trip() {
-        use crate::{compression::lc_lz2, snes_utils::addr::{AddrPc, AddrSnes}};
+        use crate::{
+            compression::lc_lz2,
+            snes_utils::addr::{AddrPc, AddrSnes},
+        };
 
         let rom_path = std::env::var("ROM_PATH").expect("set ROM_PATH");
         let raw = std::fs::read(rom_path).expect("read ROM");

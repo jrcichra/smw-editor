@@ -92,8 +92,8 @@ X"), and player (Mario/Yoshi) graphics customization.
 | ASM insertion tool / hijack manager | ⛔ | No user-facing ASM editor |
 | 65816 disassembler | ✅ (library only) | `crates/smwe-rom/src/disassembler`, `crates/wdc65816` — not exposed as a user-facing ASM editor |
 | ROM expansion (expand to 3/4MB, freespace tracking) | 🟡 | `src/rom_freespace.rs::find_free_space`/`find_free_space_in` (unified, tested) used by level layer1/layer2/sprite data, GFX files, message boxes, and overworld L2. Still a bank-scoped free-space *scanner*, not a general expand-ROM/global-freespace-map tool like LM's (no way to grow the ROM itself) |
-| Title screen editor | ⛔ | Not found |
-| Credits editor | ⛔ | Not found |
+| Title screen editor | 🟡 | `Title/Credits…` window in the level editor exposes fixed-slot title data: opening overworld submap immediate operand, title demo controller playback (`TitleScreenInputSeq`), and raw Layer-3 title stripe image (`TitleScreenStripe`). Still raw-byte editing for stripe data; no WYSIWYG title-logo/menu tilemap editor yet |
+| Credits editor | 🟡 | `Title/Credits…` window exposes raw ending enemy-name stripe images (`EnemyNameStripe00..0C`) with decoded text summaries and fixed-slot bounds checks. Staff roll text/scripts, credits scene scripts, HDMA, sprite choreography, and ending special enemy-name overlays are not modeled yet |
 
 ## Save / Export
 
@@ -122,6 +122,9 @@ X"), and player (Mario/Yoshi) graphics customization.
   understood but not fixed (see memory `custom-layer2-background`).
 - SA-1 and ExLoROM/ExHiROM ROMs are not supported by the mapper or ROM header
   parser (see memory `mapper-autodetection`).
+- Title/credits editing is currently U-ROM fixed-address only for the modeled
+  slots; non-U variants have different `TitleScreenInputSeq`/stripe addresses
+  in the symbols and need region-aware address selection before they are safe.
 
 ## Biggest gaps to close for parity (suggested priority)
 
