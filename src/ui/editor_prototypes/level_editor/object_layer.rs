@@ -10,26 +10,26 @@ const SCREEN_WIDTH: u32 = 16;
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::ui::editor_prototypes) struct EditableObject {
-    pub x: u32,
-    pub y: u32,
-    pub id: u8,
-    pub settings: u8,
+    pub x:           u32,
+    pub y:           u32,
+    pub id:          u8,
+    pub settings:    u8,
     pub is_extended: bool,
     pub extended_id: u8,
 }
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub(in crate::ui::editor_prototypes) struct EditableExit {
-    pub screen: u8,
-    pub midway: bool,
+    pub screen:    u8,
+    pub midway:    bool,
     pub secondary: bool,
-    pub id: u16,
+    pub id:        u16,
 }
 
 #[derive(Clone, Debug, Default)]
 pub(in crate::ui::editor_prototypes) struct EditableObjectLayer {
     pub objects: Vec<EditableObject>,
-    pub exits: Vec<EditableExit>,
+    pub exits:   Vec<EditableExit>,
 }
 
 impl EditableObject {
@@ -48,10 +48,10 @@ impl EditableObject {
         let abs_y = local_y + if vertical_level { current_screen * SCREEN_WIDTH } else { 0 };
 
         Some(EditableObject {
-            x: abs_x,
-            y: abs_y,
-            id: object.standard_object_number(),
-            settings: object.settings(),
+            x:           abs_x,
+            y:           abs_y,
+            id:          object.standard_object_number(),
+            settings:    object.settings(),
             is_extended: object.is_extended(),
             extended_id: object.settings(),
         })
@@ -81,10 +81,10 @@ impl EditableObject {
 impl EditableExit {
     pub fn from_raw(object: Object) -> Option<Self> {
         object.is_exit().then(|| EditableExit {
-            screen: object.screen_number(),
-            midway: object.is_midway(),
+            screen:    object.screen_number(),
+            midway:    object.is_midway(),
             secondary: object.is_secondary_exit(),
-            id: object.exit_id(),
+            id:        object.exit_id(),
         })
     }
 
@@ -284,10 +284,24 @@ mod tests {
     fn serializes_horizontal_objects_and_exits() {
         let layer = EditableObjectLayer {
             objects: vec![
-                EditableObject { x: 0, y: 0, id: 0x12, settings: 0x34, is_extended: false, extended_id: 0 },
-                EditableObject { x: 17, y: 5, id: 0x2F, settings: 0x56, is_extended: false, extended_id: 0 },
+                EditableObject {
+                    x:           0,
+                    y:           0,
+                    id:          0x12,
+                    settings:    0x34,
+                    is_extended: false,
+                    extended_id: 0,
+                },
+                EditableObject {
+                    x:           17,
+                    y:           5,
+                    id:          0x2F,
+                    settings:    0x56,
+                    is_extended: false,
+                    extended_id: 0,
+                },
             ],
-            exits: vec![EditableExit { screen: 3, midway: false, secondary: false, id: 0x0123 }],
+            exits:   vec![EditableExit { screen: 3, midway: false, secondary: false, id: 0x0123 }],
         };
 
         let bytes = layer.serialize_layer1_bytes(false).unwrap();
@@ -299,10 +313,24 @@ mod tests {
     fn serializes_vertical_objects_with_screen_jump() {
         let layer = EditableObjectLayer {
             objects: vec![
-                EditableObject { x: 7, y: 18, id: 0x11, settings: 0xAA, is_extended: false, extended_id: 0 },
-                EditableObject { x: 9, y: 64, id: 0x22, settings: 0xBB, is_extended: false, extended_id: 0 },
+                EditableObject {
+                    x:           7,
+                    y:           18,
+                    id:          0x11,
+                    settings:    0xAA,
+                    is_extended: false,
+                    extended_id: 0,
+                },
+                EditableObject {
+                    x:           9,
+                    y:           64,
+                    id:          0x22,
+                    settings:    0xBB,
+                    is_extended: false,
+                    extended_id: 0,
+                },
             ],
-            exits: vec![],
+            exits:   vec![],
         };
 
         let bytes = layer.serialize_layer1_bytes(true).unwrap();

@@ -1,5 +1,6 @@
-use smwe_emu::{emu::CheckedMem, rom::Rom as EmuRom, Cpu};
 use std::{env, path::Path, sync::Arc};
+
+use smwe_emu::{emu::CheckedMem, rom::Rom as EmuRom, Cpu};
 
 fn make_cpu(rom_bytes: Vec<u8>) -> Cpu {
     let mut emu_rom = EmuRom::new(rom_bytes);

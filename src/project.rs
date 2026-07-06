@@ -15,8 +15,8 @@ const MAX_RECENT_FILES: usize = 10;
 #[derive(Debug)]
 pub struct Project {
     pub title: String,
-    pub rom: Arc<SmwRom>,
-    pub path: PathBuf,
+    pub rom:   Arc<SmwRom>,
+    pub path:  PathBuf,
 }
 
 pub type ProjectRef = Rc<RefCell<Project>>;

@@ -103,9 +103,9 @@ impl UiLevelEditor {
         let new_idx = self.sprites.read(|sprites| sprites.sprites.len());
         self.sprites.write(|sprites| {
             sprites.sprites.push(super::sprite_layer::EditableSprite {
-                x: anchor_x,
-                y: anchor_y,
-                sprite_id: self.draw_sprite_id,
+                x:          anchor_x,
+                y:          anchor_y,
+                sprite_id:  self.draw_sprite_id,
                 extra_bits: self.draw_sprite_extra_bits,
             });
         });
@@ -213,10 +213,10 @@ impl UiLevelEditor {
         let h = if self.draw_object_settings >> 4 == 0 { 1_u32 } else { ((self.draw_object_settings >> 4) + 1) as u32 };
 
         let new_obj = EditableObject {
-            x: tx,
-            y: ty,
-            id: self.draw_object_id,
-            settings: self.draw_object_settings,
+            x:           tx,
+            y:           ty,
+            id:          self.draw_object_id,
+            settings:    self.draw_object_settings,
             is_extended: false,
             extended_id: 0,
         };

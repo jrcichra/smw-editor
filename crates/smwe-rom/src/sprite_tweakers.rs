@@ -102,9 +102,65 @@ macro_rules! bit_accessor {
 impl SpriteTweakers {
     // Tweaker A ($1656): sSjJcccc
     bit_accessor!(smoke_on_death, set_smoke_on_death, tweaker_a, 7);
+
     bit_accessor!(hop_in_kick_shells, set_hop_in_kick_shells, tweaker_a, 6);
+
     bit_accessor!(dies_when_jumped_on, set_dies_when_jumped_on, tweaker_a, 5);
+
     bit_accessor!(can_be_jumped_on, set_can_be_jumped_on, tweaker_a, 4);
+
+    // Tweaker B ($1662): dscccccc
+    bit_accessor!(falls_when_killed, set_falls_when_killed, tweaker_b, 7);
+
+    bit_accessor!(use_shell_death_frame, set_use_shell_death_frame, tweaker_b, 6);
+
+    // Tweaker C ($166E): lwcfpppg
+    bit_accessor!(no_layer2_interaction, set_no_layer2_interaction, tweaker_c, 7);
+
+    bit_accessor!(disable_water_splash, set_disable_water_splash, tweaker_c, 6);
+
+    bit_accessor!(disable_cape_killing, set_disable_cape_killing, tweaker_c, 5);
+
+    bit_accessor!(disable_fireball_killing, set_disable_fireball_killing, tweaker_c, 4);
+
+    bit_accessor!(use_second_gfx_page, set_use_second_gfx_page, tweaker_c, 0);
+
+    // Tweaker D ($167A): dpmksPiS
+    bit_accessor!(no_default_interaction, set_no_default_interaction, tweaker_d, 7);
+
+    bit_accessor!(powerup_from_yoshi, set_powerup_from_yoshi, tweaker_d, 6);
+
+    bit_accessor!(process_interaction_every_frame, set_process_interaction_every_frame, tweaker_d, 5);
+
+    bit_accessor!(cant_be_kicked, set_cant_be_kicked, tweaker_d, 4);
+
+    bit_accessor!(no_shell_when_stunned, set_no_shell_when_stunned, tweaker_d, 3);
+
+    bit_accessor!(process_offscreen, set_process_offscreen, tweaker_d, 2);
+
+    bit_accessor!(invincible_to_star, set_invincible_to_star, tweaker_d, 1);
+
+    bit_accessor!(no_clipping_change_on_star_kill, set_no_clipping_change_on_star_kill, tweaker_d, 0);
+
+    // Tweaker E ($1686): dnctswye
+    bit_accessor!(no_object_interaction, set_no_object_interaction, tweaker_e, 7);
+
+    bit_accessor!(spawns_new_sprite, set_spawns_new_sprite, tweaker_e, 6);
+
+    bit_accessor!(no_coin_on_goal, set_no_coin_on_goal, tweaker_e, 5);
+
+    bit_accessor!(no_direction_change_on_touch, set_no_direction_change_on_touch, tweaker_e, 4);
+
+    bit_accessor!(no_sprite_interaction, set_no_sprite_interaction, tweaker_e, 3);
+
+    bit_accessor!(weird_ground_behavior, set_weird_ground_behavior, tweaker_e, 2);
+
+    bit_accessor!(stay_in_yoshi_mouth, set_stay_in_yoshi_mouth, tweaker_e, 1);
+
+    bit_accessor!(inedible, set_inedible, tweaker_e, 0);
+
+    // Tweaker F ($190F): two-tiles-high flag (bit 0 per community docs/usage).
+    bit_accessor!(two_tiles_high, set_two_tiles_high, tweaker_f, 0);
 
     pub fn object_clipping(&self, sprite_id: u8) -> u8 {
         self.tweaker_a.get(sprite_id as usize).copied().unwrap_or(0) & 0x0F
@@ -116,10 +172,6 @@ impl SpriteTweakers {
         }
     }
 
-    // Tweaker B ($1662): dscccccc
-    bit_accessor!(falls_when_killed, set_falls_when_killed, tweaker_b, 7);
-    bit_accessor!(use_shell_death_frame, set_use_shell_death_frame, tweaker_b, 6);
-
     pub fn sprite_clipping(&self, sprite_id: u8) -> u8 {
         self.tweaker_b.get(sprite_id as usize).copied().unwrap_or(0) & 0x3F
     }
@@ -130,13 +182,6 @@ impl SpriteTweakers {
         }
     }
 
-    // Tweaker C ($166E): lwcfpppg
-    bit_accessor!(no_layer2_interaction, set_no_layer2_interaction, tweaker_c, 7);
-    bit_accessor!(disable_water_splash, set_disable_water_splash, tweaker_c, 6);
-    bit_accessor!(disable_cape_killing, set_disable_cape_killing, tweaker_c, 5);
-    bit_accessor!(disable_fireball_killing, set_disable_fireball_killing, tweaker_c, 4);
-    bit_accessor!(use_second_gfx_page, set_use_second_gfx_page, tweaker_c, 0);
-
     pub fn palette(&self, sprite_id: u8) -> u8 {
         (self.tweaker_c.get(sprite_id as usize).copied().unwrap_or(0) >> 1) & 0x07
     }
@@ -146,29 +191,6 @@ impl SpriteTweakers {
             *b = (*b & !0x0E) | ((value & 0x07) << 1);
         }
     }
-
-    // Tweaker D ($167A): dpmksPiS
-    bit_accessor!(no_default_interaction, set_no_default_interaction, tweaker_d, 7);
-    bit_accessor!(powerup_from_yoshi, set_powerup_from_yoshi, tweaker_d, 6);
-    bit_accessor!(process_interaction_every_frame, set_process_interaction_every_frame, tweaker_d, 5);
-    bit_accessor!(cant_be_kicked, set_cant_be_kicked, tweaker_d, 4);
-    bit_accessor!(no_shell_when_stunned, set_no_shell_when_stunned, tweaker_d, 3);
-    bit_accessor!(process_offscreen, set_process_offscreen, tweaker_d, 2);
-    bit_accessor!(invincible_to_star, set_invincible_to_star, tweaker_d, 1);
-    bit_accessor!(no_clipping_change_on_star_kill, set_no_clipping_change_on_star_kill, tweaker_d, 0);
-
-    // Tweaker E ($1686): dnctswye
-    bit_accessor!(no_object_interaction, set_no_object_interaction, tweaker_e, 7);
-    bit_accessor!(spawns_new_sprite, set_spawns_new_sprite, tweaker_e, 6);
-    bit_accessor!(no_coin_on_goal, set_no_coin_on_goal, tweaker_e, 5);
-    bit_accessor!(no_direction_change_on_touch, set_no_direction_change_on_touch, tweaker_e, 4);
-    bit_accessor!(no_sprite_interaction, set_no_sprite_interaction, tweaker_e, 3);
-    bit_accessor!(weird_ground_behavior, set_weird_ground_behavior, tweaker_e, 2);
-    bit_accessor!(stay_in_yoshi_mouth, set_stay_in_yoshi_mouth, tweaker_e, 1);
-    bit_accessor!(inedible, set_inedible, tweaker_e, 0);
-
-    // Tweaker F ($190F): two-tiles-high flag (bit 0 per community docs/usage).
-    bit_accessor!(two_tiles_high, set_two_tiles_high, tweaker_f, 0);
 }
 
 #[cfg(test)]

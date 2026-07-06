@@ -14,11 +14,11 @@ const L1_TEX_W: usize = L1_COLS * L1_TILE_PX; // 256
 const L1_TEX_H: usize = L1_ROWS * L1_TILE_PX; // 256
 
 pub(super) struct OwTilePicker {
-    pixels: Vec<u8>,            // RGBA
+    pixels:     Vec<u8>,        // RGBA
     used_tiles: Vec<(u16, u8)>, // (tile_num, palette_row) — unique tiles used by this submap
-    texture: Option<TextureHandle>,
-    tex_w: usize,
-    tex_h: usize,
+    texture:    Option<TextureHandle>,
+    tex_w:      usize,
+    tex_h:      usize,
 }
 
 impl OwTilePicker {
@@ -150,6 +150,7 @@ impl OwTilePicker {
             None
         }
     }
+
     /// Get the grid column and row for a given tile number and palette.
     pub fn tile_grid_pos(&self, tile_num: u8, palette: u8) -> Option<(usize, usize)> {
         self.used_tiles
@@ -169,9 +170,9 @@ fn tilemap_addr(base: usize, col: u32, row: u32) -> usize {
 
 /// L1 overworld tile picker: renders all 256 L1 tile IDs as a 16×16 grid.
 pub(super) struct OwL1TilePicker {
-    pixels: Vec<u8>,
+    pixels:  Vec<u8>,
     texture: Option<TextureHandle>,
-    dirty: bool,
+    dirty:   bool,
 }
 
 impl OwL1TilePicker {

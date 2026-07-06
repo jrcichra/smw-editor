@@ -8,10 +8,14 @@ use crate::{
     },
     level::Level,
     objects::{
-        animated_tile_data::AnimatedTileData, map16::Block, object_gfx_list::ObjectGfxList, tilesets::TILESETS_COUNT,
+        animated_tile_data::AnimatedTileData,
+        map16::Block,
+        object_gfx_list::ObjectGfxList,
+        tilesets::TILESETS_COUNT,
     },
     snes_utils::addr::AddrSnes,
-    RegionCode, RomInternalHeader,
+    RegionCode,
+    RomInternalHeader,
 };
 
 pub mod gfx_file;
@@ -33,9 +37,9 @@ pub enum BlockGfx<'t> {
 
 #[derive(Debug)]
 pub struct Gfx {
-    pub files: Vec<GfxFile>,
-    pub color_palettes: ColorPalettes,
-    pub object_gfx_list: ObjectGfxList,
+    pub files:              Vec<GfxFile>,
+    pub color_palettes:     ColorPalettes,
+    pub object_gfx_list:    ObjectGfxList,
     pub animated_tile_data: AnimatedTileData,
 }
 

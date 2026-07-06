@@ -16,7 +16,7 @@ pub struct SpriteInstance([u8; SPRITE_INSTANCE_SIZE]);
 #[derive(Debug, Clone)]
 pub struct SpriteLayer {
     pub sprites: Vec<SpriteInstance>,
-    raw_bytes: Vec<u8>,
+    raw_bytes:   Vec<u8>,
 }
 
 impl SpriteInstance {

@@ -4,9 +4,9 @@ use crate::undo::Undo;
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct EditableSprite {
-    pub x: u32,
-    pub y: u32,
-    pub sprite_id: u8,
+    pub x:          u32,
+    pub y:          u32,
+    pub sprite_id:  u8,
     pub extra_bits: u8,
 }
 

@@ -1,5 +1,6 @@
-use smwe_rom::{objects::Object, SmwRom};
 use std::env;
+
+use smwe_rom::{objects::Object, SmwRom};
 
 fn place_obj_0db1c8(
     tile_map: &mut std::collections::HashMap<(u32, u32), usize>, s_lo: u32, s_hi: u32, base_x: i32, base_y: i32,

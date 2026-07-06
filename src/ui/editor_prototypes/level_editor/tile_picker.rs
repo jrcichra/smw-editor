@@ -19,15 +19,15 @@ const BG_ROWS: usize = BG_NUM_BLOCKS / COLS; // 16
 const BG_TEX_H: usize = BG_ROWS * BLOCK_PX; // 256
 
 pub(super) struct TilePicker {
-    pixels: Vec<u8>, // RGBA, TEX_W * TEX_H * 4
+    pixels:  Vec<u8>, // RGBA, TEX_W * TEX_H * 4
     texture: Option<TextureHandle>,
-    dirty: bool,
+    dirty:   bool,
 }
 
 pub(super) struct BgTilePicker {
-    pixels: Vec<u8>,
+    pixels:  Vec<u8>,
     texture: Option<TextureHandle>,
-    dirty: bool,
+    dirty:   bool,
 }
 
 impl TilePicker {

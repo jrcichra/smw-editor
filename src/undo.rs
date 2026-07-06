@@ -11,23 +11,23 @@ pub trait Undo: Clone {
 
 #[derive(Debug)]
 pub struct UndoableData<Data: Undo> {
-    data: Data,
-    stack: UndoStack,
+    data:            Data,
+    stack:           UndoStack,
     max_size_so_far: usize,
 }
 
 #[derive(Debug, Default)]
 pub struct UndoStack {
-    step_stack: Vec<UndoStep>,
+    step_stack:  Vec<UndoStep>,
     step_number: usize,
 }
 
 #[derive(Debug, Default)]
 pub struct UndoStep {
     compressed_delta: Vec<u8>,
-    delta_size: usize,
-    old_size: usize,
-    new_size: usize,
+    delta_size:       usize,
+    old_size:         usize,
+    new_size:         usize,
 }
 
 impl<Data: Undo> UndoableData<Data> {

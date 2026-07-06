@@ -7,19 +7,19 @@ use smwe_render::palette_renderer::{PaletteRenderer, PaletteUniforms};
 
 #[derive(Debug)]
 pub struct PaletteView<'s> {
-    renderer: Arc<Mutex<PaletteRenderer>>,
-    palette_buf: Buffer,
+    renderer:        Arc<Mutex<PaletteRenderer>>,
+    palette_buf:     Buffer,
     viewed_palettes: ViewedPalettes,
-    selection: Option<SelectionType<'s>>,
-    size: Vec2,
+    selection:       Option<SelectionType<'s>>,
+    size:            Vec2,
 }
 
 #[derive(Copy, Clone, Debug)]
 #[repr(u32)]
 pub enum ViewedPalettes {
-    All = 0,
+    All            = 0,
     BackgroundOnly = 1,
-    SpritesOnly = 2,
+    SpritesOnly    = 2,
 }
 
 #[derive(Debug)]
@@ -47,11 +47,12 @@ impl<'s> PaletteView<'s> {
 impl Widget for PaletteView<'_> {
     fn ui(self, ui: &mut Ui) -> Response {
         let palette_renderer = Arc::clone(&self.renderer);
-        let uniforms = PaletteUniforms { palette_buf: self.palette_buf, viewed_palettes: self.viewed_palettes as u32 };
+        let uniforms =
+            PaletteUniforms { palette_buf: self.palette_buf, viewed_palettes: self.viewed_palettes as u32 };
         let (view_rect, mut response) = ui.allocate_exact_size(self.size, Sense::click());
 
         ui.painter().add(PaintCallback {
-            rect: view_rect,
+            rect:     view_rect,
             callback: Arc::new(CallbackFn::new(move |_info, painter| {
                 palette_renderer.lock().expect("Cannot lock mutex on palette renderer").paint(painter.gl(), &uniforms);
             })),

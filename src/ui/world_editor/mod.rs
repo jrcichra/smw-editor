@@ -19,8 +19,21 @@ use std::{
 };
 
 use egui::{
-    vec2, CentralPanel, Color32, CornerRadius, Frame, Key, PaintCallback, Rect, Sense, SidePanel, Stroke, StrokeKind,
-    Ui, Vec2, WidgetText,
+    vec2,
+    CentralPanel,
+    Color32,
+    CornerRadius,
+    Frame,
+    Key,
+    PaintCallback,
+    Rect,
+    Sense,
+    SidePanel,
+    Stroke,
+    StrokeKind,
+    Ui,
+    Vec2,
+    WidgetText,
 };
 use egui_glow::CallbackFn;
 use smwe_emu::{emu::CheckedMem, rom::Rom as EmuRom, Cpu};
@@ -28,8 +41,8 @@ use smwe_render::{
     gfx_buffers::GfxBuffers,
     tile_renderer::{Tile, TileRenderer, TileUniforms},
 };
-use smwe_rom::compression::lc_rle2;
 use smwe_rom::{
+    compression::lc_rle2,
     overworld::{OWL1_TILE_DATA_SIZE, OWL1_TILE_DATA_SNES, SUBMAP_NAMES},
     snes_utils::addr::{AddrPc, AddrSnes},
     SmwRom,
@@ -97,18 +110,18 @@ fn l1_vram_addr_for_map16(submap: u8, map16_x: u32, map16_y: u32) -> usize {
 
 #[derive(Debug)]
 struct OverworldRenderer {
-    layer1: TileRenderer,
-    layer2: TileRenderer,
-    gfx_bufs: GfxBuffers,
+    layer1:    TileRenderer,
+    layer2:    TileRenderer,
+    gfx_bufs:  GfxBuffers,
     destroyed: bool,
 }
 
 impl OverworldRenderer {
     fn new(gl: &glow::Context) -> Self {
         Self {
-            layer1: TileRenderer::new(gl),
-            layer2: TileRenderer::new(gl),
-            gfx_bufs: GfxBuffers::new(gl),
+            layer1:    TileRenderer::new(gl),
+            layer2:    TileRenderer::new(gl),
+            gfx_bufs:  GfxBuffers::new(gl),
             destroyed: false,
         }
     }
@@ -192,33 +205,33 @@ impl Undo for OverworldEditState {
 // ── Editor ────────────────────────────────────────────────────────────────────
 
 pub struct UiWorldEditor {
-    gl: Arc<glow::Context>,
+    gl:       Arc<glow::Context>,
     #[allow(dead_code)]
-    rom: Arc<SmwRom>,
-    cpu: Cpu,
+    rom:      Arc<SmwRom>,
+    cpu:      Cpu,
     renderer: Arc<Mutex<OverworldRenderer>>,
 
     submap: u8,
 
-    offset: Vec2,
-    zoom: f32,
-    show_grid: bool,
-    show_layer1: bool,
-    show_layer2: bool,
+    offset:        Vec2,
+    zoom:          f32,
+    show_grid:     bool,
+    show_layer1:   bool,
+    show_layer2:   bool,
     selected_tile: Option<(u32, u32)>,
-    needs_center: bool,
+    needs_center:  bool,
 
     // Editing state
-    editing_mode: EditingMode,
-    draw_tile_num: u8,
-    draw_palette: u8,
-    draw_tile_attr: u8,
-    tile_picker: ow_tile_picker::OwTilePicker,
-    l1_tile_picker: ow_tile_picker::OwL1TilePicker,
-    edit_layer: u8, // 1 or 2
-    preview_texture: Option<egui::TextureHandle>,
-    preview_for: Option<(u32, u32)>,
-    has_edits: bool,
+    editing_mode:          EditingMode,
+    draw_tile_num:         u8,
+    draw_palette:          u8,
+    draw_tile_attr:        u8,
+    tile_picker:           ow_tile_picker::OwTilePicker,
+    l1_tile_picker:        ow_tile_picker::OwL1TilePicker,
+    edit_layer:            u8, // 1 or 2
+    preview_texture:       Option<egui::TextureHandle>,
+    preview_for:           Option<(u32, u32)>,
+    has_edits:             bool,
     has_unsavable_changes: bool,
     pub(super) edit_state: UndoableData<OverworldEditState>,
 
@@ -235,7 +248,7 @@ pub struct UiWorldEditor {
     /// `smwe_rom::overworld::LEVEL_NUMBER_PATCH_OPERAND_SNES` for why this
     /// doesn't need new ASM code, just different data.
     custom_level_numbers: HashMap<usize, u8>,
-    level_numbers_dirty: bool,
+    level_numbers_dirty:  bool,
 }
 
 impl UiWorldEditor {
@@ -880,7 +893,7 @@ impl UiWorldEditor {
             let gl_zoom = z * ppp;
 
             ui.painter().add(PaintCallback {
-                rect: view_rect,
+                rect:     view_rect,
                 callback: Arc::new(CallbackFn::new(move |_info, painter| {
                     let r = renderer.lock().expect("Cannot lock overworld renderer");
                     r.paint(painter.gl().as_ref(), screen_sz, gl_zoom, gl_offset, draw_l1, draw_l2);

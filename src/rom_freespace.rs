@@ -16,6 +16,12 @@ pub fn find_free_space_in(
     rom_bytes: &[u8], needed: usize, pc_start: usize, pc_end: usize, header_offset: usize,
 ) -> Option<usize> {
     const BANK: usize = 0x8000;
+    // LoROM banks $70-$7D shadow SRAM in the lower half of the address space,
+    // so data placed at PC 0x380000+ isn't reachable through the plain bank
+    // number every existing pointer-write path derives from the PC address.
+    // Never hand out space there (matters once a ROM is expanded to 4 MB).
+    const LOROM_SRAM_BANKS_PC: usize = 0x38_0000;
+    let pc_end = pc_end.min(LOROM_SRAM_BANKS_PC);
     let mut run_start: Option<usize> = None;
     let mut run_len = 0usize;
     for pc in pc_start..pc_end {

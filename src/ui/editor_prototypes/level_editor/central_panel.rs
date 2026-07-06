@@ -1,7 +1,19 @@
 use std::{sync::Arc, time::Duration};
 
 use egui::{
-    vec2, Align2, Color32, CornerRadius, FontId, Key, PaintCallback, Rect, Sense, Stroke, StrokeKind, Ui, Vec2,
+    vec2,
+    Align2,
+    Color32,
+    CornerRadius,
+    FontId,
+    Key,
+    PaintCallback,
+    Rect,
+    Sense,
+    Stroke,
+    StrokeKind,
+    Ui,
+    Vec2,
 };
 use egui_glow::CallbackFn;
 
@@ -91,7 +103,7 @@ impl UiLevelEditor {
             let gl_offset = self.offset;
             let gl_zoom = z * ppp;
             ui.painter().add(PaintCallback {
-                rect: view_rect,
+                rect:     view_rect,
                 callback: Arc::new(CallbackFn::new(move |_info, painter| {
                     let mut r = level_renderer.lock().expect("Cannot lock level_renderer");
                     r.set_offset(gl_offset);

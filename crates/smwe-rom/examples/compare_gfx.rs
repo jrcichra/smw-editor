@@ -1,5 +1,6 @@
-use smwe_rom::SmwRom;
 use std::env;
+
+use smwe_rom::SmwRom;
 
 fn main() {
     let path = env::args().nth(1).expect("need rom path");

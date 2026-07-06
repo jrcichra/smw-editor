@@ -51,7 +51,7 @@ pub const OBJECT_TO_MAP16_TILESET: [usize; OBJECT_TILESETS_COUNT] = [
 #[derive(Debug)]
 pub struct Tilesets {
     pub tiles: Vec<Tile>,
-    lm_map16: Option<LmMap16>,
+    lm_map16:  Option<LmMap16>,
 }
 
 #[derive(Debug)]
@@ -143,8 +143,8 @@ pub fn object_tileset_to_map16_tileset(object_tileset: usize) -> usize {
 
 #[derive(Debug)]
 struct LmMap16 {
-    blocks: Vec<Block>,
-    present: Vec<bool>,
+    blocks:                 Vec<Block>,
+    present:                Vec<bool>,
     page2_tileset_specific: Option<Vec<[Block; TILESETS_COUNT]>>,
 }
 
@@ -212,11 +212,11 @@ fn parse_lm_map16(disasm: &mut RomDisassembly) -> Result<LmMap16, TilesetParseEr
     // - https://www.smwcentral.net/ (SMW Memory Map: Map16 page pointers)
     #[derive(Clone, Copy)]
     struct Range {
-        start: u8,
-        end: u8,
-        lo: u32,
-        bank: u32,
-        add: u32,
+        start:   u8,
+        end:     u8,
+        lo:      u32,
+        bank:    u32,
+        add:     u32,
         alt_add: Option<u32>,
     }
 
@@ -224,11 +224,25 @@ fn parse_lm_map16(disasm: &mut RomDisassembly) -> Result<LmMap16, TilesetParseEr
         Range { start: 0x02, end: 0x0F, lo: 0x06F553, bank: 0x06F557, add: 0, alt_add: Some(0x1000) },
         Range { start: 0x10, end: 0x1F, lo: 0x06F55C, bank: 0x06F560, add: 0, alt_add: Some(0x8000) },
         Range { start: 0x20, end: 0x2F, lo: 0x06F567, bank: 0x06F56B, add: 1, alt_add: None },
-        Range { start: 0x30, end: 0x3F, lo: 0x06F570, bank: 0x06F574, add: 1, alt_add: Some(0x8000 + 1) },
+        Range {
+            start:   0x30,
+            end:     0x3F,
+            lo:      0x06F570,
+            bank:    0x06F574,
+            add:     1,
+            alt_add: Some(0x8000 + 1),
+        },
         Range { start: 0x40, end: 0x4F, lo: 0x06F594, bank: 0x06F598, add: 0, alt_add: None },
         Range { start: 0x50, end: 0x5F, lo: 0x06F59D, bank: 0x06F5A1, add: 0, alt_add: Some(0x8000) },
         Range { start: 0x60, end: 0x6F, lo: 0x06F5A8, bank: 0x06F5AC, add: 1, alt_add: None },
-        Range { start: 0x70, end: 0x7F, lo: 0x06F5B1, bank: 0x06F5B5, add: 1, alt_add: Some(0x8000 + 1) },
+        Range {
+            start:   0x70,
+            end:     0x7F,
+            lo:      0x06F5B1,
+            bank:    0x06F5B5,
+            add:     1,
+            alt_add: Some(0x8000 + 1),
+        },
     ];
 
     let mut blocks = vec![blank_block(); 0x8000];

@@ -14,12 +14,12 @@ use super::sprite_layer::EditableSprite;
 #[allow(dead_code)]
 #[derive(Debug)]
 pub(super) struct LevelRenderer {
-    layer1: TileRenderer,
-    layer2: TileRenderer,
-    sprites: TileRenderer,
+    layer1:   TileRenderer,
+    layer2:   TileRenderer,
+    sprites:  TileRenderer,
     gfx_bufs: GfxBuffers,
 
-    offset: Vec2,
+    offset:    Vec2,
     destroyed: bool,
 }
 

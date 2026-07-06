@@ -1,5 +1,6 @@
-use smwe_emu::{emu::CheckedMem, rom::Rom as EmuRom, Cpu};
 use std::{path::Path, sync::Arc};
+
+use smwe_emu::{emu::CheckedMem, rom::Rom as EmuRom, Cpu};
 
 fn check_sprite(rom_bytes: &[u8], id: u8) {
     let mut emu_rom = EmuRom::new(rom_bytes.to_vec());

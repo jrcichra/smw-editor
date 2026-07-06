@@ -12,7 +12,8 @@ use crate::{
     compression::{lc_lz2, DecompressionError},
     disassembler::binary_block::DataKind,
     snes_utils::{addr::AddrSnes, rom_slice::SnesSlice},
-    RomDisassembly, RomError,
+    RomDisassembly,
+    RomError,
 };
 
 // -------------------------------------------------------------------------------------------------
@@ -74,7 +75,7 @@ pub struct Tile {
 #[derive(Debug, Clone)]
 pub struct GfxFile {
     pub tile_format: TileFormat,
-    pub tiles: Vec<Tile>,
+    pub tiles:       Vec<Tile>,
 }
 
 // -------------------------------------------------------------------------------------------------

@@ -165,11 +165,11 @@ pub const OW_EVENT_REVEAL_COUNT: usize = 22;
 #[derive(Debug)]
 pub struct OverworldEvents {
     /// `layer1_tiles` byte offset touched by each event, len `OW_EVENT_COUNT`.
-    pub tile_offsets: Vec<u16>,
+    pub tile_offsets:  Vec<u16>,
     /// "Before" tile IDs, len `OW_EVENT_REVEAL_COUNT`, parallel to `reveal_after`.
     pub reveal_before: Vec<u8>,
     /// "After" tile IDs, len `OW_EVENT_REVEAL_COUNT`, parallel to `reveal_before`.
-    pub reveal_after: Vec<u8>,
+    pub reveal_after:  Vec<u8>,
 }
 
 impl OverworldEvents {
@@ -286,12 +286,12 @@ mod tests {
     fn vanilla_events() -> OverworldEvents {
         // Values transcribed from SMWDisX bank_04.asm (DATA_04D85D/DATA_04DA1D/DATA_04DA33).
         OverworldEvents {
-            tile_offsets: vec![0x0000, 0x0000, 0x0000, 0x0469, 0x044B, 0x0429, 0x0409, 0x00D3, 0x00E5],
+            tile_offsets:  vec![0x0000, 0x0000, 0x0000, 0x0469, 0x044B, 0x0429, 0x0409, 0x00D3, 0x00E5],
             reveal_before: vec![
                 0x6E, 0x6F, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x59, 0x53, 0x52, 0x83, 0x4D, 0x57, 0x5A, 0x76, 0x78,
                 0x7A, 0x7B, 0x7D, 0x7F, 0x54,
             ],
-            reveal_after: vec![
+            reveal_after:  vec![
                 0x66, 0x67, 0x68, 0x69, 0x6A, 0x6B, 0x6C, 0x6D, 0x58, 0x43, 0x44, 0x45, 0x25, 0x5E, 0x5F, 0x77, 0x79,
                 0x63, 0x7C, 0x7E, 0x80, 0x23,
             ],

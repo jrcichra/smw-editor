@@ -113,9 +113,7 @@ impl UiLevelEditor {
                         egui::Grid::new("title_stripe_byte_grid").num_columns(8).spacing([4.0, 4.0]).show(ui, |ui| {
                             for (byte_i, byte) in self.title_credits.title_screen_stripe.iter_mut().enumerate() {
                                 let mut v = *byte as i32;
-                                if ui
-                                    .add(DragValue::new(&mut v).range(0..=0xFF).hexadecimal(2, false, false))
-                                    .changed()
+                                if ui.add(DragValue::new(&mut v).range(0..=0xFF).hexadecimal(2, false, false)).changed()
                                 {
                                     *byte = v as u8;
                                     self.title_credits_dirty = true;

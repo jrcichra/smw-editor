@@ -24,7 +24,8 @@ use crate::{
     internal_header::{InternalHeaderParseError, RegionCode, RomInternalHeader},
     level::{
         secondary_entrance::{SecondaryEntrance, SECONDARY_ENTRANCE_TABLE},
-        Level, LEVEL_COUNT,
+        Level,
+        LEVEL_COUNT,
     },
     message_boxes::MessageBoxes,
     objects::tilesets::Tilesets,
@@ -42,17 +43,17 @@ use crate::{
 
 #[derive(Debug)]
 pub struct SmwRom {
-    pub disassembly: RomDisassembly,
-    pub internal_header: RomInternalHeader,
-    pub levels: Vec<Level>,
+    pub disassembly:         RomDisassembly,
+    pub internal_header:     RomInternalHeader,
+    pub levels:              Vec<Level>,
     pub secondary_entrances: Vec<SecondaryEntrance>,
-    pub gfx: Gfx,
-    pub map16_tilesets: Tilesets,
-    pub overworld: OverworldData,
-    pub overworld_events: OverworldEvents,
-    pub sprite_tweakers: SpriteTweakers,
-    pub message_boxes: MessageBoxes,
-    pub title_credits: TitleCreditsData,
+    pub gfx:                 Gfx,
+    pub map16_tilesets:      Tilesets,
+    pub overworld:           OverworldData,
+    pub overworld_events:    OverworldEvents,
+    pub sprite_tweakers:     SpriteTweakers,
+    pub message_boxes:       MessageBoxes,
+    pub title_credits:       TitleCreditsData,
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -79,7 +80,7 @@ impl SmwRom {
         disassembly.rom_slice_at_block(
             DataBlock {
                 slice: SnesSlice::new(AddrSnes(0x00FFC0), internal_header::sizes::INTERNAL_HEADER),
-                kind: DataKind::InternalRomHeader,
+                kind:  DataKind::InternalRomHeader,
             },
             |_| InternalHeaderParseError::NotFound,
         )?;
@@ -106,9 +107,9 @@ impl SmwRom {
         let overworld_events = OverworldEvents::parse(&disassembly.rom).unwrap_or_else(|e| {
             log::warn!("Could not parse overworld event data: {e}");
             OverworldEvents {
-                tile_offsets: vec![0u16; overworld::OW_EVENT_COUNT],
+                tile_offsets:  vec![0u16; overworld::OW_EVENT_COUNT],
                 reveal_before: vec![0u8; overworld::OW_EVENT_REVEAL_COUNT],
-                reveal_after: vec![0u8; overworld::OW_EVENT_REVEAL_COUNT],
+                reveal_after:  vec![0u8; overworld::OW_EVENT_REVEAL_COUNT],
             }
         });
 

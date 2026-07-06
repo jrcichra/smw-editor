@@ -2,6 +2,7 @@
 //! Allows creation of BPS patches for ROM distribution
 
 use std::io::Write;
+
 use thiserror::Error;
 
 mod encoding;

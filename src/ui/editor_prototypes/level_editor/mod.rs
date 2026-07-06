@@ -53,109 +53,109 @@ use crate::{
 };
 
 pub struct UiLevelEditor {
-    gl: Arc<glow::Context>,
-    rom: Arc<SmwRom>,
-    cpu: Cpu,
+    gl:             Arc<glow::Context>,
+    rom:            Arc<SmwRom>,
+    cpu:            Cpu,
     level_renderer: Arc<Mutex<LevelRenderer>>,
 
-    level_num: u16,
-    offset: Vec2,
-    zoom: f32,
-    always_show_grid: bool,
+    level_num:           u16,
+    offset:              Vec2,
+    zoom:                f32,
+    always_show_grid:    bool,
     show_object_overlay: bool,
     show_sprite_overlay: bool,
-    show_object_labels: bool,
-    selected_tile: Option<(u32, u32)>,
+    show_object_labels:  bool,
+    selected_tile:       Option<(u32, u32)>,
 
-    level_properties: LevelProperties,
-    layer1: UndoableData<EditableObjectLayer>,
-    layer2_objects: Option<UndoableData<EditableObjectLayer>>,
-    layer2_background: Option<UndoableData<EditableBackgroundLayer>>,
-    sprites: UndoableData<EditableSpriteLayer>,
-    tile_picker: TilePicker,
-    bg_tile_picker: BgTilePicker,
-    sprite_search: String,
+    level_properties:        LevelProperties,
+    layer1:                  UndoableData<EditableObjectLayer>,
+    layer2_objects:          Option<UndoableData<EditableObjectLayer>>,
+    layer2_background:       Option<UndoableData<EditableBackgroundLayer>>,
+    sprites:                 UndoableData<EditableSpriteLayer>,
+    tile_picker:             TilePicker,
+    bg_tile_picker:          BgTilePicker,
+    sprite_search:           String,
     sprite_preview_textures: HashMap<u8, egui::TextureHandle>,
-    sprite_oam_cache: HashMap<u8, Vec<SpriteOamTile>>,
-    preview_texture: Option<egui::TextureHandle>,
-    preview_for: Option<(u32, u32)>,
+    sprite_oam_cache:        HashMap<u8, Vec<SpriteOamTile>>,
+    preview_texture:         Option<egui::TextureHandle>,
+    preview_for:             Option<(u32, u32)>,
 
     // Animation
     last_anim_tick: Instant,
 
     // Editing state
-    editing_mode: EditingMode,
+    editing_mode:            EditingMode,
     selected_object_indices: HashSet<usize>,
     selected_sprite_indices: HashSet<usize>,
-    draw_object_id: u8,
-    draw_object_settings: u8,
-    draw_block_id: u16,
-    draw_sprite_id: u8,
-    draw_sprite_extra_bits: u8,
-    edit_layer: u8, // 1 or 2
-    edit_sprites: bool,
+    draw_object_id:          u8,
+    draw_object_settings:    u8,
+    draw_block_id:           u16,
+    draw_sprite_id:          u8,
+    draw_sprite_extra_bits:  u8,
+    edit_layer:              u8, // 1 or 2
+    edit_sprites:            bool,
 
     // Spawn point marker
-    mario_spawn_x: u32,
-    mario_spawn_y: u32,
+    mario_spawn_x:   u32,
+    mario_spawn_y:   u32,
     initial_spawn_x: u32,
     initial_spawn_y: u32,
-    dragging_spawn: bool,
+    dragging_spawn:  bool,
 
     // Unsaved changes tracking
     show_unsaved_dialog: bool,
-    pending_level_num: Option<u16>,
-    has_edits: bool,
-    request_rom_save: bool,
-    pending_close: bool,
+    pending_level_num:   Option<u16>,
+    has_edits:           bool,
+    request_rom_save:    bool,
+    pending_close:       bool,
 
     // Editor windows
-    show_level_header: bool,
+    show_level_header:        bool,
     show_secondary_entrances: bool,
-    show_palette_editor: bool,
-    show_map16_editor: bool,
+    show_palette_editor:      bool,
+    show_map16_editor:        bool,
 
     // Secondary entrance data (local mutable copy, 512 entries × 4 bytes)
-    secondary_entrance_data: Vec<[u8; 4]>,
+    secondary_entrance_data:   Vec<[u8; 4]>,
     secondary_entrance_search: String,
 
     // Palette editor (12 ABGR1555 colors per group, stored as raw u16)
-    palette_bg_colors: [u16; 12],
-    palette_fg_colors: [u16; 12],
-    palette_sprite_colors: [u16; 12],
-    palette_dirty: bool,
+    palette_bg_colors:      [u16; 12],
+    palette_fg_colors:      [u16; 12],
+    palette_sprite_colors:  [u16; 12],
+    palette_dirty:          bool,
     selected_palette_group: u8,
-    selected_palette_idx: usize,
+    selected_palette_idx:   usize,
 
     // Map16 editor
-    map16_edits: HashMap<u16, [u16; 4]>,
-    map16_block_ptrs: Vec<u32>, // SNES address of each block's data (512 entries)
+    map16_edits:                   HashMap<u16, [u16; 4]>,
+    map16_block_ptrs:              Vec<u32>, // SNES address of each block's data (512 entries)
     selected_map16_block_for_edit: Option<u16>,
 
     // Sprite tweaker byte editor (global, per-sprite-ID behavior; shared across
     // every placement of that sprite, matching Lunar Magic's Sprite Header Editor)
-    sprite_tweakers: smwe_rom::sprite_tweakers::SpriteTweakers,
-    sprite_tweakers_dirty: bool,
+    sprite_tweakers:            smwe_rom::sprite_tweakers::SpriteTweakers,
+    sprite_tweakers_dirty:      bool,
     show_sprite_tweaker_editor: bool,
-    tweaker_editor_sprite_id: u8,
+    tweaker_editor_sprite_id:   u8,
 
     // GFX (ExGFX) editor: pending raw (uncompressed) tile bytes per file
     // number, applied to the ROM on save.
-    gfx_edits: HashMap<usize, Vec<u8>>,
-    show_gfx_editor: bool,
+    gfx_edits:           HashMap<usize, Vec<u8>>,
+    show_gfx_editor:     bool,
     gfx_editor_file_num: usize,
 
     // Message box (dialog text) editor: global, raw tile-index bytes.
-    message_boxes: smwe_rom::message_boxes::MessageBoxes,
-    message_boxes_dirty: bool,
-    show_message_editor: bool,
+    message_boxes:           smwe_rom::message_boxes::MessageBoxes,
+    message_boxes_dirty:     bool,
+    show_message_editor:     bool,
     message_editor_selected: usize,
 
     // Title screen / ending credits fixed-location data.
-    title_credits: smwe_rom::title_credits::TitleCreditsData,
-    title_credits_dirty: bool,
+    title_credits:             smwe_rom::title_credits::TitleCreditsData,
+    title_credits_dirty:       bool,
     show_title_credits_editor: bool,
-    credits_editor_selected: usize,
+    credits_editor_selected:   usize,
 }
 
 impl UiLevelEditor {

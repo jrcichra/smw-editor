@@ -1,7 +1,6 @@
 use std::{env, path::Path, sync::Arc};
 
 use image::{ImageBuffer, Rgb};
-
 use smwe_emu::{emu::CheckedMem, rom::Rom as EmuRom, Cpu};
 
 fn main() {

@@ -43,8 +43,9 @@ pub fn decode_number(reader: &mut impl std::io::Read) -> std::io::Result<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::Cursor;
+
+    use super::*;
 
     #[test]
     fn test_encode_decode_small() {

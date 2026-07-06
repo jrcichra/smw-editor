@@ -2,6 +2,7 @@
 //! Allows creation of IPS patches for ROM distribution
 
 use std::io::Write;
+
 use thiserror::Error;
 
 #[derive(Debug, Error)]

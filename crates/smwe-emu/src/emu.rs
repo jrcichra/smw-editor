@@ -8,28 +8,28 @@ use crate::rom::Rom;
 
 #[derive(Debug, Clone)]
 pub struct CheckedMem {
-    pub cart: Arc<Rom>,
-    pub wram: Vec<u8>,
-    pub regs: Vec<u8>,
-    pub vram: Vec<u8>,
-    pub cgram: Vec<u8>,
-    pub extram: Vec<u8>,
-    pub error: Option<u32>,
-    pub err_value: Option<u8>,
+    pub cart:       Arc<Rom>,
+    pub wram:       Vec<u8>,
+    pub regs:       Vec<u8>,
+    pub vram:       Vec<u8>,
+    pub cgram:      Vec<u8>,
+    pub extram:     Vec<u8>,
+    pub error:      Option<u32>,
+    pub err_value:  Option<u8>,
     pub last_store: Option<u32>,
 }
 
 impl CheckedMem {
     pub fn new(rom: Arc<Rom>) -> Self {
         Self {
-            cart: rom,
-            wram: Vec::from([0; 0x20000]),
-            regs: Vec::from([0; 0x6000]),
-            vram: Vec::from([0; 0x10000]),
-            cgram: Vec::from([0; 0x200]),
-            extram: Vec::from([0; 0x10000]),
-            error: None,
-            err_value: None,
+            cart:       rom,
+            wram:       Vec::from([0; 0x20000]),
+            regs:       Vec::from([0; 0x6000]),
+            vram:       Vec::from([0; 0x10000]),
+            cgram:      Vec::from([0; 0x200]),
+            extram:     Vec::from([0; 0x10000]),
+            error:      None,
+            err_value:  None,
             last_store: None,
         }
     }
@@ -37,6 +37,7 @@ impl CheckedMem {
     pub fn load_u8(&mut self, addr: u32) -> u8 {
         self.load(addr)
     }
+
     pub fn store_u8(&mut self, addr: u32, value: u8) {
         self.store(addr, value)
     }
@@ -167,6 +168,7 @@ impl Mem for CheckedMem {
     fn load(&mut self, addr: u32) -> u8 {
         self.map(addr, None)
     }
+
     fn store(&mut self, addr: u32, value: u8) {
         self.map(addr, Some(value));
         self.last_store = Some(addr);
@@ -288,10 +290,10 @@ pub fn exec_sprites(cpu: &mut Cpu<CheckedMem>) -> u64 {
 /// spawn anchor (x = 0xD0, y = 0x80 as set by exec_sprite_id).
 #[derive(Debug, Clone)]
 pub struct SpriteOamTile {
-    pub dx: i32,
-    pub dy: i32,
+    pub dx:        i32,
+    pub dy:        i32,
     pub tile_word: u16,
-    pub is_16x16: bool,
+    pub is_16x16:  bool,
 }
 
 /// Run exec_sprite_id for the given ID, then tick extra frames so that sprites
@@ -342,10 +344,10 @@ fn collect_sprite_oam_tiles(cpu: &mut Cpu<CheckedMem>, anchor_x: i32, anchor_y: 
         }
 
         tiles.push(SpriteOamTile {
-            dx: raw_x - anchor_x,
-            dy: raw_y - anchor_y,
+            dx:        raw_x - anchor_x,
+            dy:        raw_y - anchor_y,
             tile_word: tile,
-            is_16x16: (size & 0x02) != 0,
+            is_16x16:  (size & 0x02) != 0,
         });
     }
     tiles
@@ -379,10 +381,10 @@ fn clear_sprite_oam(cpu: &mut Cpu<CheckedMem>) {
 /// (scroll-relative: sprite at screen pos x=0xD0 when camera is at x=0).
 #[derive(Debug, Clone)]
 pub struct RawOamEntry {
-    pub x: u8,
-    pub y: u8,
+    pub x:         u8,
+    pub y:         u8,
     pub tile_word: u16, // [attr_byte][tile_byte] little-endian u16
-    pub is_16x16: bool,
+    pub is_16x16:  bool,
 }
 
 /// Read all non-offscreen OAM entries after sprite execution.

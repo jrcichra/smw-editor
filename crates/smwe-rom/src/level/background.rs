@@ -6,7 +6,7 @@ pub type BackgroundTileID = u8;
 
 #[derive(Debug, Clone)]
 pub struct BackgroundData {
-    tile_ids: Vec<BackgroundTileID>,
+    tile_ids:        Vec<BackgroundTileID>,
     compressed_size: usize,
 }
 

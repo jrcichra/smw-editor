@@ -29,23 +29,23 @@ use crate::{
 };
 
 pub struct UiMainWindow {
-    gl: Arc<glow::Context>,
-    dock_style: DockStyle,
-    dock_state: DockState<Box<dyn DockableEditorTool>>,
+    gl:                Arc<glow::Context>,
+    dock_style:        DockStyle,
+    dock_state:        DockState<Box<dyn DockableEditorTool>>,
     /// Path of the currently-open ROM (for Save).
-    rom_path: Option<PathBuf>,
+    rom_path:          Option<PathBuf>,
     /// Set when a Save error needs to be shown.
-    save_error: Option<String>,
+    save_error:        Option<String>,
     /// In-egui file dialog for Open ROM.
-    open_dialog: FileDialog,
+    open_dialog:       FileDialog,
     /// In-egui file dialog for Save As.
-    save_as_dialog: FileDialog,
+    save_as_dialog:    FileDialog,
     /// In-egui file dialog for BPS patch export.
     bps_export_dialog: FileDialog,
     /// In-egui file dialog for IPS patch export.
     ips_export_dialog: FileDialog,
     /// Set when user tries to close the app with unsaved changes
-    show_exit_dialog: bool,
+    show_exit_dialog:  bool,
 }
 
 impl UiMainWindow {
@@ -225,6 +225,35 @@ impl UiMainWindow {
                 }
             }
             Err(e) => self.save_error = Some(format!("Save failed: {e}")),
+        }
+    }
+
+    /// Expand the ROM file on disk to `target_pc_size` bytes (Lunar Magic's
+    /// "Expand ROM"), then reload it so the new free space is visible to all
+    /// editors. Refuses when there are unsaved changes, since expansion
+    /// rewrites the file the editors would save into.
+    fn expand_rom(&mut self, ctx: &Context, target_pc_size: usize) {
+        let Some(path) = self.rom_path.clone() else {
+            self.save_error = Some("No ROM path — open a ROM first.".into());
+            return;
+        };
+        if self.has_any_unsaved_changes() {
+            self.save_error = Some("Save your changes before expanding the ROM.".into());
+            return;
+        }
+        let result = std::fs::read(&path).map_err(|e| format!("Failed to read ROM: {e}")).and_then(|mut rom_bytes| {
+            crate::rom_expand::expand_rom(&mut rom_bytes, target_pc_size)?;
+            std::fs::write(&path, rom_bytes).map_err(|e| format!("Failed to write ROM: {e}"))
+        });
+        match result {
+            Ok(()) => {
+                if let Err(e) = self.reload_rom_into_context(ctx, &path) {
+                    self.save_error = Some(format!("Expanded ROM, but reload failed: {e}"));
+                } else {
+                    log::info!("Expanded ROM to {} bytes", target_pc_size);
+                }
+            }
+            Err(e) => self.save_error = Some(format!("Expand ROM failed: {e}")),
         }
     }
 
@@ -428,6 +457,16 @@ impl UiMainWindow {
                             self.export_ips_patch();
                             ui.close_menu();
                         }
+                        ui.separator();
+                        ui.menu_button("Expand ROM", |ui| {
+                            for (size, label) in crate::rom_expand::EXPANSION_SIZES {
+                                if ui.button(label).clicked() {
+                                    let ctx2 = ctx.clone();
+                                    self.expand_rom(&ctx2, size);
+                                    ui.close_menu();
+                                }
+                            }
+                        });
                     });
                     ui.separator();
                     if ui.button("Exit").clicked() {
@@ -490,6 +529,7 @@ impl UiMainWindow {
         for (_, tab) in self.dock_state.iter_all_tabs() {
             tab.save_to_rom(&mut rom_bytes, has_smc_header)?;
         }
+        crate::rom_expand::fix_checksum(&mut rom_bytes);
         std::fs::write(dest_path, rom_bytes)
             .with_context(|| format!("Failed to write ROM to {}", dest_path.display()))?;
         Ok(())

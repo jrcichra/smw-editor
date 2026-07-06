@@ -57,25 +57,25 @@ pub const ENEMY_NAME_LABELS: [&str; ENEMY_NAME_COUNT] = [
 
 #[derive(Debug, Clone)]
 pub struct TitleDemoInput {
-    pub buttons: u8,
+    pub buttons:  u8,
     pub duration: u8,
 }
 
 #[derive(Debug, Clone)]
 pub struct TitleCreditsData {
-    pub title_submap: u8,
-    pub title_demo_inputs: Vec<TitleDemoInput>,
+    pub title_submap:        u8,
+    pub title_demo_inputs:   Vec<TitleDemoInput>,
     pub title_screen_stripe: Vec<u8>,
-    pub enemy_name_stripes: Vec<Vec<u8>>,
+    pub enemy_name_stripes:  Vec<Vec<u8>>,
 }
 
 impl TitleCreditsData {
     pub fn empty() -> Self {
         Self {
-            title_submap: 0,
-            title_demo_inputs: Vec::new(),
+            title_submap:        0,
+            title_demo_inputs:   Vec::new(),
             title_screen_stripe: vec![0xFF],
-            enemy_name_stripes: vec![vec![0xFF]; ENEMY_NAME_COUNT],
+            enemy_name_stripes:  vec![vec![0xFF]; ENEMY_NAME_COUNT],
         }
     }
 
@@ -235,10 +235,10 @@ mod tests {
     #[test]
     fn title_input_bytes_include_terminator() {
         let data = TitleCreditsData {
-            title_submap: 0,
-            title_demo_inputs: vec![TitleDemoInput { buttons: 0x41, duration: 0x0F }],
+            title_submap:        0,
+            title_demo_inputs:   vec![TitleDemoInput { buttons: 0x41, duration: 0x0F }],
             title_screen_stripe: vec![0xFF],
-            enemy_name_stripes: vec![Vec::new(); ENEMY_NAME_COUNT],
+            enemy_name_stripes:  vec![Vec::new(); ENEMY_NAME_COUNT],
         };
         assert_eq!(data.title_input_bytes().unwrap(), vec![0x41, 0x0F, 0xFF]);
     }

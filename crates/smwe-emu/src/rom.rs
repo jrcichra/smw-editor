@@ -54,8 +54,8 @@ impl Mapper {
 
 #[derive(Debug, Clone)]
 pub struct Rom {
-    buf: Vec<u8>,
-    mapper: Mapper,
+    buf:     Vec<u8>,
+    mapper:  Mapper,
     symbols: HashMap<String, u32>,
 }
 
