@@ -630,6 +630,14 @@ impl UiWorldEditor {
                     if let Some(tile_id) = self.source_l1_tile_at_view(x, y) {
                         ui.monospace(format!("  Source tile ID: {tile_id:#04X}"));
                     }
+                    if let Some(idx) = self.source_l1_index_for_view(x, y) {
+                        let tiles = self.edit_state.read(|s| s.layer1_tiles.clone());
+                        if let Some(level_num) = smwe_rom::overworld::level_number_for_index(&tiles, idx) {
+                            let translevel = smwe_rom::overworld::translevel_for_index(&tiles, idx).unwrap_or(0);
+                            ui.monospace(format!("  Level tile: #{level_num:03X} (translevel {translevel:#04X})"));
+                            ui.small("  order-derived — moving/inserting level tiles elsewhere renumbers this");
+                        }
+                    }
                 } else {
                     let (crop_x, crop_y) = visible_map_crop(self.submap);
                     let tile_x = (x * 16 + crop_x) / 8;

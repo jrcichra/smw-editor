@@ -42,9 +42,11 @@ X"), and player (Mario/Yoshi) graphics customization.
 | Layer 1 tile paint/erase | ✅ | `editing.rs` |
 | Layer 2 tile paint/erase + repoint on save | ✅ | `write_overworld_l2_stream`, `patch_snes_pointer` |
 | Save/repoint to ROM | ✅ | `find_free_space`, `patch_snes_pointer` |
-| Path editing (Mario's walk path dots) | ⛔ | No code found |
-| Event tile editing | ⛔ | Code only force-activates all events for viewing; no edit UI |
-| Level-number/entrance tile assignment | ⛔ | Not found |
+| Path tile drawing (the visual road/dots) | ✅ | Confirmed path tiles are ordinary L1 tiles (SMWDisX has no separate path-data table for the general case) — already fully paintable via the existing L1 draw/erase tools. Only a curated "path piece" picker/auto-tile UX is missing, not the underlying capability |
+| Path movement data (LineGuide-style step tables) | N/A | Investigated and ruled out as a separate system for the general case — SMW's ~10 hard-coded special-case connections (`HardCodedOWPaths`/`OWHardCodedTiles`/`OWHardCodedDirs`, `bank_04.asm:~1646`) are the only exception, not worth building UI for |
+| Event tile editing | ⛔ | Code only force-activates all events for viewing; no edit UI. Real mechanism identified: a "reveal tile list" (before/after tile pairs) around `$04D85D`/`$04D93D` per community docs — not yet parsed in smwe-rom |
+| Level-number display per tile (read-only, vanilla-accurate) | ✅ | `crates/smwe-rom/src/overworld/mod.rs::level_number_at`/`translevel_at` (+ tests), surfaced in `world_editor/mod.rs` tile-inspect panel. Confirmed against real ROM (`render_ow_submap --dump-levels`): matches vanilla's translevel scan-order numbering including the documented 0x25→0x01 wraparound |
+| Level-number free reassignment (LM-style, arbitrary) | ⛔ | Vanilla SMW derives level number from tile-placement scan order, not a free field (confirmed in `bank_04.asm` `CODE_04D832`/`bank_05.asm` `CODE_05D8A2`) — Lunar Magic achieves free assignment via its own ASM hijack replacing this lookup. Doing the same here is a distinct, larger follow-up (ROM code injection + repointing), not yet started |
 | Layer 2 scroll properties (not raw tiles) | ⛔ | Not found |
 | Animated overworld tiles editing | ⛔ | Not found |
 | Overworld undo/redo | ✅ | Added 2026 (commit `77dfc73`) |
@@ -118,9 +120,10 @@ X"), and player (Mario/Yoshi) graphics customization.
 
 ## Biggest gaps to close for parity (suggested priority)
 
-1. **Overworld path & event editing** — core LM workflow, currently entirely missing.
-2. **ExGFX support** — no way to bring in custom graphics at all right now.
-3. **Sprite header/SDT editing** — sprite placement exists but custom sprite behavior can't be configured.
-4. **Message box / dialog text editor** — sprite exists in the catalog but is inert.
-5. **General freespace/repoint manager** — currently one-off for overworld L2 only; levels/sprites will need it too as more editors gain write support.
-6. **Block editor** — already tracked in README as next planned work.
+1. **Overworld event tile editing** — real mechanism identified (reveal tile list around `$04D85D`/`$04D93D`); path tile *painting* turned out to already work via existing L1 tools, so this is now the actual remaining gap in that area. (Path editing UX polish — a curated path-piece picker with auto-tiling — is a smaller nice-to-have, not blocking.)
+2. **Overworld level-number free reassignment (ASM hijack)** — read-only vanilla-accurate display now works; matching LM's free-assignment UX requires ASM code injection, a distinct and larger undertaking.
+3. **ExGFX support** — no way to bring in custom graphics at all right now.
+4. **Sprite header/SDT editing** — sprite placement exists but custom sprite behavior can't be configured.
+5. **Message box / dialog text editor** — sprite exists in the catalog but is inert.
+6. **General freespace/repoint manager** — currently one-off for overworld L2 only; levels/sprites will need it too as more editors gain write support.
+7. **Block editor** — already tracked in README as next planned work.
