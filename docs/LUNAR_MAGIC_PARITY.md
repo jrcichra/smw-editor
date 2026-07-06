@@ -126,6 +126,18 @@ X"), and player (Mario/Yoshi) graphics customization.
   now snapshot the BG tilemap after `CODE_05801E` and restore it at the end.
 - SA-1 and ExLoROM/ExHiROM ROMs are not supported by the mapper or ROM header
   parser (see memory `mapper-autodetection`).
+- ~~`lm_map16_ptr`'s hard-coded per-page pointer-table addresses read
+  mid-instruction bytes of LM's code~~ FIXED (2026-07-06): extended (id >=
+  0x200) FG Map16 blocks are now resolved by *running* Lunar Magic's own
+  resolver routine at `$06F540` in the emulator
+  (`smwe_emu::emu::lm_ext_map16_data_addr`, calibrated: exact match with the
+  `$0FBE` table for vanilla ids), and BG Map16 bases by running the resolver
+  LM installs via its `JSL` hijack at `$05:8DA8`
+  (`lm_bg_map16_base`, rack of 24-bit base pointers — `$158000`/`$168000` in
+  TOP2020). Both are guarded (vanilla byte patterns → fall back to
+  `Map16BGTiles`/static parse), so vanilla renders are byte-identical, and
+  hacks with *edited* BG Map16 or relocated tables now resolve correctly for
+  any LM version.
 - Title/credits editing is currently U-ROM fixed-address only for the modeled
   slots; non-U variants have different `TitleScreenInputSeq`/stripe addresses
   in the symbols and need region-aware address selection before they are safe.

@@ -181,7 +181,11 @@ impl LevelRenderer {
         let mut tiles = Vec::new();
 
         let map16_bank = cpu.mem.cart.resolve("Map16Common").expect("Cannot resolve Map16Common") & 0xFF0000;
-        let map16_bg = cpu.mem.cart.resolve("Map16BGTiles").expect("Cannot resolve Map16BGTiles");
+        // Lunar Magic ROMs relocate the BG Map16 table (and can edit the copy);
+        // resolve the current level's base by running LM's own resolver, with
+        // the vanilla table as fallback.
+        let map16_bg = smwe_emu::emu::lm_bg_map16_base(cpu)
+            .unwrap_or_else(|| cpu.mem.cart.resolve("Map16BGTiles").expect("Cannot resolve Map16BGTiles"));
         let vertical = cpu.mem.load_u8(0x5B) & if bg { 2 } else { 1 } != 0;
 
         let has_layer2 = {
@@ -287,41 +291,12 @@ fn bg_tile(x: u32, y: u32, t: u16) -> Tile {
     Tile([x, y, tile, params])
 }
 
+/// Resolve a Lunar Magic "extended" Map16 block (id >= 0x200) to the SNES
+/// address of its 4 tile words by running LM's own resolver at $06F540 in the
+/// emulator (exact for any LM version). Returns 0 when no resolver exists so
+/// the caller can fall back to the static ROM parse.
 fn get_lm_map16_ptr(cpu: &mut Cpu, block_id: u16) -> u32 {
-    let page = (block_id >> 8) as u8;
-    if page < 2 {
-        return 0;
-    }
-
-    let ranges = [
-        (0x02, 0x0F, 0x06F553, 0x06F557, 0),
-        (0x10, 0x1F, 0x06F55C, 0x06F560, 0),
-        (0x20, 0x2F, 0x06F567, 0x06F56B, 1),
-        (0x30, 0x3F, 0x06F570, 0x06F574, 1),
-        (0x40, 0x4F, 0x06F594, 0x06F598, 0),
-        (0x50, 0x5F, 0x06F59D, 0x06F5A1, 0),
-        (0x60, 0x6F, 0x06F5A8, 0x06F5AC, 1),
-        (0x70, 0x7F, 0x06F5B1, 0x06F5B5, 1),
-    ];
-
-    for (start, end, lo_addr, bank_addr, add) in ranges {
-        if page >= start && page <= end {
-            let bank = cpu.mem.cart.read(bank_addr).unwrap_or(0);
-            if bank == 0 {
-                break;
-            }
-            let lo_lo = cpu.mem.cart.read(lo_addr).unwrap_or(0);
-            let lo_hi = cpu.mem.cart.read(lo_addr + 1).unwrap_or(0);
-            let lo = ((lo_hi as u32) << 8) | (lo_lo as u32);
-
-            let base_addr = ((bank as u32) << 16) | lo;
-            let offset = (page as u32 - start as u32) * 0x800 + (block_id as u32 & 0xFF) * 8;
-            return base_addr.wrapping_add(add).wrapping_add(offset);
-        }
-    }
-
-    // Fallback heuristic for generic Lunar Magic mapping
-    0x0F8000 + (page as u32 - 2) * 0x800 + (block_id as u32 & 0xFF) * 8
+    smwe_emu::emu::lm_ext_map16_data_addr(cpu, block_id).unwrap_or(0)
 }
 
 fn sp_tile(x: u32, y: u32, t: u16) -> Tile {

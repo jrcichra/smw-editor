@@ -226,6 +226,108 @@ fn run_routines(cpu: &mut Cpu<CheckedMem>, routines: &[&str], cycle_limit: u64) 
     cy
 }
 
+/// Run a small instruction sequence on a scratch trampoline (same fake-memory
+/// region the routine-list trampolines use) and stop when the end marker is
+/// reached. Returns false if the CPU hit an illegal instruction or ran away.
+fn run_trampoline(cpu: &mut Cpu<CheckedMem>, code: &[u8]) -> bool {
+    const BASE: u32 = 0x2F00;
+    cpu.emulation = false;
+    cpu.ill = false;
+    cpu.s = 0x1FF;
+    cpu.pbr = 0;
+    cpu.dbr = 0;
+    cpu.pc = BASE as u16;
+    for (i, byte) in code.iter().enumerate() {
+        cpu.mem.store(BASE + i as u32, *byte);
+    }
+    let end = BASE as u16 + code.len() as u16 - 1; // last byte must be the NOP end marker
+    let mut steps = 0u32;
+    loop {
+        cpu.dispatch();
+        steps += 1;
+        if cpu.ill || steps > 100_000 {
+            return false;
+        }
+        if cpu.pbr == 0 && cpu.pc == end {
+            return true;
+        }
+    }
+}
+
+/// Lunar Magic's "get Map16 data address" routine, installed at $06F540 in
+/// LM-saved ROMs (vanilla has empty $FF space there). Given a Map16 block
+/// number*2 in 16-bit A, it returns the data address low word in A and the
+/// bank in the high byte of $0B — verified by calibration against the $0FBE
+/// pointer table for vanilla blocks and against extended-block renders.
+const LM_GET_MAP16_SNES: u32 = 0x06F540;
+
+/// Resolve an extended (id >= 0x200) Map16 block to the SNES address of its
+/// 8 tile-word bytes by running Lunar Magic's own resolver in the emulator.
+/// Returns None when the ROM has no LM resolver (e.g. vanilla) or the result
+/// is implausible; callers should fall back to their static path.
+pub fn lm_ext_map16_data_addr(cpu: &mut Cpu<CheckedMem>, block_id: u16) -> Option<u32> {
+    // Guard: LM's routine starts with CMP #$0400 (C9 00 04); vanilla ROMs
+    // have $FF filler here.
+    if cpu.mem.cart.read(LM_GET_MAP16_SNES) != Some(0xC9) {
+        return None;
+    }
+    let id2 = block_id.wrapping_mul(2).to_le_bytes();
+    let target = LM_GET_MAP16_SNES.to_le_bytes();
+    let code = [
+        0xC2, 0x30, // REP #$30
+        0xA9, id2[0], id2[1], // LDA #block_id*2
+        0x22, target[0], target[1], target[2], // JSL LM resolver
+        0xEA,      // NOP (end marker)
+    ];
+    if !run_trampoline(cpu, &code) {
+        return None;
+    }
+    let addr = cpu.a as u32;
+    let bank = (cpu.mem.load_u16(0x0B) >> 8) as u32;
+    if bank == 0 || addr < 0x8000 {
+        return None;
+    }
+    Some((bank << 16) | addr)
+}
+
+/// The SNES address of the instruction Lunar Magic hijacks to install its
+/// background-Map16 base-pointer resolver: vanilla has `STA $0A / LDA $1928`
+/// right after `LDA #Map16BGTiles` (bank_05 CODE_058D96 region); LM replaces
+/// those 5 bytes with `JSL <resolver> / NOP`. The resolver leaves the 24-bit
+/// BG Map16 data base for the current level in $0A-$0C.
+const LM_BG_MAP16_HIJACK_SNES: u32 = 0x058DA8;
+
+/// Resolve the 24-bit base address of the background Map16 tile-definition
+/// table for the currently loaded level (BG block data = base + id*8). For
+/// LM-saved ROMs this runs LM's resolver (which reads the per-level BG flag
+/// at $7FC00B set during level load, so call this only after
+/// `decompress_sublevel`); for vanilla ROMs returns None and callers should
+/// use `Map16BGTiles`.
+pub fn lm_bg_map16_base(cpu: &mut Cpu<CheckedMem>) -> Option<u32> {
+    if cpu.mem.cart.read(LM_BG_MAP16_HIJACK_SNES) != Some(0x22) {
+        return None;
+    }
+    let target = [
+        cpu.mem.cart.read(LM_BG_MAP16_HIJACK_SNES + 1)?,
+        cpu.mem.cart.read(LM_BG_MAP16_HIJACK_SNES + 2)?,
+        cpu.mem.cart.read(LM_BG_MAP16_HIJACK_SNES + 3)?,
+    ];
+    let code = [
+        0xC2, 0x30, // REP #$30
+        0x22, target[0], target[1], target[2], // JSL LM BG resolver
+        0xEA,      // NOP (end marker)
+    ];
+    if !run_trampoline(cpu, &code) {
+        return None;
+    }
+    let lo = cpu.mem.load_u16(0x0A) as u32;
+    let bank = cpu.mem.load_u8(0x0C) as u32;
+    if bank == 0 || lo < 0x8000 {
+        return None;
+    }
+    Some((bank << 16) | lo)
+}
+
 pub fn fetch_anim_frame(cpu: &mut Cpu<CheckedMem>) -> u64 {
     // CODE_00A5F9 is SMW's full animated-tile init loop: it cycles through all
     // 8 sub-frames so every animated VRAM slot (coins, ? blocks, turn blocks,

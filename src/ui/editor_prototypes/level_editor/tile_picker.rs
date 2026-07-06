@@ -119,7 +119,8 @@ impl BgTilePicker {
 
     pub fn rebuild(&mut self, cpu: &mut Cpu) {
         self.pixels.fill(0);
-        let map16_bg = cpu.mem.cart.resolve("Map16BGTiles").unwrap_or(0);
+        let map16_bg =
+            smwe_emu::emu::lm_bg_map16_base(cpu).unwrap_or_else(|| cpu.mem.cart.resolve("Map16BGTiles").unwrap_or(0));
 
         for block_id in 0..BG_NUM_BLOCKS {
             let col = block_id % COLS;
@@ -257,7 +258,8 @@ pub(super) fn render_bg_block_image(block_id: u8, cpu: &mut Cpu) -> egui::ColorI
         return empty_block_preview();
     }
     let mut pixels = vec![0u8; 16 * 16 * 4];
-    let map16_bg = cpu.mem.cart.resolve("Map16BGTiles").unwrap_or(0);
+    let map16_bg =
+        smwe_emu::emu::lm_bg_map16_base(cpu).unwrap_or_else(|| cpu.mem.cart.resolve("Map16BGTiles").unwrap_or(0));
     let block_ptr = map16_bg + block_id as u32 * 8;
     let sub_offsets = [(0u32, 0u32), (0, 8), (8, 0), (8, 8)];
     for (sub_i, (sx, sy)) in sub_offsets.into_iter().enumerate() {
