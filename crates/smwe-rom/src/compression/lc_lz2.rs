@@ -61,12 +61,23 @@ const LONG_LENGTH: u8 = 0b111;
 // -------------------------------------------------------------------------------------------------
 
 pub fn decompress(input: &[u8], little_endian_in_repeat: bool) -> Result<Vec<u8>, DecompressionError> {
+    decompress_with_len(input, little_endian_in_repeat).map(|(output, _)| output)
+}
+
+/// Like `decompress`, but also returns the number of input bytes consumed
+/// (including the `0xFF` terminator), so a caller can know exactly how much
+/// ROM space the existing compressed data occupies (e.g. to free it when
+/// repointing to a new location).
+pub fn decompress_with_len(
+    input: &[u8], little_endian_in_repeat: bool,
+) -> Result<(Vec<u8>, usize), DecompressionError> {
     assert!(!input.is_empty());
 
     let mut output = Vec::with_capacity(input.len() * 2);
     let mut in_it = input;
     while let Some(chunk_header) = in_it.first().copied() {
         if chunk_header == 0xFF {
+            in_it = &in_it[1..];
             break;
         }
         in_it = &in_it[1..];
@@ -154,7 +165,8 @@ pub fn decompress(input: &[u8], little_endian_in_repeat: bool) -> Result<Vec<u8>
     }
 
     output.shrink_to_fit();
-    Ok(output)
+    let consumed = input.len() - in_it.len();
+    Ok((output, consumed))
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -286,6 +298,16 @@ mod tests {
     #[test]
     fn round_trip_empty() {
         assert_round_trip(&[]);
+    }
+
+    #[test]
+    fn consumed_len_matches_actual_stream_length_with_trailing_garbage() {
+        let mut compressed = super::compress(&[1, 2, 3, 4, 5]);
+        let real_len = compressed.len();
+        compressed.extend_from_slice(&[0xAA; 10]); // trailing garbage past the terminator
+        let (output, consumed) = super::decompress_with_len(&compressed, false).unwrap();
+        assert_eq!(output, vec![1, 2, 3, 4, 5]);
+        assert_eq!(consumed, real_len);
     }
 
     #[test]

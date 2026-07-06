@@ -61,8 +61,9 @@ X"), and player (Mario/Yoshi) graphics customization.
 | Palette viewer widget | ✅ | `crates/smwe-widgets/palette_view.rs` |
 | Map16 editor | ✅ | `map16_editor.rs` |
 | Vanilla GFX file reading (0x00-0x33) | ✅ | `crates/smwe-rom/src/graphics/gfx_file/` — decompresses into `rom.gfx.files` for VRAM composition |
-| GFX write plumbing (compress + tile encode + repoint) | ✅ | `compression::lc_lz2::compress` (new; direct-copy + byte-fill, verified round-trip against real ROM GFX data) + `GfxFile::to_raw_bytes`/`decode_tiles` (new tile encoders, exact inverse of the existing decoders, verified round-trip against real ROM data) + `GfxFile::resolve_addr` (locates a file's current pointer for repointing). This is the foundation a GFX editor would sit on top of |
-| ExGFX import/export UI (file dialogs, PNG in/out, per-level GFX slot assignment browser) | ⛔ | Not built yet — only the underlying write plumbing above exists so far. Per-level FG/BG/sprite GFX slot selection *does* already work as a raw nibble via the level header (`fg_bg_gfx`/`sprite_gfx` in `properties.rs`), it's just not tied to any import/export workflow |
+| GFX write plumbing (compress + tile encode + repoint) | ✅ | `compression::lc_lz2::compress` (direct-copy + byte-fill, verified round-trip against real ROM GFX data) + `GfxFile::to_raw_bytes`/`decode_tiles` (tile encoders, exact inverse of the existing decoders, verified round-trip against real ROM data) + pointer-table read/repoint logic in `level_editor/mod.rs::save_to_rom` |
+| ExGFX import/export UI | ✅ | `level_editor/gfx_editor.rs` — export any GFX file slot (0x00-0x33) as a lossless grayscale PNG (pixel intensity = color index, not a colored preview) via `rfd` file dialogs; import a PNG back, staged in `gfx_edits` and written on save (LC_LZ2-compressed, repointed via `find_free_space` if the new data doesn't fit in place). Verified end-to-end against real ROM GFX file 0 (export→import→re-encode reproduces the original bytes exactly, and compresses/decompresses correctly) |
+| Colored (palette-aware) GFX preview/import, per-level GFX slot *browser* tied to the editor | ⛔ | Current export/import is grayscale-index-only (deliberate, for exact round-tripping); no palette-colored WYSIWYG view yet. Per-level FG/BG/sprite GFX slot selection already works as a raw nibble via the level header (`fg_bg_gfx`/`sprite_gfx` in `properties.rs`), but isn't cross-linked to the GFX editor UI (e.g. jump from a level's assigned slot straight into editing it) |
 | 8x8 tile bitmap import/export | ⛔ | Not found |
 
 ## Sprites
@@ -123,10 +124,10 @@ X"), and player (Mario/Yoshi) graphics customization.
 
 ## Biggest gaps to close for parity (suggested priority)
 
-1. **ExGFX support (UI layer)** — write plumbing (LC_LZ2 compressor, tile encoders, address resolution) now exists and is verified against real ROM data; still needed: file dialogs, PNG import/export, and a per-level GFX slot browser tied to it.
+1. **Message box / dialog text editor** — sprite exists in the catalog but is inert. Now the largest remaining gap with zero progress.
 2. **Overworld event *ownership* editing** — which level/action triggers which event (`$05D608`?) is still unmapped; reveal-tile preview toggling itself now works.
 3. **Overworld level-number free reassignment (ASM hijack)** — read-only vanilla-accurate display now works; matching LM's free-assignment UX requires ASM code injection, a distinct and larger undertaking.
 4. **Custom sprite insertion / cluster-extended-generator sprite category editing** — tweaker byte editing now covers the ~0xC9 normal sprite IDs; the other categories still have no dedicated support.
-5. **Message box / dialog text editor** — sprite exists in the catalog but is inert.
-6. **General freespace/repoint manager** — currently one-off for overworld L2 only; levels/sprites will need it too as more editors gain write support.
+5. **ExGFX colored preview + per-level slot browser cross-linking** — the core import/export loop works now; this is the remaining UX polish.
+6. **General freespace/repoint manager** — GFX/level/sprite/overworld-L2 writes each implement their own repoint logic now; still not unified into one shared utility.
 7. **Block editor** — already tracked in README as next planned work.

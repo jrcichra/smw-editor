@@ -239,6 +239,9 @@ impl UiLevelEditor {
             if ui.button("Sprite Behavior…").clicked() {
                 self.show_sprite_tweaker_editor = true;
             }
+            if ui.button("GFX Editor…").clicked() {
+                self.show_gfx_editor = true;
+            }
         });
 
         ui.separator();

@@ -1,6 +1,7 @@
 mod background_layer;
 mod central_panel;
 mod editing;
+mod gfx_editor;
 mod left_panel;
 mod level_renderer;
 mod map16_editor;
@@ -27,7 +28,8 @@ use smwe_emu::{
     Cpu,
 };
 use smwe_rom::{
-    compression::lc_rle1,
+    compression::{lc_lz2, lc_rle1},
+    graphics::gfx_file,
     level::{Layer2Data, Level, PRIMARY_HEADER_SIZE},
     snes_utils::addr::{AddrPc, AddrSnes},
     SmwRom,
@@ -130,6 +132,12 @@ pub struct UiLevelEditor {
     sprite_tweakers_dirty: bool,
     show_sprite_tweaker_editor: bool,
     tweaker_editor_sprite_id: u8,
+
+    // GFX (ExGFX) editor: pending raw (uncompressed) tile bytes per file
+    // number, applied to the ROM on save.
+    gfx_edits: HashMap<usize, Vec<u8>>,
+    show_gfx_editor: bool,
+    gfx_editor_file_num: usize,
 }
 
 impl UiLevelEditor {
@@ -209,6 +217,9 @@ impl UiLevelEditor {
             sprite_tweakers_dirty: false,
             show_sprite_tweaker_editor: false,
             tweaker_editor_sprite_id: 0,
+            gfx_edits: HashMap::new(),
+            show_gfx_editor: false,
+            gfx_editor_file_num: 0,
         };
         editor.load_level();
         Ok(editor)
@@ -225,6 +236,7 @@ impl DockableEditorTool for UiLevelEditor {
         self.palette_editor_window(&ctx);
         self.map16_editor_window(&ctx);
         self.sprite_tweaker_editor_window(&ctx);
+        self.gfx_editor_window(&ctx);
         SidePanel::left("level_editor.left_panel").resizable(false).show_inside(ui, |ui| self.left_panel(ui));
         CentralPanel::default().frame(Frame::NONE.inner_margin(0.)).show_inside(ui, |ui| self.central_panel(ui));
     }
@@ -493,6 +505,65 @@ impl DockableEditorTool for UiLevelEditor {
                         *b = byte;
                     }
                 }
+            }
+        }
+
+        // ── GFX (ExGFX) edits: LC_LZ2-compress raw tile bytes, repoint if needed ──
+        for (&file_num, raw_bytes) in &self.gfx_edits {
+            let compressed = lc_lz2::compress(raw_bytes);
+            let is_repointable = file_num < gfx_file::GFX_POINTER_TABLE_LEN;
+
+            let ptr_pcs: Option<(usize, usize, usize)> = if is_repointable {
+                Some((
+                    AddrPc::try_from_lorom(gfx_file::GFX_POINTER_TABLE_LOW + file_num)?.as_index() + header_offset,
+                    AddrPc::try_from_lorom(gfx_file::GFX_POINTER_TABLE_HIGH + file_num)?.as_index() + header_offset,
+                    AddrPc::try_from_lorom(gfx_file::GFX_POINTER_TABLE_BANK + file_num)?.as_index() + header_offset,
+                ))
+            } else {
+                None
+            };
+
+            let cur_addr = if let Some((low_pc, high_pc, bank_pc)) = ptr_pcs {
+                let low = *rom_bytes.get(low_pc).ok_or_else(|| anyhow::anyhow!("GFX pointer table out of range"))?;
+                let high = *rom_bytes.get(high_pc).ok_or_else(|| anyhow::anyhow!("GFX pointer table out of range"))?;
+                let bank = *rom_bytes.get(bank_pc).ok_or_else(|| anyhow::anyhow!("GFX pointer table out of range"))?;
+                AddrSnes(((bank as u32) << 16) | ((high as u32) << 8) | (low as u32))
+            } else {
+                gfx_file::declared_addr(file_num)
+            };
+            let old_pc = AddrPc::try_from_lorom(cur_addr)?.as_index() + header_offset;
+            let old_len = if old_pc < rom_bytes.len() {
+                lc_lz2::decompress_with_len(&rom_bytes[old_pc..], false).map(|(_, len)| len).unwrap_or(0)
+            } else {
+                0
+            };
+
+            let dest = if compressed.len() <= old_len {
+                old_pc
+            } else if is_repointable {
+                let pc = find_free_space(rom_bytes, compressed.len(), 0x008000, header_offset).ok_or_else(|| {
+                    anyhow::anyhow!("No free space for GFX file {file_num:02X} ({} bytes)", compressed.len())
+                })?;
+                if old_pc + old_len <= rom_bytes.len() {
+                    rom_bytes[old_pc..old_pc + old_len].fill(0xFF);
+                }
+                let new_snes = AddrSnes::try_from_lorom(AddrPc(pc as u32))?;
+                let (low_pc, high_pc, bank_pc) = ptr_pcs.unwrap();
+                rom_bytes[low_pc] = (new_snes.0 & 0xFF) as u8;
+                rom_bytes[high_pc] = ((new_snes.0 >> 8) & 0xFF) as u8;
+                rom_bytes[bank_pc] = ((new_snes.0 >> 16) & 0xFF) as u8;
+                pc + header_offset
+            } else {
+                anyhow::bail!(
+                    "GFX file {file_num:02X} isn't repointable and the new data ({} bytes) doesn't fit in the existing {} bytes",
+                    compressed.len(),
+                    old_len
+                );
+            };
+
+            rom_bytes[dest..dest + compressed.len()].copy_from_slice(&compressed);
+            if dest == old_pc && compressed.len() < old_len {
+                rom_bytes[dest + compressed.len()..dest + old_len].fill(0xFF);
             }
         }
 

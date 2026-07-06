@@ -30,10 +30,30 @@ pub enum GfxFileParseError {
 // -------------------------------------------------------------------------------------------------
 
 pub const N_PIXELS_IN_TILE: usize = 8 * 8;
-const GFX_POINTER_TABLE_LEN: usize = 0x32;
-const GFX_POINTER_TABLE_LOW: AddrSnes = AddrSnes(0x00B992);
-const GFX_POINTER_TABLE_HIGH: AddrSnes = AddrSnes(0x00B9C4);
-const GFX_POINTER_TABLE_BANK: AddrSnes = AddrSnes(0x00B9F6);
+/// Number of GFX files that go through the repointable pointer table (files
+/// `>=` this use a fixed address with no separate pointer, per `resolve_slice`).
+pub const GFX_POINTER_TABLE_LEN: usize = 0x32;
+pub const GFX_POINTER_TABLE_LOW: AddrSnes = AddrSnes(0x00B992);
+pub const GFX_POINTER_TABLE_HIGH: AddrSnes = AddrSnes(0x00B9C4);
+pub const GFX_POINTER_TABLE_BANK: AddrSnes = AddrSnes(0x00B9F6);
+
+/// Total number of GFX file slots (vanilla + the 2 fixed-address ones).
+pub fn gfx_file_count() -> usize {
+    GFX_FILES_META.len()
+}
+
+/// The tile format a given GFX file slot uses.
+pub fn tile_format_of(file_num: usize) -> TileFormat {
+    GFX_FILES_META[file_num].0
+}
+
+/// The vanilla/declared address of a GFX file slot, ignoring any pointer-table
+/// repoint (i.e. where the data lives in an unmodified ROM). For
+/// `file_num < GFX_POINTER_TABLE_LEN`, the *actual* current address may differ
+/// if the file has already been repointed — read the live pointer bytes for that.
+pub fn declared_addr(file_num: usize) -> AddrSnes {
+    GFX_FILES_META[file_num].1.begin
+}
 
 // -------------------------------------------------------------------------------------------------
 
