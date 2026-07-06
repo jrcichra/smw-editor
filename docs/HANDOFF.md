@@ -115,10 +115,17 @@ instead of landing.
 - ~~Repeated saves with OW level-number overrides orphan 0x800-byte tables~~
   Fixed 2026-07-06: `save_to_rom` now reuses the table the patch operand
   already points at; only a still-vanilla operand ($7ED000) allocates.
+- Layer-2 event tiles at `$04DD8D`: now PARSED and surfaced
+  (`smwe_rom::overworld::Layer2EventTiles`; records decoded from
+  `CODE_04E496`: [source stream index u16][L2 tilemap byte offset u16],
+  `<0x900` = 6×6 block else 2×2). Remaining: an *editor* for the reveal
+  records (LM lets you redraw event paths on the map).
 - `docs/LUNAR_MAGIC_PARITY.md` still lists smaller ⛔ rows (animated OW
-  tiles, Layer-2 event tiles at `$04DD8D`, L2 scroll settings, 8x8 tile
-  import/export, custom OW level names — item 1 above); keep flipping rows
-  as things land.
+  tiles, L2 scroll settings, 8x8 tile import/export, drag-resize object
+  handles); keep flipping rows as things land.
+- .mwl support has never been validated against real Lunar Magic — if the
+  user has LM available, round-tripping a file both directions is the
+  outstanding check.
 
 ## Techniques that paid off (reuse these)
 
