@@ -241,6 +241,14 @@ impl Layer2EventRecord {
         let idx = (offset & 0x7FF) / 2;
         ((idx % 32) + (screen % 2) * 32, (idx / 32) + (screen / 2) * 32)
     }
+
+    /// Inverse of [`Self::dest_tile_xy`]: place the block's top-left at the
+    /// given 8×8-tile map coordinates (each clamped to 0..64).
+    pub fn set_dest_tile_xy(&mut self, x: u32, y: u32) {
+        let (x, y) = (x.min(63), y.min(63));
+        let screen = (y / 32) * 2 + (x / 32);
+        self.dest_offset = (screen * 0x800 + ((y % 32) * 32 + (x % 32)) * 2) as u16;
+    }
 }
 
 /// The Layer-2 side of overworld events: which background tiles (paths,
@@ -288,6 +296,87 @@ impl Layer2EventTiles {
             return &[];
         }
         &self.records[start..end]
+    }
+
+    /// Number of events the index table covers.
+    pub fn event_count(&self) -> usize {
+        self.event_starts.len().saturating_sub(1)
+    }
+
+    /// Replace event `event`'s records, rebuilding the flat record list and
+    /// every start index after it. Fails (leaving `self` untouched) if the
+    /// total would exceed the fixed ROM table ([`OW_L2_EVENT_RECORD_COUNT`]).
+    pub fn set_records_for_event(&mut self, event: usize, new_records: &[Layer2EventRecord]) -> anyhow::Result<()> {
+        if event + 1 >= self.event_starts.len() {
+            anyhow::bail!("event {event} out of range");
+        }
+        let mut per_event: Vec<Vec<Layer2EventRecord>> =
+            (0..self.event_count()).map(|e| self.records_for_event(e).to_vec()).collect();
+        per_event[event] = new_records.to_vec();
+
+        let total: usize = per_event.iter().map(|r| r.len()).sum();
+        if total > OW_L2_EVENT_RECORD_COUNT {
+            anyhow::bail!(
+                "layer-2 event reveals need {total} records; the ROM table holds {OW_L2_EVENT_RECORD_COUNT}"
+            );
+        }
+
+        let mut starts = Vec::with_capacity(self.event_starts.len());
+        let mut records = Vec::with_capacity(total);
+        let mut at = 0u16;
+        for event_records in &per_event {
+            starts.push(at);
+            records.extend_from_slice(event_records);
+            at += event_records.len() as u16;
+        }
+        starts.push(at);
+        self.event_starts = starts;
+        self.records = records;
+        Ok(())
+    }
+
+    /// Serialize both tables for an in-place write, padded to their fixed
+    /// sizes: `(index_table_bytes, record_bytes)`.
+    pub fn to_rom_tables(&self) -> anyhow::Result<(Vec<u8>, Vec<u8>)> {
+        if self.event_starts.len() > OW_L2_EVENT_INDEX_COUNT || self.records.len() > OW_L2_EVENT_RECORD_COUNT {
+            anyhow::bail!("layer-2 event tables exceed their fixed ROM sizes");
+        }
+        let mut index: Vec<u8> = self.event_starts.iter().flat_map(|s| s.to_le_bytes()).collect();
+        // Pad missing trailing entries with the last start (= "no records").
+        let last = self.event_starts.last().copied().unwrap_or(0);
+        while index.len() < OW_L2_EVENT_INDEX_COUNT * 2 {
+            index.extend_from_slice(&last.to_le_bytes());
+        }
+        let mut records: Vec<u8> = self
+            .records
+            .iter()
+            .flat_map(|r| {
+                let mut b = [0u8; 4];
+                b[0..2].copy_from_slice(&r.source_index.to_le_bytes());
+                b[2..4].copy_from_slice(&r.dest_offset.to_le_bytes());
+                b
+            })
+            .collect();
+        records.resize(OW_L2_EVENT_RECORD_COUNT * 4, 0);
+        Ok((index, records))
+    }
+
+    /// Write both tables back into `rom_bytes` at their fixed locations.
+    pub fn write_to_rom(&self, rom_bytes: &mut [u8], header_offset: usize) -> anyhow::Result<()> {
+        let (index, records) = self.to_rom_tables()?;
+        for (addr, bytes, what) in
+            [(OW_L2_EVENT_INDEX_SNES, &index, "L2 event index"), (OW_L2_EVENT_RECORDS_SNES, &records, "L2 event records")]
+        {
+            let pc = AddrPc::try_from_lorom(addr)
+                .map_err(|e| anyhow::anyhow!("{what} addr conversion: {e}"))?
+                .0 as usize
+                + header_offset;
+            if pc + bytes.len() > rom_bytes.len() {
+                anyhow::bail!("{what} extends past end of ROM");
+            }
+            rom_bytes[pc..pc + bytes.len()].copy_from_slice(bytes);
+        }
+        Ok(())
     }
 }
 
@@ -483,6 +572,44 @@ mod tests {
         assert_eq!(events.event_for_translevel(1), None);
         assert_eq!(events.event_for_translevel(2), Some(0x03));
         assert_eq!(events.event_for_translevel(0x50), None);
+    }
+
+    #[test]
+    fn l2_event_dest_xy_round_trips() {
+        let mut rec = Layer2EventRecord { source_index: 0, dest_offset: 0 };
+        for (x, y) in [(0, 0), (1, 1), (31, 31), (32, 0), (0, 32), (63, 63), (40, 10)] {
+            rec.set_dest_tile_xy(x, y);
+            assert_eq!(rec.dest_tile_xy(), (x, y), "({x},{y})");
+        }
+    }
+
+    #[test]
+    fn l2_event_set_records_rebuilds_and_round_trips() {
+        let rec = |s: u16, d: u16| Layer2EventRecord { source_index: s, dest_offset: d };
+        let mut tiles = Layer2EventTiles {
+            event_starts: vec![0, 0, 2, 3],
+            records:      vec![rec(0x900, 0), rec(0x901, 2), rec(0x100, 4)],
+        };
+        tiles.set_records_for_event(1, &[rec(0xA00, 6)]).unwrap();
+        assert_eq!(tiles.records_for_event(0), &[]);
+        assert_eq!(tiles.records_for_event(1), &[rec(0xA00, 6)]);
+        assert_eq!(tiles.records_for_event(2), &[rec(0x100, 4)]);
+
+        let mut rom = vec![0u8; 0x40000];
+        tiles.write_to_rom(&mut rom, 0).unwrap();
+        let reparsed = Layer2EventTiles::parse(&Rom(rom.into())).unwrap();
+        for e in 0..tiles.event_count() {
+            assert_eq!(reparsed.records_for_event(e), tiles.records_for_event(e), "event {e}");
+        }
+    }
+
+    #[test]
+    fn l2_event_set_records_rejects_overflow() {
+        let rec = Layer2EventRecord { source_index: 0, dest_offset: 0 };
+        let mut tiles = Layer2EventTiles { event_starts: vec![0, 0], records: vec![] };
+        assert!(tiles.set_records_for_event(0, &vec![rec; OW_L2_EVENT_RECORD_COUNT + 1]).is_err());
+        // Untouched on failure.
+        assert!(tiles.records_for_event(0).is_empty());
     }
 
     #[test]

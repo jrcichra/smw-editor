@@ -261,6 +261,13 @@ pub struct UiWorldEditor {
     translevel_events:       Vec<u8>,
     translevel_events_dirty: bool,
 
+    /// Working copy of the Layer-2 event reveal tables (`DATA_04E359` +
+    /// `DATA_04DD8D`). Fixed-size regions, rewritten in place on save.
+    l2_event_tiles:        smwe_rom::overworld::Layer2EventTiles,
+    l2_event_tiles_dirty:  bool,
+    /// Event selected in the "Edit L2 path reveals" section.
+    l2_event_edit_selected: usize,
+
     /// Working copy of the status-bar level-name tables (`LevelNames` and the
     /// piece-string tables). Fixed-size regions, rewritten in place on save.
     ow_level_names:       OwLevelNames,
@@ -283,6 +290,7 @@ impl UiWorldEditor {
         let cpu = Cpu::new(CheckedMem::new(Arc::new(emu_rom)));
 
         let translevel_events = rom.translevel_events.events.clone();
+        let l2_event_tiles = rom.l2_event_tiles.clone();
         let ow_level_names = rom.ow_level_names.clone();
         let name_piece_texts = [
             ow_level_names.piece1.iter().map(|p| decode_piece(p)).collect(),
@@ -322,6 +330,9 @@ impl UiWorldEditor {
             level_numbers_dirty: false,
             translevel_events,
             translevel_events_dirty: false,
+            l2_event_tiles,
+            l2_event_tiles_dirty: false,
+            l2_event_edit_selected: 0,
             ow_level_names,
             ow_level_names_dirty: false,
             name_piece_texts,
@@ -559,6 +570,11 @@ impl DockableEditorTool for UiWorldEditor {
             self.ow_level_names.write_to_rom(rom_bytes, header_offset)?;
         }
 
+        // ── Layer-2 event reveal tables (DATA_04E359 + DATA_04DD8D) ─────────
+        if self.l2_event_tiles_dirty {
+            self.l2_event_tiles.write_to_rom(rom_bytes, header_offset)?;
+        }
+
         // ── Custom per-tile level-number assignment ─────────────────────────
         // Only touches the ROM if the user has actually overridden a level
         // number: leaving this alone keeps overworld behavior byte-for-byte
@@ -695,7 +711,7 @@ impl UiWorldEditor {
                 let mut changed = false;
                 for (i, active) in self.active_events.iter_mut().enumerate() {
                     let offset = self.rom.overworld_events.tile_offsets.get(i).copied().unwrap_or(0);
-                    let l2_records = self.rom.l2_event_tiles.records_for_event(i);
+                    let l2_records = self.l2_event_tiles.records_for_event(i);
                     if offset == 0 && l2_records.is_empty() {
                         continue; // unused event slot
                     }
@@ -728,6 +744,91 @@ impl UiWorldEditor {
                     self.load_submap();
                 }
             });
+
+            ui.separator();
+            self.l2_event_reveal_editor(ui);
+        });
+    }
+
+    /// Low-level editor for the Layer-2 reveal records of one event: move a
+    /// block's destination on the 64×64 tile map, repoint its source into the
+    /// event-tile streams, add/remove blocks. Applied to the ROM on save (the
+    /// preview reruns the game's own reveal code, so it reflects saved data).
+    fn l2_event_reveal_editor(&mut self, ui: &mut Ui) {
+        ui.collapsing("Edit L2 path reveals", |ui| {
+            let event_count = self.l2_event_tiles.event_count();
+            if event_count == 0 {
+                ui.small("No layer-2 event tables parsed.");
+                return;
+            }
+            ui.horizontal(|ui| {
+                ui.label("Event:");
+                let mut ev = self.l2_event_edit_selected as i32;
+                if ui
+                    .add(egui::Slider::new(&mut ev, 0..=(event_count as i32 - 1)).hexadecimal(2, false, false))
+                    .changed()
+                {
+                    self.l2_event_edit_selected = ev as usize;
+                }
+            });
+            let event = self.l2_event_edit_selected;
+            let mut records = self.l2_event_tiles.records_for_event(event).to_vec();
+            let mut changed = false;
+            let mut remove: Option<usize> = None;
+
+            for (idx, rec) in records.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    let (mut x, mut y) = rec.dest_tile_xy();
+                    ui.monospace(format!("{idx:02}"));
+                    ui.label("x");
+                    let cx = ui.add(egui::DragValue::new(&mut x).range(0..=63)).changed();
+                    ui.label("y");
+                    let cy = ui.add(egui::DragValue::new(&mut y).range(0..=63)).changed();
+                    if cx || cy {
+                        rec.set_dest_tile_xy(x, y);
+                        changed = true;
+                    }
+                    ui.label("src");
+                    let mut src = rec.source_index as u32;
+                    if ui
+                        .add(egui::DragValue::new(&mut src).range(0..=0xCFFu32).hexadecimal(3, false, false))
+                        .changed()
+                    {
+                        rec.source_index = src as u16;
+                        changed = true;
+                    }
+                    ui.small(format!("{s}×{s}", s = rec.block_size()));
+                    if ui.small_button("✕").clicked() {
+                        remove = Some(idx);
+                    }
+                });
+            }
+            if let Some(idx) = remove {
+                records.remove(idx);
+                changed = true;
+            }
+            ui.horizontal(|ui| {
+                if ui.button("Add block").clicked() {
+                    records.push(smwe_rom::overworld::Layer2EventRecord { source_index: 0x900, dest_offset: 0 });
+                    changed = true;
+                }
+                let total = self.l2_event_tiles.records.len();
+                ui.small(format!("{total}/{} records used", smwe_rom::overworld::OW_L2_EVENT_RECORD_COUNT));
+            });
+            ui.small("src < 0x900 reveals a 6×6 block, otherwise 2×2; blocks copy from the event-tile streams.");
+            ui.small("Changes are written on save; the preview shows saved data.");
+
+            if changed {
+                match self.l2_event_tiles.set_records_for_event(event, &records) {
+                    Ok(()) => {
+                        self.l2_event_tiles_dirty = true;
+                        self.has_edits = true;
+                    }
+                    Err(e) => {
+                        log::warn!("L2 event edit rejected: {e}");
+                    }
+                }
+            }
         });
     }
 
