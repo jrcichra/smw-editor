@@ -173,6 +173,21 @@ impl Mem for CheckedMem {
     }
 }
 
+/// Hitting an illegal instruction while running these routines is an *expected*
+/// outcome, not an error: the editor deliberately runs partial game routines
+/// (sprite init, animation, level/overworld setup) that legitimately run off
+/// into code we don't fully emulate. Log it at debug level, and collapse the
+/// bursts of the same address that happen when many sprites fail at the same
+/// spot, so it doesn't flood the log.
+fn log_illegal_instruction(pbr: u8, pc: u16) {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static LAST: AtomicU32 = AtomicU32::new(u32::MAX);
+    let key = ((pbr as u32) << 16) | pc as u32;
+    if LAST.swap(key, Ordering::Relaxed) != key {
+        log::debug!("illegal instruction at {pbr:02X}:{pc:04X}");
+    }
+}
+
 fn run_routines(cpu: &mut Cpu<CheckedMem>, routines: &[&str], cycle_limit: u64) -> u64 {
     cpu.emulation = false;
     cpu.ill = false;
@@ -194,14 +209,14 @@ fn run_routines(cpu: &mut Cpu<CheckedMem>, routines: &[&str], cycle_limit: u64) 
     loop {
         cy += cpu.dispatch() as u64;
         if cpu.ill {
-            log::warn!("illegal instruction at {:02X}:{:04X}", cpu.pbr, cpu.pc);
+            log_illegal_instruction(cpu.pbr, cpu.pc);
             break;
         }
         if cpu.pbr == 0 && cpu.pc == end {
             break;
         }
         if cy > cycle_limit {
-            log::warn!("exceeded cycle limit");
+            log::debug!("exceeded cycle limit");
             break;
         }
         cpu.mem.process_dma();
@@ -424,7 +439,7 @@ pub fn decompress_sublevel(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
     loop {
         cy += cpu.dispatch() as u64;
         if cpu.ill {
-            println!("ILLEGAL INSTR");
+            log_illegal_instruction(cpu.pbr, cpu.pc);
             break;
         }
         if cpu.pc == 0xD8B7 && cpu.pbr == 0x05 {
@@ -444,7 +459,7 @@ pub fn decompress_sublevel(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
         cpu.mem.cgram[dst] = cpu.mem.cgram[src];
         cpu.mem.cgram[dst + 1] = cpu.mem.cgram[src + 1];
     }
-    println!("decompress_sublevel took {}µs", now.elapsed().as_micros());
+    log::debug!("decompress_sublevel took {}µs", now.elapsed().as_micros());
     cy
 }
 
@@ -474,7 +489,7 @@ pub fn decompress_extram(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
     loop {
         cy += cpu.dispatch() as u64;
         if cpu.ill {
-            println!("ILLEGAL INSTR");
+            log_illegal_instruction(cpu.pbr, cpu.pc);
             break;
         }
         if cpu.pc == 0xD8B7 && cpu.pbr == 0x05 {
@@ -488,7 +503,7 @@ pub fn decompress_extram(cpu: &mut Cpu<CheckedMem>, id: u16) -> u64 {
         }
         cpu.mem.process_dma();
     }
-    println!("decompress_extram took {}µs", now.elapsed().as_micros());
+    log::debug!("decompress_extram took {}µs", now.elapsed().as_micros());
     cy
 }
 
@@ -542,18 +557,18 @@ pub fn load_overworld(cpu: &mut Cpu<CheckedMem>, submap: u8) -> u64 {
     loop {
         cy += cpu.dispatch() as u64;
         if cpu.ill {
-            log::warn!("illegal instruction at {:02X}:{:04X}", cpu.pbr, cpu.pc);
+            log_illegal_instruction(cpu.pbr, cpu.pc);
             break;
         }
         if cpu.pbr == 0 && cpu.pc == end {
             break;
         }
         if cy > 50_000_000 {
-            log::warn!("exceeded cycle limit");
+            log::debug!("exceeded cycle limit");
             break;
         }
         cpu.mem.process_dma();
     }
-    log::info!("load_overworld(submap={submap}) took {}µs", now.elapsed().as_micros());
+    log::debug!("load_overworld(submap={submap}) took {}µs", now.elapsed().as_micros());
     cy
 }

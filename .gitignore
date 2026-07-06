@@ -22,3 +22,7 @@ debug
 
 # Roms
 *.smc
+*.sfc
+
+# Claude Code local state (worktrees, settings, etc.)
+.claude/

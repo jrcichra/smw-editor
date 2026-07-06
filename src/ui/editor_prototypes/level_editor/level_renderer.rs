@@ -234,23 +234,29 @@ impl LevelRenderer {
                 continue;
             }
 
-            // Fetch tiles. Background logic and vanilla (id < 0x200) foreground blocks use legacy emulator pointers
-            if (bg && !has_layer2) || block_id < 0x200 {
-                let block_ptr = if bg && !has_layer2 {
-                    block_id as u32 * 8 + map16_bg
-                } else if block_id >= 0x200 {
-                    get_lm_map16_ptr(cpu, block_id)
-                } else {
-                    cpu.mem.load_u16(0x0FBE + block_id as u32 * 2) as u32 + map16_bank
-                };
+            // Resolve the block's 4 tile words. Backgrounds, vanilla foreground
+            // blocks (id < 0x200), and Lunar Magic "extended" foreground blocks
+            // (id >= 0x200) are all resolved through the emulator: extended FG
+            // blocks read LM's per-page Map16 pointer table from the cart, the
+            // same proven path the background uses. (Previously FG extended
+            // blocks went through a static ROM parse, which rendered hacked
+            // levels built from LM map16 as a scattered, misaligned mess.)
+            let block_ptr = if bg && !has_layer2 {
+                block_id as u32 * 8 + map16_bg
+            } else if block_id >= 0x200 {
+                get_lm_map16_ptr(cpu, block_id)
+            } else {
+                cpu.mem.load_u16(0x0FBE + block_id as u32 * 2) as u32 + map16_bank
+            };
 
+            if block_ptr != 0 {
                 for (tile_id, (off_x, off_y)) in (0..4).zip([(0u32, 0u32), (0, 8), (8, 0), (8, 8)]) {
                     let tile_id = cpu.mem.load_u16(block_ptr + tile_id * 2);
                     tiles.push(bg_tile(block_x + off_x, block_y + off_y, tile_id));
                 }
             } else {
-                // Extended Lunar Magic map16 blocks (>= 0x200) aren't stored in RAM at 0x0FBE.
-                // Pull directly from the Rom Map16 struct instead.
+                // Fallback when no LM pointer is available: use the static ROM
+                // Map16 parse (e.g. page-2 tileset-specific blocks).
                 let map16_block = rom.map16_tilesets.get_map16_tile_for_object_tileset(block_id as usize, fg_bg_gfx as usize);
                 let sub_tiles = match map16_block {
                     Some(b) => [b.upper_left.0, b.lower_left.0, b.upper_right.0, b.lower_right.0],
