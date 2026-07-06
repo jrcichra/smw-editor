@@ -159,6 +159,65 @@ pub fn decompress(input: &[u8], little_endian_in_repeat: bool) -> Result<Vec<u8>
 
 // -------------------------------------------------------------------------------------------------
 
+/// Compress `input` into a valid LC_LZ2 stream that `decompress` will turn
+/// back into exactly `input`.
+///
+/// This is intentionally simple (direct-copy runs, plus byte-fill runs of 3+
+/// identical bytes) rather than a full back-reference optimizer: it is not
+/// size-optimal (Lunar Magic's own compressor does better via repeat/back-
+/// reference commands), but it is straightforward to verify correct, which
+/// matters more for a first working compressor. Round-trip correctness is
+/// covered by tests below, including against real ROM GFX file data.
+pub fn compress(input: &[u8]) -> Vec<u8> {
+    const MAX_CHUNK: usize = 1024;
+
+    fn write_command_header(out: &mut Vec<u8>, command: u8, length: usize) {
+        let l = (length - 1) as u16;
+        if l < 32 {
+            out.push((command << 5) | l as u8);
+        } else {
+            out.push(0xE0 | (command << 2) | ((l >> 8) as u8));
+            out.push((l & 0xFF) as u8);
+        }
+    }
+
+    fn flush_literal(out: &mut Vec<u8>, input: &[u8], start: usize, end: usize) {
+        let mut pos = start;
+        while pos < end {
+            let chunk_len = (end - pos).min(MAX_CHUNK);
+            write_command_header(out, DIRECT_COPY, chunk_len);
+            out.extend_from_slice(&input[pos..pos + chunk_len]);
+            pos += chunk_len;
+        }
+    }
+
+    let mut out = Vec::with_capacity(input.len());
+    let mut i = 0;
+    let mut literal_start = 0usize;
+
+    while i < input.len() {
+        let byte = input[i];
+        let mut run = 1;
+        while i + run < input.len() && input[i + run] == byte && run < MAX_CHUNK {
+            run += 1;
+        }
+        if run >= 3 {
+            flush_literal(&mut out, input, literal_start, i);
+            write_command_header(&mut out, BYTE_FILL, run);
+            out.push(byte);
+            i += run;
+            literal_start = i;
+        } else {
+            i += 1;
+        }
+    }
+    flush_literal(&mut out, input, literal_start, input.len());
+    out.push(0xFF);
+    out
+}
+
+// -------------------------------------------------------------------------------------------------
+
 #[cfg(test)]
 mod tests {
     fn assert_decompression(compressed: &[u8], decompressed: &[u8]) {
@@ -216,5 +275,71 @@ mod tests {
             ];
             assert_decompression(&compressed, &EXPECTED)
         }
+    }
+
+    fn assert_round_trip(original: &[u8]) {
+        let compressed = super::compress(original);
+        let decompressed = super::decompress(&compressed, false).expect("recompressed data should decompress");
+        assert_eq!(decompressed, original, "round-trip mismatch (compressed len {})", compressed.len());
+    }
+
+    #[test]
+    fn round_trip_empty() {
+        assert_round_trip(&[]);
+    }
+
+    #[test]
+    fn round_trip_all_literal() {
+        assert_round_trip(&(0..=255u8).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn round_trip_long_zero_run() {
+        let data = vec![0u8; 5000];
+        assert_round_trip(&data);
+    }
+
+    #[test]
+    fn round_trip_mixed_runs_and_literals() {
+        let mut data = Vec::new();
+        data.extend_from_slice(&[1, 2, 3, 4, 5]);
+        data.extend(std::iter::repeat_n(0xAAu8, 40));
+        data.extend_from_slice(&[9, 8, 7]);
+        data.extend(std::iter::repeat_n(0x00u8, 1500));
+        data.extend_from_slice(&[1, 2]);
+        assert_round_trip(&data);
+    }
+
+    #[test]
+    fn compress_uses_byte_fill_for_runs_of_3_or_more() {
+        let data = [5u8, 5, 5, 5, 5];
+        let compressed = super::compress(&data);
+        // header (BYTE_FILL, len-1=4) + fill byte + terminator = 3 bytes,
+        // versus 6 bytes for a direct-copy of the same data.
+        assert_eq!(compressed.len(), 3);
+        assert_round_trip(&data);
+    }
+
+    /// Round-trips real vanilla GFX file data (decompress -> recompress ->
+    /// decompress) to make sure `compress` handles genuine graphics data, not
+    /// just synthetic patterns. Run with `ROM_PATH=/path/to/smw.smc cargo test
+    /// -p smwe-rom --lib -- --ignored real_gfx_file_round_trip`.
+    #[test]
+    #[ignore]
+    fn real_gfx_file_round_trip() {
+        use crate::snes_utils::addr::{AddrPc, AddrSnes};
+
+        let rom_path = std::env::var("ROM_PATH").expect("set ROM_PATH");
+        let raw = std::fs::read(rom_path).expect("read ROM");
+        let rom_bytes = if raw.len() % 0x400 == 0x200 { raw[0x200..].to_vec() } else { raw };
+
+        // GFX file 0, vanilla address (see graphics/gfx_file/data.rs).
+        let pc = AddrPc::try_from_lorom(AddrSnes(0x08D9F9)).unwrap().0 as usize;
+        let original_decompressed = super::decompress(&rom_bytes[pc..], false).expect("decompress real GFX file 0");
+        assert!(original_decompressed.len() > 1000, "sanity: expect a nontrivial amount of tile data");
+
+        let recompressed = super::compress(&original_decompressed);
+        let redecompressed = super::decompress(&recompressed, false).expect("decompress our recompressed output");
+        assert_eq!(redecompressed, original_decompressed);
     }
 }

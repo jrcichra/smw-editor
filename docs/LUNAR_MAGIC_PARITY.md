@@ -60,8 +60,9 @@ X"), and player (Mario/Yoshi) graphics customization.
 | VRAM/GFX viewer widget | ✅ | `crates/smwe-widgets/src/vram_view.rs` |
 | Palette viewer widget | ✅ | `crates/smwe-widgets/palette_view.rs` |
 | Map16 editor | ✅ | `map16_editor.rs` |
-| Vanilla GFX file reading (0x00-0x33) | ✅ | `crates/smwe-rom/src/graphics/gfx_file/` — read-only, decompresses into `rom.gfx.files` for VRAM composition |
-| ExGFX import/export, per-level GFX slot assignment | ⛔ | GFX files are read-only; no write/export/import path found anywhere |
+| Vanilla GFX file reading (0x00-0x33) | ✅ | `crates/smwe-rom/src/graphics/gfx_file/` — decompresses into `rom.gfx.files` for VRAM composition |
+| GFX write plumbing (compress + tile encode + repoint) | ✅ | `compression::lc_lz2::compress` (new; direct-copy + byte-fill, verified round-trip against real ROM GFX data) + `GfxFile::to_raw_bytes`/`decode_tiles` (new tile encoders, exact inverse of the existing decoders, verified round-trip against real ROM data) + `GfxFile::resolve_addr` (locates a file's current pointer for repointing). This is the foundation a GFX editor would sit on top of |
+| ExGFX import/export UI (file dialogs, PNG in/out, per-level GFX slot assignment browser) | ⛔ | Not built yet — only the underlying write plumbing above exists so far. Per-level FG/BG/sprite GFX slot selection *does* already work as a raw nibble via the level header (`fg_bg_gfx`/`sprite_gfx` in `properties.rs`), it's just not tied to any import/export workflow |
 | 8x8 tile bitmap import/export | ⛔ | Not found |
 
 ## Sprites
@@ -122,7 +123,7 @@ X"), and player (Mario/Yoshi) graphics customization.
 
 ## Biggest gaps to close for parity (suggested priority)
 
-1. **ExGFX support** — no way to bring in custom graphics at all right now; the biggest remaining gap with no partial progress.
+1. **ExGFX support (UI layer)** — write plumbing (LC_LZ2 compressor, tile encoders, address resolution) now exists and is verified against real ROM data; still needed: file dialogs, PNG import/export, and a per-level GFX slot browser tied to it.
 2. **Overworld event *ownership* editing** — which level/action triggers which event (`$05D608`?) is still unmapped; reveal-tile preview toggling itself now works.
 3. **Overworld level-number free reassignment (ASM hijack)** — read-only vanilla-accurate display now works; matching LM's free-assignment UX requires ASM code injection, a distinct and larger undertaking.
 4. **Custom sprite insertion / cluster-extended-generator sprite category editing** — tweaker byte editing now covers the ~0xC9 normal sprite IDs; the other categories still have no dedicated support.
