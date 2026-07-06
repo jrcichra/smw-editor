@@ -23,7 +23,7 @@ use crate::{
         Level, LEVEL_COUNT,
     },
     objects::tilesets::Tilesets,
-    overworld::OverworldData,
+    overworld::{OverworldData, OverworldEvents},
     snes_utils::{
         addr::AddrSnes,
         rom::{Rom, RomError},
@@ -42,6 +42,7 @@ pub struct SmwRom {
     pub gfx: Gfx,
     pub map16_tilesets: Tilesets,
     pub overworld: OverworldData,
+    pub overworld_events: OverworldEvents,
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -92,7 +93,26 @@ impl SmwRom {
                 OverworldData { layer1_tiles: vec![0u8; overworld::OWL1_TILE_DATA_SIZE] }
             });
 
-        Ok(Self { disassembly, internal_header, levels, secondary_entrances, gfx, map16_tilesets, overworld })
+        log::info!("Parsing overworld event data");
+        let overworld_events = OverworldEvents::parse(&disassembly.rom).unwrap_or_else(|e| {
+            log::warn!("Could not parse overworld event data: {e}");
+            OverworldEvents {
+                tile_offsets: vec![0u16; overworld::OW_EVENT_COUNT],
+                reveal_before: vec![0u8; overworld::OW_EVENT_REVEAL_COUNT],
+                reveal_after: vec![0u8; overworld::OW_EVENT_REVEAL_COUNT],
+            }
+        });
+
+        Ok(Self {
+            disassembly,
+            internal_header,
+            levels,
+            secondary_entrances,
+            gfx,
+            map16_tilesets,
+            overworld,
+            overworld_events,
+        })
     }
 
     fn parse_levels(disasm: &mut RomDisassembly) -> anyhow::Result<Vec<Level>> {

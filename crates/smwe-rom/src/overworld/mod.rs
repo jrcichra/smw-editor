@@ -103,6 +103,90 @@ fn translevel_to_level_number(translevel: u8) -> u8 {
     if translevel < 0x25 { translevel } else { translevel - 0x24 }
 }
 
+/// Number of "destruction" events (castles/fortresses/switch palaces changing
+/// tile after being beaten). Confirmed in SMWDisX `bank_04.asm` (the caller of
+/// `CODE_04DA49` loops until `_F == 0x6F`).
+pub const OW_EVENT_COUNT: usize = 0x6F;
+
+/// Per-event byte offset into the layer-1 tilemap (same index space as
+/// `OverworldData::layer1_tiles`), SNES $04D85D, 2 bytes/entry little-endian.
+pub const OW_EVENT_TILE_OFFSET_SNES: AddrSnes = AddrSnes(0x04D85D);
+
+/// "Before" tile IDs for the reveal-tile swap, SNES $04DA1D, 1 byte/entry.
+pub const OW_EVENT_REVEAL_BEFORE_SNES: AddrSnes = AddrSnes(0x04DA1D);
+/// "After" tile IDs for the reveal-tile swap, SNES $04DA33, 1 byte/entry,
+/// parallel to `OW_EVENT_REVEAL_BEFORE_SNES`.
+pub const OW_EVENT_REVEAL_AFTER_SNES: AddrSnes = AddrSnes(0x04DA33);
+pub const OW_EVENT_REVEAL_COUNT: usize = 22;
+
+/// Overworld "destruction" event data: which tile changes to which other tile
+/// once a given event (numbered 0..[`OW_EVENT_COUNT`]) has been triggered
+/// (typically by beating the level on that tile). Ported from SMWDisX
+/// `bank_04.asm` `CODE_04DA49`; covers the reveal-tile-swap events only (not
+/// the separate Layer 2 event table at `$04DD8D` or "silent" events at `$04E910`).
+#[derive(Debug)]
+pub struct OverworldEvents {
+    /// `layer1_tiles` byte offset touched by each event, len `OW_EVENT_COUNT`.
+    pub tile_offsets: Vec<u16>,
+    /// "Before" tile IDs, len `OW_EVENT_REVEAL_COUNT`, parallel to `reveal_after`.
+    pub reveal_before: Vec<u8>,
+    /// "After" tile IDs, len `OW_EVENT_REVEAL_COUNT`, parallel to `reveal_before`.
+    pub reveal_after: Vec<u8>,
+}
+
+impl OverworldEvents {
+    pub fn parse(rom: &Rom) -> anyhow::Result<Self> {
+        let offsets_pc = AddrPc::try_from_lorom(OW_EVENT_TILE_OFFSET_SNES)
+            .map_err(|e| anyhow::anyhow!("OW event tile offset addr conversion: {e}"))?
+            .0 as usize;
+        let before_pc = AddrPc::try_from_lorom(OW_EVENT_REVEAL_BEFORE_SNES)
+            .map_err(|e| anyhow::anyhow!("OW event reveal-before addr conversion: {e}"))?
+            .0 as usize;
+        let after_pc = AddrPc::try_from_lorom(OW_EVENT_REVEAL_AFTER_SNES)
+            .map_err(|e| anyhow::anyhow!("OW event reveal-after addr conversion: {e}"))?
+            .0 as usize;
+
+        let offsets_end = offsets_pc + OW_EVENT_COUNT * 2;
+        let before_end = before_pc + OW_EVENT_REVEAL_COUNT;
+        let after_end = after_pc + OW_EVENT_REVEAL_COUNT;
+        if offsets_end > rom.0.len() || before_end > rom.0.len() || after_end > rom.0.len() {
+            anyhow::bail!("OW event data extends past end of ROM");
+        }
+
+        let tile_offsets = rom.0[offsets_pc..offsets_end]
+            .chunks_exact(2)
+            .map(|w| u16::from_le_bytes([w[0], w[1]]))
+            .collect();
+        let reveal_before = rom.0[before_pc..before_end].to_vec();
+        let reveal_after = rom.0[after_pc..after_end].to_vec();
+
+        Ok(Self { tile_offsets, reveal_before, reveal_after })
+    }
+
+    /// Apply the tile-reveal effect of every event in `active_events` (indices
+    /// into `0..OW_EVENT_COUNT`) onto `layer1_tiles`, matching the real game's
+    /// `CODE_04DA49`: for each active event, if the tile currently at its
+    /// offset matches a "before" ID, replace it with the parallel "after" ID.
+    /// One reveal entry (the last one, matching vanilla's switch-palace-reveal
+    /// special case) also writes the following tile position.
+    pub fn apply(&self, layer1_tiles: &mut [u8], active_events: &[bool]) {
+        for (event_idx, &offset) in self.tile_offsets.iter().enumerate() {
+            if !active_events.get(event_idx).copied().unwrap_or(false) {
+                continue;
+            }
+            let pos = offset as usize;
+            let Some(&current) = layer1_tiles.get(pos) else { continue };
+            let Some(reveal_idx) = self.reveal_before.iter().position(|&b| b == current) else { continue };
+            layer1_tiles[pos] = self.reveal_after[reveal_idx];
+            if reveal_idx == self.reveal_before.len() - 1 {
+                if let Some(slot) = layer1_tiles.get_mut(pos + 1) {
+                    *slot = self.reveal_after[reveal_idx];
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,5 +220,64 @@ mod tests {
         assert_eq!(data.level_number_at(0x24, 0), Some(0x24));
         // 0x25th tile (translevel 0x25) gets remapped: 0x25 - 0x24 = 0x01.
         assert_eq!(data.level_number_at(0x25, 0), Some(0x01));
+    }
+
+    fn vanilla_events() -> OverworldEvents {
+        // Values transcribed from SMWDisX bank_04.asm (DATA_04D85D/DATA_04DA1D/DATA_04DA33).
+        OverworldEvents {
+            tile_offsets: vec![0x0000, 0x0000, 0x0000, 0x0469, 0x044B, 0x0429, 0x0409, 0x00D3, 0x00E5],
+            reveal_before: vec![
+                0x6E, 0x6F, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x59, 0x53, 0x52, 0x83, 0x4D, 0x57, 0x5A, 0x76, 0x78,
+                0x7A, 0x7B, 0x7D, 0x7F, 0x54,
+            ],
+            reveal_after: vec![
+                0x66, 0x67, 0x68, 0x69, 0x6A, 0x6B, 0x6C, 0x6D, 0x58, 0x43, 0x44, 0x45, 0x25, 0x5E, 0x5F, 0x77, 0x79,
+                0x63, 0x7C, 0x7E, 0x80, 0x23,
+            ],
+        }
+    }
+
+    #[test]
+    fn event_apply_swaps_matching_before_tile() {
+        let events = vanilla_events();
+        let mut tiles = vec![0u8; OWL1_TILE_DATA_SIZE];
+        tiles[0x0469] = 0x6E; // matches reveal_before[0]
+        let mut active = vec![false; 9];
+        active[3] = true; // event 3 -> offset 0x0469
+        events.apply(&mut tiles, &active);
+        assert_eq!(tiles[0x0469], 0x66); // reveal_after[0]
+    }
+
+    #[test]
+    fn event_apply_noop_when_tile_does_not_match() {
+        let events = vanilla_events();
+        let mut tiles = vec![0u8; OWL1_TILE_DATA_SIZE];
+        tiles[0x0469] = 0x00; // not in reveal_before
+        let mut active = vec![false; 9];
+        active[3] = true;
+        events.apply(&mut tiles, &active);
+        assert_eq!(tiles[0x0469], 0x00);
+    }
+
+    #[test]
+    fn event_apply_last_reveal_entry_also_writes_next_tile() {
+        let events = vanilla_events();
+        let mut tiles = vec![0u8; OWL1_TILE_DATA_SIZE];
+        tiles[0x0469] = 0x54; // matches reveal_before[21], the last/special entry
+        let mut active = vec![false; 9];
+        active[3] = true;
+        events.apply(&mut tiles, &active);
+        assert_eq!(tiles[0x0469], 0x23);
+        assert_eq!(tiles[0x046A], 0x23);
+    }
+
+    #[test]
+    fn event_apply_inactive_event_does_nothing() {
+        let events = vanilla_events();
+        let mut tiles = vec![0u8; OWL1_TILE_DATA_SIZE];
+        tiles[0x0469] = 0x6E;
+        let active = vec![false; 9];
+        events.apply(&mut tiles, &active);
+        assert_eq!(tiles[0x0469], 0x6E);
     }
 }

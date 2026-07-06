@@ -44,7 +44,9 @@ X"), and player (Mario/Yoshi) graphics customization.
 | Save/repoint to ROM | ✅ | `find_free_space`, `patch_snes_pointer` |
 | Path tile drawing (the visual road/dots) | ✅ | Confirmed path tiles are ordinary L1 tiles (SMWDisX has no separate path-data table for the general case) — already fully paintable via the existing L1 draw/erase tools. Only a curated "path piece" picker/auto-tile UX is missing, not the underlying capability |
 | Path movement data (LineGuide-style step tables) | N/A | Investigated and ruled out as a separate system for the general case — SMW's ~10 hard-coded special-case connections (`HardCodedOWPaths`/`OWHardCodedTiles`/`OWHardCodedDirs`, `bank_04.asm:~1646`) are the only exception, not worth building UI for |
-| Event tile editing | ⛔ | Code only force-activates all events for viewing; no edit UI. Real mechanism identified: a "reveal tile list" (before/after tile pairs) around `$04D85D`/`$04D93D` per community docs — not yet parsed in smwe-rom |
+| Event tile preview toggles (which "destruction" events are shown) | ✅ | `crates/smwe-rom/src/overworld/mod.rs::OverworldEvents` parses the real reveal-tile-swap tables (`$04D85D` tile offsets, `$04DA1D`/`$04DA33` before/after tile IDs, ported from SMWDisX `CODE_04DA49`) + tests; `world_editor` now has a per-event checkbox panel (`events_panel`) replacing the old blanket "activate all events" hack — toggling writes real `OWEventsActivated` WRAM bits so the actual emulated game code applies the swap. Verified against the real ROM (`render_ow_submap --dump-events`: 49 tiles change when all events applied, matching expected castle/fortress/switch-palace reveal graphics) |
+| Event *ownership* editing (which level/action triggers which event) | ⛔ | Not investigated — likely the `$05D608` events-by-translevel table found in Level-number research. Editing which event a level triggers is a separate, not-yet-scoped piece |
+| Layer 2 event tiles (separate from Layer 1 reveal-tile swaps) | ⛔ | `$04DD8D` table identified but not parsed; not covered by the current implementation |
 | Level-number display per tile (read-only, vanilla-accurate) | ✅ | `crates/smwe-rom/src/overworld/mod.rs::level_number_at`/`translevel_at` (+ tests), surfaced in `world_editor/mod.rs` tile-inspect panel. Confirmed against real ROM (`render_ow_submap --dump-levels`): matches vanilla's translevel scan-order numbering including the documented 0x25→0x01 wraparound |
 | Level-number free reassignment (LM-style, arbitrary) | ⛔ | Vanilla SMW derives level number from tile-placement scan order, not a free field (confirmed in `bank_04.asm` `CODE_04D832`/`bank_05.asm` `CODE_05D8A2`) — Lunar Magic achieves free assignment via its own ASM hijack replacing this lookup. Doing the same here is a distinct, larger follow-up (ROM code injection + repointing), not yet started |
 | Layer 2 scroll properties (not raw tiles) | ⛔ | Not found |
@@ -120,7 +122,7 @@ X"), and player (Mario/Yoshi) graphics customization.
 
 ## Biggest gaps to close for parity (suggested priority)
 
-1. **Overworld event tile editing** — real mechanism identified (reveal tile list around `$04D85D`/`$04D93D`); path tile *painting* turned out to already work via existing L1 tools, so this is now the actual remaining gap in that area. (Path editing UX polish — a curated path-piece picker with auto-tiling — is a smaller nice-to-have, not blocking.)
+1. **Overworld event *ownership* editing** — which level/action triggers which event (`$05D608`?) is still unmapped; reveal-tile preview toggling itself now works.
 2. **Overworld level-number free reassignment (ASM hijack)** — read-only vanilla-accurate display now works; matching LM's free-assignment UX requires ASM code injection, a distinct and larger undertaking.
 3. **ExGFX support** — no way to bring in custom graphics at all right now.
 4. **Sprite header/SDT editing** — sprite placement exists but custom sprite behavior can't be configured.

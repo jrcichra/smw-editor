@@ -38,6 +38,11 @@ fn main() {
         return;
     }
 
+    if args.iter().any(|a| a == "--dump-events") {
+        dump_events(&rom_bytes);
+        return;
+    }
+
     let mut emu_rom = EmuRom::new(rom_bytes);
     emu_rom.load_symbols(include_str!("../../symbols/SMW_U.sym"));
     let mut cpu = Cpu::new(CheckedMem::new(Arc::new(emu_rom)));
@@ -225,6 +230,40 @@ fn dump_levels(rom_bytes: &[u8]) {
             }
         }
     }
+}
+
+/// Parse OverworldEvents from the real ROM and print the reveal-tile tables
+/// plus a sample of nonzero tile offsets, to sanity-check the transcription in
+/// smwe_rom::overworld against the actual ROM bytes.
+fn dump_events(rom_bytes: &[u8]) {
+    let rom = smwe_rom::snes_utils::rom::Rom::new(rom_bytes.to_vec()).expect("rom parse");
+    let events = smwe_rom::overworld::OverworldEvents::parse(&rom).expect("events parse");
+    println!("reveal_before: {:02X?}", events.reveal_before);
+    println!("reveal_after:  {:02X?}", events.reveal_after);
+    println!("nonzero tile_offsets:");
+    for (i, &off) in events.tile_offsets.iter().enumerate() {
+        if off != 0 {
+            println!("  event {i:3} -> offset {off:#06X}");
+        }
+    }
+
+    let ow = smwe_rom::overworld::OverworldData::parse(&rom).expect("overworld parse");
+    let mut tiles = ow.layer1_tiles.clone();
+    let mut active = vec![false; smwe_rom::overworld::OW_EVENT_COUNT];
+    for a in active.iter_mut() {
+        *a = true;
+    }
+    events.apply(&mut tiles, &active);
+    let mut changed = 0;
+    for (i, (&before, &after)) in ow.layer1_tiles.iter().zip(tiles.iter()).enumerate() {
+        if before != after {
+            changed += 1;
+            if changed <= 20 {
+                println!("  tile[{i:#06X}] {before:#04X} -> {after:#04X}");
+            }
+        }
+    }
+    println!("total tiles changed by applying all events: {changed}");
 }
 
 fn activate_all_overworld_events(cpu: &mut Cpu) {

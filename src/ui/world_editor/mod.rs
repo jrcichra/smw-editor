@@ -219,6 +219,12 @@ pub struct UiWorldEditor {
     has_edits: bool,
     has_unsavable_changes: bool,
     pub(super) edit_state: UndoableData<OverworldEditState>,
+
+    /// Per-event (0..smwe_rom::overworld::OW_EVENT_COUNT) preview toggle: whether
+    /// this "destruction" event (castle/fortress/switch palace beaten, etc.) is
+    /// considered active for preview purposes. Defaults to all-on, matching the
+    /// previous blanket "activate everything" behavior.
+    active_events: Vec<bool>,
 }
 
 impl UiWorldEditor {
@@ -261,13 +267,14 @@ impl UiWorldEditor {
             has_edits: false,
             has_unsavable_changes: false,
             edit_state,
+            active_events: vec![true; smwe_rom::overworld::OW_EVENT_COUNT],
         };
         editor.load_submap();
         editor
     }
 
     fn load_submap(&mut self) {
-        activate_all_overworld_events(&mut self.cpu);
+        apply_active_events_to_wram(&mut self.cpu, &self.active_events);
         smwe_emu::emu::load_overworld(&mut self.cpu, self.submap);
 
         let mut r = self.renderer.lock().expect("Cannot lock overworld renderer");
@@ -417,6 +424,38 @@ impl UiWorldEditor {
         }
     }
 
+    /// Per-event ("destruction event": castle/fortress/switch palace beaten,
+    /// etc.) preview toggles. Toggling any checkbox reloads the current submap
+    /// with the new `OWEventsActivated` bits, so the real emulated game code
+    /// applies (or doesn't apply) that event's reveal-tile swap.
+    fn events_panel(&mut self, ui: &mut Ui) {
+        ui.collapsing("Events (preview)", |ui| {
+            ui.horizontal(|ui| {
+                if ui.button("All on").clicked() {
+                    self.active_events.iter_mut().for_each(|e| *e = true);
+                    self.load_submap();
+                }
+                if ui.button("All off").clicked() {
+                    self.active_events.iter_mut().for_each(|e| *e = false);
+                    self.load_submap();
+                }
+            });
+            egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                let mut changed = false;
+                for (i, active) in self.active_events.iter_mut().enumerate() {
+                    let offset = self.rom.overworld_events.tile_offsets.get(i).copied().unwrap_or(0);
+                    if offset == 0 {
+                        continue; // unused event slot
+                    }
+                    changed |= ui.checkbox(active, format!("Event {i:3} (tile offset {offset:#06X})")).changed();
+                }
+                if changed {
+                    self.load_submap();
+                }
+            });
+        });
+    }
+
     fn left_panel(&mut self, ui: &mut Ui) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.heading("Overworld");
@@ -452,6 +491,9 @@ impl UiWorldEditor {
             ui.checkbox(&mut self.show_layer1, "Show Layer 1");
             ui.checkbox(&mut self.show_layer2, "Show Layer 2");
             ui.checkbox(&mut self.show_grid, "Show Grid");
+
+            ui.separator();
+            self.events_panel(ui);
 
             // ── Editing mode toolbar ────────────────────────────────
             ui.separator();
@@ -883,9 +925,21 @@ fn ow_tile(x: u32, y: u32, t: u16) -> Tile {
     Tile([x, y, tile, params])
 }
 
-fn activate_all_overworld_events(cpu: &mut Cpu) {
-    for addr in 0x1F02u32..=0x1F60 {
-        cpu.mem.store_u8(addr, 0xFF);
+/// Write `active_events` (indices 0..OW_EVENT_COUNT) into the emulated
+/// `OWEventsActivated` WRAM table ($1F02-$1F60, 8 events/byte, MSB-first bit
+/// order per SMWDisX `bank_04.asm` `DATA_04E44B`), so that when the real game
+/// code runs `load_overworld` it applies exactly the reveal-tile swaps
+/// (`CODE_04DA49`) for the events the user has toggled on.
+fn apply_active_events_to_wram(cpu: &mut Cpu, active_events: &[bool]) {
+    for byte_idx in 0..15u32 {
+        let mut byte = 0u8;
+        for bit in 0..8u32 {
+            let event_num = (byte_idx * 8 + bit) as usize;
+            if active_events.get(event_num).copied().unwrap_or(false) {
+                byte |= 0x80 >> bit;
+            }
+        }
+        cpu.mem.store_u8(0x1F02 + byte_idx, byte);
     }
 }
 
