@@ -1,5 +1,6 @@
 #![allow(clippy::identity_op)]
 
+pub mod block_behavior;
 pub mod compression;
 pub mod disassembler;
 pub mod graphics;

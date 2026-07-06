@@ -110,7 +110,8 @@ X"), and player (Mario/Yoshi) graphics customization.
 | Address converter (PC/SNES) | ✅ | `src/ui/dev_utils/address_converter.rs` |
 | Project creator / welcome screen | ✅ | `src/ui/project_creator.rs`, `welcome.rs` |
 | Mapper auto-detection (LoROM/HiROM) | 🟡 | Detected from header; SA-1/ExLoROM/ExHiROM unsupported ([[mapper-autodetection]] memory) |
-| Block editor (custom blocks/ASM per block) | ⛔ | README lists as "Planned" |
+| Block editor: "acts like" reference | ✅ | `crates/smwe-rom/src/block_behavior.rs` — vanilla dispatches block collision/interaction by hardcoded ID range, not a per-block data byte (source: SMW Central Data Repository, "Detailed explanation of interaction of each tile," MarioFanGamer, 17 Oct 2024). A custom block already gets any of these behaviors for free by using a Map16 ID from the matching range with custom graphics (already fully supported by the existing Map16 editor). Surfaced as an "Acts like: ..." label in `map16_editor.rs` when selecting/editing a block. Ranges + specific tile behaviors covered by tests |
+| Block editor: novel (non-vanilla) custom behavior via ASM insertion | ⛔ | Giving a block a behavior that doesn't correspond to any existing vanilla ID range would need a real JSL hook into the interaction dispatcher — genuine new code, not a data patch (unlike the overworld level-number case above). Not started; this is a categorically higher-risk piece of work than anything else in this tracker |
 | Graphics editor | ⛔ | README lists as "Planned" |
 | ASM code editor | ⛔ | README lists as "Planned" |
 | Music editor | ⛔ | README lists as "Planned" |
@@ -124,10 +125,9 @@ X"), and player (Mario/Yoshi) graphics customization.
 
 ## Biggest gaps to close for parity (suggested priority)
 
-1. **Message box font/WYSIWYG preview** — raw tile-index byte editing works and is verified against real ROM data; still needed: identify the message font's GFX source (Layer 3 "dynamic stripe image") so users can see/type readable text instead of raw tile numbers.
-2. **Overworld event *ownership* editing** — which level/action triggers which event (`$05D608`?) is still unmapped; reveal-tile preview toggling itself now works.
-3. **Overworld level-number free reassignment (ASM hijack)** — read-only vanilla-accurate display now works; matching LM's free-assignment UX requires ASM code injection, a distinct and larger undertaking.
+1. **Block editor: novel custom behavior via ASM insertion** — the "acts like" reference (free, ID-range-based) now works; this remaining piece needs a real JSL hook into the interaction dispatcher, the highest-risk item in this tracker (actual new code, not a data patch).
+2. **Message box font/WYSIWYG preview** — raw tile-index byte editing works and is verified against real ROM data; still needed: identify the message font's GFX source (Layer 3 "dynamic stripe image") so users can see/type readable text instead of raw tile numbers.
+3. **Overworld event *ownership* editing** — which level/action triggers which event (`$05D608`?) is still unmapped; reveal-tile preview toggling itself now works.
 4. **Custom sprite insertion / cluster-extended-generator sprite category editing** — tweaker byte editing now covers the ~0xC9 normal sprite IDs; the other categories still have no dedicated support.
 5. **ExGFX colored preview + per-level slot browser cross-linking** — the core import/export loop works now; this is the remaining UX polish.
 6. **ROM expansion** — free-space *scanning* is now unified (`src/rom_freespace.rs`), but there's still no way to grow the ROM itself (LM's "expand to 3/4MB") for when a hack runs out of space entirely.
-7. **Block editor** — already tracked in README as next planned work.

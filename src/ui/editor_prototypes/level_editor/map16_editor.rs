@@ -31,6 +31,19 @@ impl UiLevelEditor {
                 // Get current tile words (from edits or ROM)
                 let mut tile_words = self.get_block_tile_words(block_id);
 
+                // "Acts like" reference: vanilla dispatches block behavior by
+                // hardcoded ID range, not a per-block byte, so a custom block
+                // already gets this category's behavior for free just by
+                // using an ID from the matching range (with its own graphics).
+                let category = smwe_rom::block_behavior::category_of(block_id);
+                ui.horizontal(|ui| {
+                    ui.label("Acts like:");
+                    ui.strong(category.label());
+                });
+                if let Some(behavior) = smwe_rom::block_behavior::specific_behavior(block_id) {
+                    ui.small(format!("Specific: {behavior}"));
+                }
+
                 ui.separator();
 
                 // Labels for sub-tile positions
