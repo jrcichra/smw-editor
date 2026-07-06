@@ -437,11 +437,15 @@ impl UiLevelEditor {
 
     fn sprite_picker(&mut self, ui: &mut Ui) {
         let selected_preview = self.sprite_preview_texture(ui.ctx(), self.draw_sprite_id);
+        let selected_category = smwe_rom::sprite_categories::SpriteCategory::of(self.draw_sprite_id);
         ui.horizontal(|ui| {
             ui.image((selected_preview.id(), vec2(32.0, 32.0)));
             ui.vertical(|ui| {
                 ui.monospace(format!("ID {:02X}", self.draw_sprite_id));
                 ui.small(super::sprite_catalog::sprite_name(self.draw_sprite_id));
+                if !selected_category.has_slot_preview() {
+                    ui.small(selected_category.label());
+                }
             });
         });
 
@@ -465,7 +469,13 @@ impl UiLevelEditor {
                                     self.draw_sprite_id = id;
                                 }
                                 ui.vertical(|ui| {
-                                    if ui.selectable_label(selected, format!("{id:02X}")).clicked() {
+                                    let category = smwe_rom::sprite_categories::SpriteCategory::of(id);
+                                    let id_label = if category.has_slot_preview() {
+                                        format!("{id:02X}")
+                                    } else {
+                                        format!("{id:02X} · {}", category.label())
+                                    };
+                                    if ui.selectable_label(selected, id_label).clicked() {
                                         self.draw_sprite_id = id;
                                     }
                                     if ui.small_button(super::sprite_catalog::sprite_name(id)).clicked() {
@@ -483,6 +493,17 @@ impl UiLevelEditor {
     fn sprite_preview_texture(&mut self, ctx: &egui::Context, sprite_id: u8) -> egui::TextureHandle {
         if let Some(tex) = self.sprite_preview_textures.get(&sprite_id) {
             return tex.clone();
+        }
+
+        // Non-slot IDs (shooters/generators/cluster/...) don't go through the
+        // 12-slot tables the OAM preview reads; show a category placeholder
+        // instead of garbage tiles.
+        let category = smwe_rom::sprite_categories::SpriteCategory::of(sprite_id);
+        if !category.has_slot_preview() {
+            let image = super::sprite_catalog::category_placeholder_image(category);
+            let tex = ctx.load_texture(format!("sprite_preview_{sprite_id:02X}"), image, egui::TextureOptions::NEAREST);
+            self.sprite_preview_textures.insert(sprite_id, tex.clone());
+            return tex;
         }
 
         let (mut image, mut best_score) =

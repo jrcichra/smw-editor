@@ -75,17 +75,16 @@ model yet (better to error clearly than corrupt). Put the codec in
 `smwe-rom` (e.g. `src/mwl.rs`) with round-trip tests against a level
 serialized from the real ROM; wire File-menu items in the level editor.
 
-### 4. Sprite categories (cluster/extended/generator/shooter)
+### 4. Sprite categories — DONE (2026-07-06)
 
-`SpriteTweakers::has_tweakers()` already marks IDs >= 0xC9. Missing: a
-`SpriteCategory` enum in `smwe-rom` (normal / shooter 0xC9-0xCB? /
-generator 0xD0+? — verify exact ID ranges in SMWDisX `bank_02.asm` sprite
-spawn code, don't trust these guesses), category display in the sprite
-catalog/picker, and correct rendering/preview handling for non-normal
-categories (they don't use the standard 12-slot tables; `exec_sprite_id`
-previews will be wrong for them — at minimum label them and skip preview).
-Full "custom sprite insertion" (PIXI-style) is a separate large project; do
-not start it as a side effect.
+`smwe_rom::sprite_categories::SpriteCategory`, ranges verified in
+`bank_02.asm` `CODE_02A88C`: Normal 00-C8, Shooter C9-CA (`LoadShooter`),
+Generator CB-D9 (`CurrentGenerator = id-$CA`; jump table at
+`CallGenerator`), Special DA-E0 (DA-DD/DF = stationary sprite `id-$DA+4`
+with status 9, DE = 5 Eeries, E0 = 3 chain platforms), Cluster E1-E6
+(`CODE_02AAC0`), Undefined E7+. Catalog names all non-slot IDs; non-Normal
+IDs get a color-coded placeholder instead of the old garbage OAM preview.
+PIXI-style custom sprite insertion remains a separate project.
 
 ### 5. Custom block behavior via ASM hook (highest risk — attempt last)
 

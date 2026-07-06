@@ -201,6 +201,39 @@ pub(super) fn sprite_name(id: u8) -> &'static str {
         0xC6 => "Dark room with spot light",
         0xC7 => "Invisible mushroom",
         0xC8 => "Light switch block for dark room",
+        // Non-slot IDs: names follow the dispatch in bank_02.asm CODE_02A88C
+        // (shooters, generator jump table at CallGenerator, stationary-shell
+        // remap id-$DA+4, cluster activators in CODE_02AAC0).
+        0xC9 => "Bullet Bill shooter",
+        0xCA => "Torpedo Ted shooter",
+        0xCB => "Eerie generator",
+        0xCC => "Para-Goomba generator",
+        0xCD => "Para-Bomb generator",
+        0xCE => "Para-Bomb + Para-Goomba generator",
+        0xCF => "Dolphin generator (left)",
+        0xD0 => "Dolphin generator (right)",
+        0xD1 => "Jumping fish generator",
+        0xD2 => "Turn off Boo cloud (E5) generator",
+        0xD3 => "Super Koopa generator",
+        0xD4 => "Bubble with Goomba/Bob-omb generator",
+        0xD5 => "Bullet Bill generator",
+        0xD6 => "Bullet Bill generator (surrounded)",
+        0xD7 => "Bullet Bill generator (diagonal)",
+        0xD8 => "Bowser statue fire generator",
+        0xD9 => "Turn off generators",
+        0xDA => "Green Koopa shell (stationary)",
+        0xDB => "Red Koopa shell (stationary)",
+        0xDC => "Blue Koopa shell (stationary)",
+        0xDD => "Yellow Koopa shell (stationary)",
+        0xDE => "5 Eeries",
+        0xDF => "Green bouncing Koopa (stationary)",
+        0xE0 => "3 gray platforms on chains",
+        0xE1 => "Boo ceiling (cluster)",
+        0xE2 => "Boo ring #1 (cluster)",
+        0xE3 => "Boo ring #2 (cluster)",
+        0xE4 => "Swooper bat ceiling (cluster)",
+        0xE5 => "Appearing Boo cloud (cluster)",
+        0xE6 => "Four candle flames (cluster)",
         _ => "Unknown / unsupported",
     }
 }
@@ -213,8 +246,31 @@ pub(super) fn sprite_matches_search(id: u8, query: &str) -> bool {
 
     let hex = format!("{id:02X}").to_ascii_lowercase();
     let name = sprite_name(id);
+    let category = smwe_rom::sprite_categories::SpriteCategory::of(id).label();
     let q = query.to_ascii_lowercase();
-    hex.contains(&q) || name.to_ascii_lowercase().contains(&q)
+    hex.contains(&q) || name.to_ascii_lowercase().contains(&q) || category.to_ascii_lowercase().contains(&q)
+}
+
+/// Flat color-coded placeholder for sprite IDs that don't occupy a normal
+/// sprite slot (shooters/generators/cluster/...) — running their INIT routine
+/// in a slot and reading OAM would render garbage.
+pub(super) fn category_placeholder_image(category: smwe_rom::sprite_categories::SpriteCategory) -> egui::ColorImage {
+    use smwe_rom::sprite_categories::SpriteCategory::*;
+    let fill = match category {
+        Normal => egui::Color32::from_gray(60),
+        Shooter => egui::Color32::from_rgb(180, 110, 40),
+        Generator => egui::Color32::from_rgb(140, 80, 180),
+        Special => egui::Color32::from_rgb(50, 150, 140),
+        Cluster => egui::Color32::from_rgb(70, 110, 190),
+        Undefined => egui::Color32::from_gray(70),
+    };
+    let mut img = egui::ColorImage::new([16, 16], fill);
+    for i in 0..16 {
+        for &(x, y) in &[(i, 0), (i, 15), (0, i), (15, i)] {
+            img.pixels[y * 16 + x] = egui::Color32::from_gray(25);
+        }
+    }
+    img
 }
 
 pub(super) fn preview_sprite_tileset(id: u8) -> Option<u8> {
