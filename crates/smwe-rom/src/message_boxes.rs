@@ -106,6 +106,88 @@ const MESSAGE_START_OFFSETS: [u32; MESSAGE_COUNT] = [
 pub const POINTER_TO_MESSAGE: [usize; MESSAGE_POINTER_COUNT] =
     [1, 1, 1, 1, 0, 5, 8, 10, 12, 17, 15, 6, 16, 19, 21, 9, 20, 13, 14, 18, 11, 7, 2, 4, 3];
 
+/// Characters per message-box line: the render loop (`CODE_05B208`) writes
+/// exactly 0x12 tiles per stripe row.
+pub const MESSAGE_LINE_WIDTH: usize = 18;
+
+/// Map a message tile byte (0x00-0x7F) to the character its font tile shows.
+///
+/// Chart derived empirically: the message font was located in VRAM (2bpp
+/// tiles at byte offset 0x9000 after level load, i.e. BG3 tiles 0x100+, per
+/// `CODE_05B208`'s tile word `[byte | attr $39]`), transcribed from a VRAM
+/// tile-sheet render, and validated by decoding all 22 vanilla messages to
+/// readable English text. Returns `None` for tiles that aren't ordinary
+/// characters (status-bar fragments, blank filler slots, etc.).
+pub fn byte_to_char(byte: u8) -> Option<char> {
+    let byte = byte & 0x7F;
+    Some(match byte {
+        0x00..=0x19 => (b'A' + byte) as char,
+        0x1A => '!',
+        0x1B => '.',
+        0x1C => '-',
+        0x1D => ',',
+        0x1E => '?',
+        0x1F => ' ',
+        0x22..=0x2B => (b'0' + byte - 0x22) as char,
+        0x40..=0x59 => (b'a' + byte - 0x40) as char,
+        0x5A => '#',
+        0x5B => '(',
+        0x5C => ')',
+        0x5D => '\'',
+        _ => return None,
+    })
+}
+
+/// Inverse of [`byte_to_char`]: map a typed character to its message tile
+/// byte. Returns `None` for characters the font doesn't have.
+pub fn char_to_byte(c: char) -> Option<u8> {
+    Some(match c {
+        'A'..='Z' => c as u8 - b'A',
+        '!' => 0x1A,
+        '.' => 0x1B,
+        '-' => 0x1C,
+        ',' => 0x1D,
+        '?' => 0x1E,
+        ' ' => 0x1F,
+        '0'..='9' => 0x22 + (c as u8 - b'0'),
+        'a'..='z' => 0x40 + (c as u8 - b'a'),
+        '#' => 0x5A,
+        '(' => 0x5B,
+        ')' => 0x5C,
+        '\'' => 0x5D,
+        _ => return None,
+    })
+}
+
+/// Decode message bytes into display text, one `MESSAGE_LINE_WIDTH`-character
+/// line per game row (joined with `\n`). Unmappable tile bytes become `¤`.
+pub fn decode_text(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() + bytes.len() / MESSAGE_LINE_WIDTH + 1);
+    for (i, &b) in bytes.iter().enumerate() {
+        if i > 0 && i % MESSAGE_LINE_WIDTH == 0 {
+            out.push('\n');
+        }
+        out.push(byte_to_char(b).unwrap_or('¤'));
+    }
+    out
+}
+
+/// Encode typed text into message bytes. Each line is padded with spaces to
+/// `MESSAGE_LINE_WIDTH` (matching how the game lays out rows) and truncated
+/// if longer. Returns `Err` with the first unsupported character found.
+pub fn encode_text(text: &str) -> Result<Vec<u8>, char> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let mut count = 0usize;
+        for c in line.chars().take(MESSAGE_LINE_WIDTH) {
+            out.push(char_to_byte(c).ok_or(c)?);
+            count += 1;
+        }
+        out.resize(out.len() + (MESSAGE_LINE_WIDTH - count), 0x1F);
+    }
+    Ok(out)
+}
+
 #[derive(Debug, Clone)]
 pub struct MessageBoxes {
     /// Raw tile-index bytes (0x00-0x7F, bit 7 reserved) for each message, in
@@ -216,6 +298,32 @@ mod tests {
     }
 
     #[test]
+    fn char_map_round_trips_over_all_supported_bytes() {
+        for byte in 0u8..=0x7F {
+            if let Some(c) = byte_to_char(byte) {
+                assert_eq!(char_to_byte(c), Some(byte), "byte {byte:02X} -> {c:?} did not round-trip");
+            }
+        }
+    }
+
+    #[test]
+    fn encode_pads_lines_to_width_and_reports_bad_chars() {
+        let enc = encode_text("AB\nc").unwrap();
+        assert_eq!(enc.len(), 2 * MESSAGE_LINE_WIDTH);
+        assert_eq!(&enc[..3], &[0x00, 0x01, 0x1F]);
+        assert_eq!(enc[MESSAGE_LINE_WIDTH], 0x42);
+        assert_eq!(encode_text("A@B"), Err('@'));
+    }
+
+    #[test]
+    fn decode_splits_into_game_rows() {
+        let bytes: Vec<u8> = std::iter::repeat(0x1F).take(MESSAGE_LINE_WIDTH * 2).collect();
+        let text = decode_text(&bytes);
+        assert_eq!(text.lines().count(), 2);
+        assert!(text.lines().all(|l| l.len() == MESSAGE_LINE_WIDTH));
+    }
+
+    #[test]
     fn vanilla_boundaries_are_internally_consistent() {
         // Offsets must be strictly increasing and the last message must fit
         // exactly within the budget when using the real vanilla lengths
@@ -256,5 +364,10 @@ mod real_rom_tests {
         let (blob, pointers) = boxes.to_blob_and_pointers().unwrap();
         assert_eq!(blob.len(), total);
         println!("pointers: {pointers:?}");
+
+        // The character chart must decode the vanilla intro to readable text.
+        let intro = decode_text(&boxes.messages[0]);
+        println!("intro:\n{intro}");
+        assert!(intro.starts_with("Welcome!"), "chart decode broken: {intro:?}");
     }
 }

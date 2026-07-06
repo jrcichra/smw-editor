@@ -150,6 +150,10 @@ pub struct UiLevelEditor {
     message_boxes_dirty:     bool,
     show_message_editor:     bool,
     message_editor_selected: usize,
+    /// WYSIWYG text buffer for the selected message (`None` = rebuild from
+    /// bytes on next frame; kept while the user types so in-progress edits
+    /// with unsupported characters aren't clobbered).
+    message_editor_text:     Option<String>,
 
     // Title screen / ending credits fixed-location data.
     title_credits:             smwe_rom::title_credits::TitleCreditsData,
@@ -244,6 +248,7 @@ impl UiLevelEditor {
             message_boxes_dirty: false,
             show_message_editor: false,
             message_editor_selected: 0,
+            message_editor_text: None,
             title_credits,
             title_credits_dirty: false,
             show_title_credits_editor: false,

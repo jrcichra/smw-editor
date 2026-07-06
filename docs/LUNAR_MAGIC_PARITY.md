@@ -30,7 +30,7 @@ X"), and player (Mario/Yoshi) graphics customization.
 | Layer 2/3 background editing | 🟡 | `background_layer.rs` minimal (~510 bytes); L2 header copied verbatim, not user-editable (`level_editor/mod.rs:342`) |
 | Music selection | 🟡 | Raw nibble slider only, no track-name mapping |
 | Custom level names (overworld name table) | ⛔ | Not found |
-| Message box / dialog text editor | 🟡 | `crates/smwe-rom/src/message_boxes.rs` + `level_editor/message_editor.rs` — edits all 22 vanilla messages as raw font-tile-index bytes (0x00-0x7F), verified against real ROM (exact byte boundaries derived from `symbols/SMW_U.sym` label addresses, cross-checked: total size matches the ROM's already-100%-utilized 2854-byte budget exactly). No WYSIWYG readable-text preview yet — the message font's GFX source (drawn via Layer 3 "dynamic stripe image") hasn't been identified, so bytes are edited as raw tile indices, not typed letters |
+| Message box / dialog text editor | ✅ | `crates/smwe-rom/src/message_boxes.rs` + `level_editor/message_editor.rs` — WYSIWYG text editing for all 22 vanilla messages. The font was located empirically: message byte = BG3 tile `0x100\|byte` (attr `$39`, per `CODE_05B208`), glyphs at VRAM byte offset 0x9000 after level load; the byte↔char chart (`byte_to_char`/`char_to_byte`, A-Z a-z 0-9 `!.-,?#()'` space) was transcribed from a VRAM tile-sheet render and validated by decoding every vanilla message to readable English (real-ROM test asserts the intro decodes to "Welcome!…"). Text edits pad each 18-char game row with spaces; messages using special non-text tiles fall back to the raw byte grid (now annotated with each byte's glyph). Byte budget handling unchanged (2854-byte non-repointable blob) |
 | Import/export level as `.mwl` | ⛔ | Not found |
 | Move/resize via drag handles (LM-style) | ⛔ | Object editing exists but unclear if drag-resize UX matches LM |
 
@@ -133,8 +133,8 @@ X"), and player (Mario/Yoshi) graphics customization.
 ## Biggest gaps to close for parity (suggested priority)
 
 1. **Block editor: novel custom behavior via ASM insertion** — the "acts like" reference (free, ID-range-based) now works; this remaining piece needs a real JSL hook into the interaction dispatcher, the highest-risk item in this tracker (actual new code, not a data patch).
-2. **Message box font/WYSIWYG preview** — raw tile-index byte editing works and is verified against real ROM data; still needed: identify the message font's GFX source (Layer 3 "dynamic stripe image") so users can see/type readable text instead of raw tile numbers.
+2. ~~**Message box font/WYSIWYG preview**~~ — DONE: font located in VRAM/BG3, chart validated against all vanilla messages; users now type readable text.
 3. **Overworld event *ownership* editing** — which level/action triggers which event (`$05D608`?) is still unmapped; reveal-tile preview toggling itself now works.
 4. **Custom sprite insertion / cluster-extended-generator sprite category editing** — tweaker byte editing now covers the ~0xC9 normal sprite IDs; the other categories still have no dedicated support.
 5. **ExGFX colored preview + per-level slot browser cross-linking** — the core import/export loop works now; this is the remaining UX polish.
-6. **ROM expansion** — free-space *scanning* is now unified (`src/rom_freespace.rs`), but there's still no way to grow the ROM itself (LM's "expand to 3/4MB") for when a hack runs out of space entirely.
+6. ~~**ROM expansion**~~ — DONE: `src/rom_expand.rs` + File → Expand ROM (1/2/4 MB), pads with 0xFF so the free-space scanner can use it, fixes the internal-header size byte and checksum (checksum now also fixed on every save); the scanner refuses the LoROM SRAM-shadow banks (PC 0x380000+).
