@@ -81,7 +81,12 @@ fn main() {
 
 fn render_layer(cpu: &mut Cpu, bg: bool, width: u32, pixels: &mut [u8]) {
     let map16_bank = cpu.mem.cart.resolve("Map16Common").expect("Cannot resolve Map16Common") & 0xFF0000;
-    let map16_bg = cpu.mem.cart.resolve("Map16BGTiles").expect("Cannot resolve Map16BGTiles");
+    // Resolve Map16 addresses on a scratch clone so the trampoline never
+    // disturbs live CPU/WRAM state, and cache extended-block lookups.
+    let mut scratch = cpu.clone();
+    let map16_bg = smwe_emu::emu::lm_bg_map16_base(&mut scratch)
+        .unwrap_or_else(|| cpu.mem.cart.resolve("Map16BGTiles").expect("Cannot resolve Map16BGTiles"));
+    let mut ext_cache: std::collections::HashMap<u16, u32> = std::collections::HashMap::new();
     let vertical = cpu.mem.load_u8(0x5B) & if bg { 2 } else { 1 } != 0;
     let mode = cpu.mem.load_u8(0x1925);
     let renderer_table = cpu.mem.cart.resolve("CODE_058955").unwrap() + 9;
@@ -127,10 +132,15 @@ fn render_layer(cpu: &mut Cpu, bg: bool, width: u32, pixels: &mut [u8]) {
         let block_ptr = if bg && !has_layer2 {
             block_id as u32 * 8 + map16_bg
         } else if block_id >= 0x200 {
-            lm_map16_ptr(cpu, block_id)
+            *ext_cache
+                .entry(block_id)
+                .or_insert_with(|| smwe_emu::emu::lm_ext_map16_data_addr(&mut scratch, block_id).unwrap_or(0))
         } else {
             cpu.mem.load_u16(0x0FBE + block_id as u32 * 2) as u32 + map16_bank
         };
+        if block_ptr == 0 {
+            continue;
+        }
 
         for (sub, (off_x, off_y)) in (0..4).zip([(0u32, 0u32), (0, 8), (8, 0), (8, 8)]) {
             let t = cpu.mem.load_u16(block_ptr + sub * 2);
@@ -141,7 +151,9 @@ fn render_layer(cpu: &mut Cpu, bg: bool, width: u32, pixels: &mut [u8]) {
 
 fn inspect_block(cpu: &mut Cpu, bg: bool, block_x_wanted: u32, block_y_wanted: u32) {
     let map16_bank = cpu.mem.cart.resolve("Map16Common").expect("Cannot resolve Map16Common") & 0xFF0000;
-    let map16_bg = cpu.mem.cart.resolve("Map16BGTiles").expect("Cannot resolve Map16BGTiles");
+    let mut scratch = cpu.clone();
+    let map16_bg = smwe_emu::emu::lm_bg_map16_base(&mut scratch)
+        .unwrap_or_else(|| cpu.mem.cart.resolve("Map16BGTiles").expect("Cannot resolve Map16BGTiles"));
     let vertical = cpu.mem.load_u8(0x5B) & if bg { 2 } else { 1 } != 0;
     let mode = cpu.mem.load_u8(0x1925);
     let renderer_table = cpu.mem.cart.resolve("CODE_058955").unwrap() + 9;
@@ -198,7 +210,7 @@ fn inspect_block(cpu: &mut Cpu, bg: bool, block_x_wanted: u32, block_y_wanted: u
         let block_ptr = if bg && !has_layer2 {
             block_id as u32 * 8 + map16_bg
         } else if block_id >= 0x200 {
-            lm_map16_ptr(cpu, block_id)
+            smwe_emu::emu::lm_ext_map16_data_addr(&mut scratch, block_id).unwrap_or(0)
         } else {
             cpu.mem.load_u16(0x0FBE + block_id as u32 * 2) as u32 + map16_bank
         };
@@ -220,41 +232,6 @@ fn inspect_block(cpu: &mut Cpu, bg: bool, block_x_wanted: u32, block_y_wanted: u
         }
         break;
     }
-}
-
-/// Resolve a Lunar Magic "extended" Map16 block (id >= 0x200) to the SNES
-/// address of its 4 tile words, by reading LM's per-page pointer tables from the
-/// cart. Ported from level_renderer::get_lm_map16_ptr (the proven BG path).
-fn lm_map16_ptr(cpu: &mut Cpu, block_id: u16) -> u32 {
-    let page = (block_id >> 8) as u8;
-    if page < 2 {
-        return 0;
-    }
-    let ranges = [
-        (0x02u8, 0x0Fu8, 0x06F553u32, 0x06F557u32, 0u32),
-        (0x10, 0x1F, 0x06F55C, 0x06F560, 0),
-        (0x20, 0x2F, 0x06F567, 0x06F56B, 1),
-        (0x30, 0x3F, 0x06F570, 0x06F574, 1),
-        (0x40, 0x4F, 0x06F594, 0x06F598, 0),
-        (0x50, 0x5F, 0x06F59D, 0x06F5A1, 0),
-        (0x60, 0x6F, 0x06F5A8, 0x06F5AC, 1),
-        (0x70, 0x7F, 0x06F5B1, 0x06F5B5, 1),
-    ];
-    for (start, end, lo_addr, bank_addr, add) in ranges {
-        if page >= start && page <= end {
-            let bank = cpu.mem.cart.read(bank_addr).unwrap_or(0);
-            if bank == 0 {
-                break;
-            }
-            let lo_lo = cpu.mem.cart.read(lo_addr).unwrap_or(0);
-            let lo_hi = cpu.mem.cart.read(lo_addr + 1).unwrap_or(0);
-            let lo = ((lo_hi as u32) << 8) | (lo_lo as u32);
-            let base_addr = ((bank as u32) << 16) | lo;
-            let offset = (page as u32 - start as u32) * 0x800 + (block_id as u32 & 0xFF) * 8;
-            return base_addr.wrapping_add(add).wrapping_add(offset);
-        }
-    }
-    0x0F8000 + (page as u32 - 2) * 0x800 + (block_id as u32 & 0xFF) * 8
 }
 
 fn render_sprites(cpu: &mut Cpu, width: u32, pixels: &mut [u8]) {

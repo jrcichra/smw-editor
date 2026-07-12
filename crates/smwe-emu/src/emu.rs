@@ -224,6 +224,128 @@ fn run_routines(cpu: &mut Cpu<CheckedMem>, routines: &[&str], cycle_limit: u64) 
     cy
 }
 
+/// Run a small instruction sequence on a scratch trampoline (same fake-memory
+/// region the routine-list trampolines use) and stop when the end marker is
+/// reached. Returns false if the CPU hit an illegal instruction or ran away.
+///
+/// NOTE: this mutates CPU registers and any WRAM the executed routine touches.
+/// Callers that must not disturb live emulator state (the level editor reuses a
+/// single persistent `Cpu` across frames for animation and sprites) should run
+/// this on a `cpu.clone()`, never on the live CPU.
+fn run_trampoline(cpu: &mut Cpu<CheckedMem>, code: &[u8]) -> bool {
+    const BASE: u32 = 0x2F00;
+    cpu.emulation = false;
+    cpu.ill = false;
+    cpu.s = 0x1FF;
+    cpu.pbr = 0;
+    cpu.dbr = 0;
+    cpu.pc = BASE as u16;
+    for (i, byte) in code.iter().enumerate() {
+        cpu.mem.store(BASE + i as u32, *byte);
+    }
+    let end = BASE as u16 + code.len() as u16 - 1; // last byte must be the NOP end marker
+    let mut steps = 0u32;
+    loop {
+        cpu.dispatch();
+        steps += 1;
+        if cpu.ill || steps > 100_000 {
+            return false;
+        }
+        if cpu.pbr == 0 && cpu.pc == end {
+            return true;
+        }
+    }
+}
+
+/// Lunar Magic's "get Map16 data address" routine, installed at $06F540 in
+/// LM-saved ROMs (vanilla has empty $FF space there). Given a Map16 block
+/// number*2 in 16-bit A, it returns the data address low word in A and the
+/// bank in the high byte of $0B.
+const LM_GET_MAP16_SNES: u32 = 0x06F540;
+
+/// Resolve an extended (id >= 0x200) Map16 block to the SNES address of its
+/// 8 tile-word bytes by running Lunar Magic's own resolver in the emulator.
+/// Returns None when the ROM has no LM resolver (e.g. vanilla) or the result
+/// is implausible; callers should fall back to their static path.
+///
+/// Side-effecting: run on a scratch `cpu.clone()`, not the live editor CPU.
+pub fn lm_ext_map16_data_addr(cpu: &mut Cpu<CheckedMem>, block_id: u16) -> Option<u32> {
+    // Guard: LM's routine starts with CMP #$xxxx (C9 ..); vanilla ROMs have
+    // $FF filler here.
+    if cpu.mem.cart.read(LM_GET_MAP16_SNES) != Some(0xC9) {
+        return None;
+    }
+    let id2 = block_id.wrapping_mul(2).to_le_bytes();
+    let target = LM_GET_MAP16_SNES.to_le_bytes();
+    let code = [
+        0xC2, 0x30, // REP #$30
+        0xA9, id2[0], id2[1], // LDA #block_id*2
+        0x22, target[0], target[1], target[2], // JSL LM resolver
+        0xEA, // NOP (end marker)
+    ];
+    if !run_trampoline(cpu, &code) {
+        return None;
+    }
+    let addr = cpu.a as u32;
+    let bank = (cpu.mem.load_u16(0x0B) >> 8) as u32;
+    if bank == 0 || addr < 0x8000 {
+        return None;
+    }
+    Some((bank << 16) | addr)
+}
+
+/// The SNES address where the vanilla level-load code loads the background
+/// Map16 base (`LDA #Map16BGTiles` = `A9 00 91`, i.e. low word $9100) and then
+/// stores the 24-bit pointer into $0A-$0C. Lunar Magic hijacks the instruction
+/// right after the `LDA #$9100` (`STA`/etc.) with a `JSL <resolver> / NOP`, so
+/// the JSL sits at +3. The resolver reads the per-level BG flag at $7FC00B and
+/// leaves the relocated 24-bit BG Map16 data base in $0A-$0C.
+const LM_BG_MAP16_LDA_SNES: u32 = 0x058DA1; // `A9 00 91`
+const LM_BG_MAP16_HIJACK_SNES: u32 = LM_BG_MAP16_LDA_SNES + 3; // the hijacked JSL
+
+/// Resolve the 24-bit base address of the background Map16 tile-definition
+/// table for the currently loaded level (BG block data = base + id*8). For
+/// LM-saved ROMs this runs LM's resolver (which reads the per-level BG flag
+/// at $7FC00B set during level load, so call this only after
+/// `decompress_sublevel`); for vanilla ROMs returns None and callers should
+/// use `Map16BGTiles`.
+///
+/// Side-effecting: run on a scratch `cpu.clone()`, not the live editor CPU.
+pub fn lm_bg_map16_base(cpu: &mut Cpu<CheckedMem>) -> Option<u32> {
+    // Guard: the `LDA #$9100` must be present (both vanilla and LM have it) and
+    // the following instruction must be a JSL (`22`) — LM's hijack. Vanilla has
+    // a `STA`/`TAX`/etc. there instead, so it correctly returns None.
+    if cpu.mem.cart.read(LM_BG_MAP16_LDA_SNES) != Some(0xA9)
+        || cpu.mem.cart.read(LM_BG_MAP16_LDA_SNES + 1) != Some(0x00)
+        || cpu.mem.cart.read(LM_BG_MAP16_LDA_SNES + 2) != Some(0x91)
+        || cpu.mem.cart.read(LM_BG_MAP16_HIJACK_SNES) != Some(0x22)
+    {
+        return None;
+    }
+    let target = [
+        cpu.mem.cart.read(LM_BG_MAP16_HIJACK_SNES + 1)?,
+        cpu.mem.cart.read(LM_BG_MAP16_HIJACK_SNES + 2)?,
+        cpu.mem.cart.read(LM_BG_MAP16_HIJACK_SNES + 3)?,
+    ];
+    // Reproduce the hijack context: A = vanilla base low ($9100), then the JSL.
+    // The resolver writes the relocated 24-bit base into $0A-$0C.
+    let code = [
+        0xC2, 0x30, // REP #$30
+        0xA9, 0x00, 0x91, // LDA #$9100
+        0x22, target[0], target[1], target[2], // JSL LM BG resolver
+        0xEA, // NOP (end marker)
+    ];
+    if !run_trampoline(cpu, &code) {
+        return None;
+    }
+    let base = cpu.mem.load_u24(0x0A) & 0xFFFFFF;
+    let bank = base >> 16;
+    if bank == 0 || (base & 0xFFFF) < 0x8000 {
+        return None;
+    }
+    Some(base)
+}
+
 pub fn fetch_anim_frame(cpu: &mut Cpu<CheckedMem>) -> u64 {
     // CODE_00A5F9 is SMW's full animated-tile init loop: it cycles through all
     // 8 sub-frames so every animated VRAM slot (coins, ? blocks, turn blocks,
@@ -601,4 +723,127 @@ pub fn load_overworld(cpu: &mut Cpu<CheckedMem>, submap: u8) -> u64 {
     }
     log::debug!("load_overworld(submap={submap}) took {}µs", now.elapsed().as_micros());
     cy
+}
+
+#[cfg(test)]
+mod lm_map16_tests {
+    use std::{path::PathBuf, sync::Arc};
+
+    use wdc65816::Cpu;
+
+    use super::{decompress_sublevel, lm_bg_map16_base, lm_ext_map16_data_addr, CheckedMem};
+    use crate::rom::Rom;
+
+    /// Load a repo-root ROM into a fresh CPU, or return None so the test can be
+    /// skipped when the (git-ignored) ROM file is not present (e.g. in CI).
+    fn load_cpu(rom_name: &str) -> Option<Cpu<CheckedMem>> {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let rom_path = root.join(rom_name);
+        let raw = std::fs::read(&rom_path).ok()?;
+        let bytes = if raw.len() % 0x400 == 0x200 { raw[0x200..].to_vec() } else { raw };
+        let sym = std::fs::read_to_string(root.join("symbols/SMW_U.sym")).ok()?;
+        let mut rom = Rom::new(bytes);
+        rom.load_symbols(&sym);
+        Some(Cpu::new(CheckedMem::new(Arc::new(rom))))
+    }
+
+    fn words(cpu: &mut Cpu<CheckedMem>, base: u32) -> [u16; 4] {
+        [
+            cpu.mem.load_u16(base),
+            cpu.mem.load_u16(base + 2),
+            cpu.mem.load_u16(base + 4),
+            cpu.mem.load_u16(base + 6),
+        ]
+    }
+
+    /// Vanilla SMW has no Lunar Magic resolvers, so both helpers must return None
+    /// (callers then fall back to the static vanilla tables). Guards against a
+    /// stray byte-pattern match that would run garbage on a vanilla ROM.
+    #[test]
+    fn vanilla_has_no_lm_resolvers() {
+        let Some(mut cpu) = load_cpu("smw.smc") else {
+            eprintln!("skipping: smw.smc not present");
+            return;
+        };
+        decompress_sublevel(&mut cpu, 0x105);
+        let mut scratch = cpu.clone();
+        assert_eq!(lm_bg_map16_base(&mut scratch), None, "vanilla must have no BG-map16 hijack");
+        assert_eq!(
+            lm_ext_map16_data_addr(&mut scratch, 0x300),
+            None,
+            "vanilla must have no extended-Map16 resolver"
+        );
+    }
+
+    /// On a Lunar Magic ROM, the relocated BG Map16 table must reproduce the
+    /// vanilla page-0 background block data byte-for-byte (LM copies the
+    /// original blocks into its expanded table), proving the resolved base and
+    /// the `base + id*8` addressing are correct. TOP2020 level 0x106 uses a
+    /// relocated background.
+    #[test]
+    fn lm_bg_base_reproduces_vanilla_page0() {
+        let Some(mut cpu) = load_cpu("TOP2020.smc") else {
+            eprintln!("skipping: TOP2020.smc not present");
+            return;
+        };
+        decompress_sublevel(&mut cpu, 0x106);
+        let vanilla_bg = cpu.mem.cart.resolve("Map16BGTiles").unwrap();
+        let mut scratch = cpu.clone();
+        let base = lm_bg_map16_base(&mut scratch).expect("TOP2020 must have a BG-map16 resolver");
+        assert_ne!(base, vanilla_bg, "LM base should be relocated away from the vanilla table");
+        // Block 0x025 is a vanilla page-0 background block; its 4 tile words in
+        // the relocated table must equal those in the vanilla table.
+        let van = words(&mut cpu, vanilla_bg + 0x25 * 8);
+        let reloc = words(&mut scratch, base + 0x25 * 8);
+        assert_eq!(reloc, van, "relocated page-0 BG block must match vanilla");
+    }
+
+    /// LM's $06F540 GetMap16 resolver, run for a vanilla-range id (< 0x200),
+    /// must return the same data address as the in-RAM $0FBE pointer table the
+    /// game itself uses — the calibration that proves we are driving the
+    /// resolver correctly (right input scaling, right result registers).
+    #[test]
+    fn lm_ext_resolver_matches_0fbe_for_vanilla_ids() {
+        let Some(mut cpu) = load_cpu("TOP2020.smc") else {
+            eprintln!("skipping: TOP2020.smc not present");
+            return;
+        };
+        decompress_sublevel(&mut cpu, 0x105);
+        let map16_bank = cpu.mem.cart.resolve("Map16Common").unwrap() & 0xFF0000;
+        let mut scratch = cpu.clone();
+        for id in [0x0A0u16, 0x100, 0x1FE] {
+            let expected = cpu.mem.load_u16(0x0FBE + id as u32 * 2) as u32 + map16_bank;
+            let got = lm_ext_map16_data_addr(&mut scratch, id).expect("resolver should run on LM ROM");
+            assert_eq!(got, expected, "GetMap16 mismatch for id {id:#05X}");
+        }
+    }
+
+    /// The resolvers mutate CPU/WRAM state, so the editor runs them on a clone.
+    /// This verifies that contract holds: running them on a clone leaves the
+    /// original CPU's WRAM, VRAM, CGRAM and registers byte-identical.
+    #[test]
+    fn resolvers_do_not_disturb_original_cpu() {
+        let Some(mut cpu) = load_cpu("TOP2020.smc") else {
+            eprintln!("skipping: TOP2020.smc not present");
+            return;
+        };
+        decompress_sublevel(&mut cpu, 0x106);
+        let wram = cpu.mem.wram.clone();
+        let vram = cpu.mem.vram.clone();
+        let cgram = cpu.mem.cgram.clone();
+        let regs = (cpu.a, cpu.x, cpu.y, cpu.s, cpu.d, cpu.pbr, cpu.dbr, cpu.pc);
+
+        let mut scratch = cpu.clone();
+        let _ = lm_bg_map16_base(&mut scratch);
+        let _ = lm_ext_map16_data_addr(&mut scratch, 0x300);
+
+        assert!(cpu.mem.wram == wram, "WRAM disturbed");
+        assert!(cpu.mem.vram == vram, "VRAM disturbed");
+        assert!(cpu.mem.cgram == cgram, "CGRAM disturbed");
+        assert_eq!(
+            (cpu.a, cpu.x, cpu.y, cpu.s, cpu.d, cpu.pbr, cpu.dbr, cpu.pc),
+            regs,
+            "registers disturbed"
+        );
+    }
 }
