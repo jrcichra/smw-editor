@@ -120,9 +120,18 @@ instead of landing.
   `CODE_04E496`: [source stream index u16][L2 tilemap byte offset u16],
   `<0x900` = 6×6 block else 2×2). Remaining: an *editor* for the reveal
   records (LM lets you redraw event paths on the map).
-- `docs/LUNAR_MAGIC_PARITY.md` still lists smaller ⛔ rows (animated OW
-  tiles, L2 scroll settings, 8x8 tile import/export, drag-resize object
-  handles); keep flipping rows as things land.
+- `docs/LUNAR_MAGIC_PARITY.md` was expanded 2026-07-06 after cross-referencing
+  the SMW Speedruns wiki "Level Data Format" page and SMWC forums. New ⛔ rows
+  added for: LM-specific objects (22/23 direct Map16, 27 multi-page stretch,
+  2D custom user object, 26 music bypass), ExAnimation system (per-level slot
+  formats + `$03FE00` PTLG flags + global pointer tables), sprite extension
+  bytes (up to 12 extra, `$0EF30F==$0x42` guard), secondary entrance expansion
+  (dynamically allocated tables at `$0DE191/$0DE198/$0DE19F/$05DC81`, exit-to-overworld
+  format, 15-bit destinations via ext obj 02, v3.40+ smart spawn), Layer 3 bypass
+  settings (LG1-4, SP1-2 high bytes, CGADSUB/subscreen flags, scroll rates), music
+  bypass per level (object 26), timer bypass per level (object 28), background level
+  copying ("Copy Background Image"), custom palette editor ($0EF600 pointers + SNES RGB)
+  and palette animation toggles. Grep all new rows return zero hits in `.rs`.
 - .mwl support has never been validated against real Lunar Magic — if the
   user has LM available, round-tripping a file both directions is the
   outstanding check.

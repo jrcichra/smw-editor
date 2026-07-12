@@ -9,13 +9,16 @@ Status legend: ✅ Done · 🟡 Partial · ⛔ Missing
 **Confidence note:** this was built from one codebase-survey pass plus
 targeted greps, not an exhaustive audit. Two follow-up checks already
 corrected the first draft (sprite extra-bits were wrongly marked missing;
-freespace-finding was undersold as overworld-only). Treat ⛔ rows as "not
-found by grep," not proven absent — re-verify with a grep/read before relying
-on a row for planning if it's been a while since the file was touched. Missing
-areas not yet cross-checked in depth: overworld animated tiles/indicator
-sprites, layer 3 "tide"/water settings across levels, direct Map16
-import/export file format, ROM search/analysis tools (e.g. "find levels using
-X"), and player (Mario/Yoshi) graphics customization.
+freespace-finding was undersold as overworld-only). A third cross-reference
+against the SMW Speedruns wiki "Level Data Format" page and SMWC documentation
+added ExAnimation, LM-specific objects, sprite extensions, Layer 3 bypass,
+custom palettes, midway table expansion, exit-to-overworld, music/time limit
+bypasses, background copying, and palette animation controls (all ⛔ — none
+found in the codebase). Treat ⛔ rows as "not found by grep," not proven
+absent — re-verify with a grep/read before relying on a row for planning if it's
+been a while since the file was touched. Remaining blind spots: ROM search/analysis
+tools (e.g. "find levels using X"), player/Mario/Yoshi graphics customization,
+direct Map16 import/export file format, and submap editor beyond viewing/navigation.
 
 ## Level Editing
 
@@ -33,6 +36,10 @@ X"), and player (Mario/Yoshi) graphics customization.
 | Message box / dialog text editor | ✅ | `crates/smwe-rom/src/message_boxes.rs` + `level_editor/message_editor.rs` — WYSIWYG text editing for all 22 vanilla messages. The font was located empirically: message byte = BG3 tile `0x100\|byte` (attr `$39`, per `CODE_05B208`), glyphs at VRAM byte offset 0x9000 after level load; the byte↔char chart (`byte_to_char`/`char_to_byte`, A-Z a-z 0-9 `!.-,?#()'` space) was transcribed from a VRAM tile-sheet render and validated by decoding every vanilla message to readable English (real-ROM test asserts the intro decodes to "Welcome!…"). Text edits pad each 18-char game row with spaces; messages using special non-text tiles fall back to the raw byte grid (now annotated with each byte's glyph). Byte budget handling unchanged (2854-byte non-repointable blob) |
 | Import/export level as `.mwl` | ✅ | Codec in `crates/smwe-rom/src/mwl.rs` (community spec, LM 2.53 layout: 0x40 header + 8 section pointers); editor UI in `level_editor/mwl.rs` (Export/Import buttons in the left panel). Export serializes current editor state (level info, Layer 1, Layer 2 objects or BG tilemap as interleaved 16-bit Map16, sprites, secondary entrances targeting the level). Import replaces editor state (nothing hits the ROM until save), retargets secondary entrances at the destination level, refuses L2 representation mismatches, and reports LM-specific payloads it skips (custom palette, ExAnimation, ExGFX bypass) instead of silently dropping them. Real-ROM round-trip test: `real_level_survives_mwl_round_trip` |
 | Move/resize via drag handles (LM-style) | ⛔ | Object editing exists but unclear if drag-resize UX matches LM |
+| Background level copying ("Copy Background Image") | ⛔ | In-vanilla ability to copy BG tilemap from another level — no UI found |
+| Timer bypass per level (LM object 28) | ⛔ | LM's 3-byte object overrides the primary header timer. Not found in codebase |
+| Custom palette editor (SNES RGB, 257-color table) | ⛔ | LM stores custom palettes as 16-bit SNES RGB at pointers from $0EF600; $000000 = vanilla. No UI found |
+| Palette/tile animation toggle per level ($03FE00 flags) | ⛔ | LM adds PTLG disable bits per level: disable game palette anim, tile anim, level anim, global anim. Not found |
 
 ## Overworld Editing
 
@@ -66,22 +73,55 @@ X"), and player (Mario/Yoshi) graphics customization.
 | Colored (palette-aware) GFX preview/import, per-level GFX slot *browser* tied to the editor | ✅ | GFX editor now shows a palette-colorized preview of the selected file (CGRAM row selectable 0-F, color 0 rendered as transparency checker; reflects pending imports); import/export stays grayscale-index for exact round-tripping. Header editor shows the actual GFX files each FG/BG-GFX and Sprite-GFX nibble loads (`OBJECTGFXLIST` $00A92B → FG1/FG2/BG1/FG3, `SPRITEGFXLIST` $00A8C3 → SP1-SP4, verified against vanilla LM slot values) as buttons that jump straight into the GFX editor at that file |
 | 8x8 tile bitmap import/export | ⛔ | Not found |
 
+## ExAnimation (LM-specific)
+
+| Feature | Status | Notes |
+|---|---|---|
+| ExAnimation data editing (per-level & global) | ⛔ | LM stores tile/color animation sequences: general format (`SS EE cc CC ii II mm MM FF... dd DD...`) + individual slots (`AA TT FF dd DD mm MM...`). Triggers include scroll, frame counter, player collision, sprite activation. Level settings at `$03FE00` (PTLG flags). Global data at `read1(read3($0583AE)+$5C)<<8+(read2(read3($0583AE)+$65))`. Per-level pointers at `read3(read3($0583ae)+$EA)`. Zero pointer = no animation data. Not found in codebase |
+| ExGFX tile/color animation targets (VRAM destinations, palette ranges) | ⛔ | Animation slots write to specific VRAM or CGRAM addresses; per-slice high-byte flag routes to level's alt GFX file. Not found |
+
+## LM-Specific Level Objects
+
+| Feature | Status | Notes |
+|---|---|---|
+| Direct Map16 objects (LM object 22/23, tile IDs 0x800+) | ⛔ | LM extends 9-bit tile ID to 11-bit using standard objects 22/23 for Map16 pages 0/1. Four bytes: `N 10YYYYY 001BXXXX HHHHWWWW bbbbbbbb`. Not found in codebase |
+| Multi-page Map16 selection object (LM object 27) | ⛔ | Five-byte LM object handles tile stretching from pages 00-3F. Forms: single-screen/tile, multi-tile unstretched, multi-tile per screen, multi-screen, conditional direct Map16. Not found in codebase |
+| Super GFX bypass objects (replaces old 24/25) | ⛔ | New LM system for specifying ExGFX loads via object rather than legacy list. Not found |
+| Custom user object (LM object 2D, 5-byte format) | ⛔ | Reserved for user-defined behavior via ObjecTool-style hooks. Extension byte A = custom ID, B = free. Not found in codebase |
+
 ## Sprites
 
 | Feature | Status | Notes |
 |---|---|---|
 | Sprite placement in levels | ✅ | See above |
 | Sprite extra bits (2-bit position field per sprite) | ✅ | `sprite_layer.rs`, `left_panel.rs:103` — confirmed editable, corrected from an earlier pass that missed it |
-| Sprite Map / OAM tile editor | ✅ | `src/ui/editor_prototypes/sprite_map_editor/` |
 | Sprite tweaker/behavior byte editing (6 global tables, "Sprite Header Editor") | ✅ | `crates/smwe-rom/src/sprite_tweakers.rs` parses the 6 ROM tables ($07F26C/$07F335/$07F3FE/$07F4C7/$07F590/$07F659, 0xC9 entries each) with named bit accessors (+ tests); `sprite_tweaker_editor.rs` in the level editor exposes all of them with save-to-ROM support. Verified against real ROM: Goomba (0x0F) shows `can_be_jumped_on=true`, `dies_when_jumped_on=false`, matching known vanilla behavior. Edits are global (affect every placement of that sprite ID), matching how LM's own editor works |
 | Sprite category distinction (cluster/extended/generator vs. normal) | ✅ | `smwe_rom::sprite_categories::SpriteCategory` mirrors the real load dispatch (`CODE_02A88C`): Normal 00-C8, Shooter C9-CA, Generator CB-D9, Special DA-E0 (stationary shells / 5 Eeries / 3 platforms), Cluster E1-E6, Undefined E7+. Sprite catalog names every non-slot ID (generator jump table + cluster activators transcribed from bank_02.asm), shows a category badge, is searchable by category, and shows a color-coded placeholder instead of the garbage OAM preview those IDs used to render. PIXI-style custom sprite *insertion* remains out of scope |
 | Custom sprite insertion (SA-1/UberASM-style dropins) | ⛔ | Not found |
+| Sprite extension bytes (up to 12 extra bytes per sprite, LM v1.80+) | ⛔ | When `read1($0EF30F) == 0x42`, a 0x400-byte table at `read3($0EF30C)` maps each sprite ID's data size (first 0x100 = extra bit 0, etc.). Not found in codebase |
+| New sprite system flag & Y-position jumps (LM v3.00+) | ⛔ | Bit 6 of sprite header enables FF-prefixed commands: `00-7F` = Y high-byte jump, `FE` = end-of-data marker, `FF` = literal first-byte=FF sprite. Not found in codebase |
+
+## Secondary Entrances (Expanded)
+
+| Feature | Status | Notes |
+|---|---|---|
+| Secondary exit expansion hijack (15-bit destinations, ext obj 02) | ⛔ | LM v2.50+ adds `read3($0DE191/$0DE198/$0DE19F/$05DC81)` for dynamically allocated expanded secondary entrance tables. Not found in codebase |
+| Exit-to-overworld flag (LM v3.00+) | ⛔ | When E bit set, format uses `LLLLLLLL BBBBBBBB --ETDAAA 1------- --------` — teleports to location index or triggers base event on OW. Tables at `read3($05DC86)` and `read3($05DC8B)`. Not found |
+| Smart spawn flag & sprite spawn range (LM v3.40+) | ⛔ | Secondary header byte `$06FA00` adds S (separate L2 scroll), C (auto screen count), O (BG relative to FG), R (relative player pos), L (face left). Not found in codebase |
+
+## Layer 3 Bypass / Tide System
+
+| Feature | Status | Notes |
+|---|---|---|
+| Layer 3 bypass settings (LG1-4, SP1-2 control bytes) | ⛔ | LM high bytes of ExGFX file numbers encode L3 destination (`DD`), size (`FF`), act-as (`AAAA`), CGADSUB flag, subscreen move, X/Y position, horizontal/vertical scroll rates. Not found in codebase |
+| Advanced Layer 3 bypass override (LG4) | ⛔ | LG4 high byte: `yOIB----` — O = air-vs-water for out-of-bounds sprites, I = scroll sync fix. Not found |
 
 ## Music / Sound
 
 | Feature | Status | Notes |
 |---|---|---|
 | Music track selection (header nibble) | ✅ | Header music slider shows vanilla track names (`LevelMusicTable` mapping, commit 48787b2) |
+| Music bypass per level (LM object 26, 3-byte song ID override) | ⛔ | LM-specific object that overrides primary header music setting. Format: `N10-UUUU 0101uuuu MMMMMMMM` where `MMMMMMMM` = song ID+1. Not found in codebase |
 | Music/SPC data import or editing | ⛔ | Not found |
 
 ## Data / ASM / Patches
@@ -150,3 +190,7 @@ X"), and player (Mario/Yoshi) graphics customization.
 4. **Custom sprite insertion / cluster-extended-generator sprite category editing** — tweaker byte editing now covers the ~0xC9 normal sprite IDs; the other categories still have no dedicated support.
 5. **ExGFX colored preview + per-level slot browser cross-linking** — the core import/export loop works now; this is the remaining UX polish.
 6. ~~**ROM expansion**~~ — DONE: `src/rom_expand.rs` + File → Expand ROM (1/2/4 MB), pads with 0xFF so the free-space scanner can use it, fixes the internal-header size byte and checksum (checksum now also fixed on every save); the scanner refuses the LoROM SRAM-shadow banks (PC 0x380000+).
+7. **LM-specific level objects** — object 22/23 (direct Map16 pages), 27 (multi-page tile stretching), 2D (5-byte custom user object), and 26 (music bypass) are not parsed by the level editor. The `.mwl` codec already reports "LM-specific payloads it skips"; parsing these would require extending the level data decoder.
+8. **ExAnimation system** — LM's per-level tile/color animation is a complete feature gap: general/individual slot formats, PTLG disable flags per level at `$03FE00`, and global/per-level pointer tables. This affects any animated block or palette effect in exported levels.
+9. **Secondary entrance expansion (LM v2.50+/v3.00+)** — dynamically allocated expanded tables at `read3($0DE191/$0DE198/$0DE19F/$05DC81)`, exit-to-overworld format, 15-bit destinations via ext obj 02, and v3.40+ smart spawn flag. The existing `secondary_entrance_editor.rs` only covers the vanilla 4-table layout.
+10. **Layer 3 bypass / tide system** — L3 destination, size, act-as, scroll rates, CGADSUB/subscreen flags are embedded in ExGFX high bytes. The `$0EF600` custom palette pointers and per-level animation toggles at `$03FE00` are also unmapped.

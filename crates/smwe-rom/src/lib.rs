@@ -3,9 +3,11 @@
 pub mod block_behavior;
 pub mod compression;
 pub mod disassembler;
+pub mod exanimation;
 pub mod graphics;
 pub mod internal_header;
 pub mod level;
+pub mod lm_extended_headers;
 pub mod message_boxes;
 pub mod mwl;
 pub mod objects;

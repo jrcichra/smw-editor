@@ -51,18 +51,20 @@ Level editor additionally supports:
 
 ![Level Editor](assets/level_editor.png)
 
-### In Development
-
-- Block editor UI (viewing and editing not yet implemented)
-- Level save/export to ROM
-- Overworld undo/redo
-
 ### Planned
 
-- Block editor (custom block creation)
-- Graphics editor
-- ASM code editor
-- Music editor
+- Drag-resize object handles (LM-style placement with corner stretching)
+- Layer 2 scroll properties editor (per-level L2 movement settings, not raw tiles)
+- Animated overworld tile editing
+- 8x8 tile bitmap import/export (individual tile-level PNG I/O)
+- Custom sprite insertion via ExGFX drop-in files (SA-1/UberASM-style)
+- Music/SPC data import or editing
+- ASM insertion tool / hijack manager (code injection, not data patches)
+- Novel block behavior via ASM hook (behavior beyond vanilla ID ranges)
+- SA-1 / ExLoROM / ExHiROM mapper support
+- Title screen WYSIWYG editor (logo tilemap, menu choreography — raw-byte editing exists)
+- Credits roll editor (staff scripts, HDMA, sprite choreography — raw stripes exist)
+- Custom graphics editor with lossless 2bpp palette-aware editing
 - Custom plugins and extensions
 - Multiple language support
 
