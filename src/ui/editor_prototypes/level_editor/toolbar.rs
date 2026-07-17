@@ -6,7 +6,7 @@
 //! bar. All of this drives the existing `UiLevelEditor` state; the left panel
 //! keeps the tile/sprite palette and the selection inspector.
 
-use egui::{vec2, Button, Color32, RichText, Ui};
+use egui::{vec2, Button, Color32, Key, Modifiers, RichText, Ui};
 use egui_phosphor::regular as icon;
 use smwe_widgets::value_switcher::{ValueSwitcher, ValueSwitcherButtons};
 
@@ -25,6 +25,7 @@ fn tbtn(ui: &mut Ui, glyph: &str, tip: &str, active: bool) -> bool {
 
 impl UiLevelEditor {
     pub(super) fn toolbar(&mut self, ui: &mut Ui) {
+        self.handle_shortcuts(ui);
         ui.add_space(2.0);
 
         // ── Row 1: file · level number · zoom ────────────────────────────────
@@ -51,11 +52,11 @@ impl UiLevelEditor {
             }
             ui.separator();
 
-            if tbtn(ui, icon::MAGNIFYING_GLASS_MINUS, "Zoom out", false) {
+            if tbtn(ui, icon::MAGNIFYING_GLASS_MINUS, "Zoom out (Ctrl+-)", false) {
                 self.zoom = (self.zoom - 0.25).max(1.0);
             }
             ui.label(RichText::new(format!("{:.0}%", self.zoom * 100.0)).monospace());
-            if tbtn(ui, icon::MAGNIFYING_GLASS_PLUS, "Zoom in", false) {
+            if tbtn(ui, icon::MAGNIFYING_GLASS_PLUS, "Zoom in (Ctrl+=)", false) {
                 self.zoom = (self.zoom + 0.25).min(3.0);
             }
         });
@@ -67,13 +68,13 @@ impl UiLevelEditor {
             // What is being edited — Lunar Magic's Layer 1 / Layer 2 / sprite toggles.
             let on_l1 = !self.edit_sprites && self.edit_layer == 1;
             let on_l2 = !self.edit_sprites && self.edit_layer == 2;
-            if tbtn(ui, icon::SQUARES_FOUR, "Enable editing of Layer 1 objects", on_l1) {
+            if tbtn(ui, icon::SQUARES_FOUR, "Enable editing of Layer 1 objects (` toggles L1/L2)", on_l1) {
                 self.set_edit_target(false, 1);
             }
             let l2_tip = if self.level_properties.has_layer2 {
-                "Enable editing of Layer 2"
+                "Enable editing of Layer 2 (` toggles L1/L2)"
             } else {
-                "Enable editing of Layer 2 (this level has no Layer 2 objects)"
+                "Enable editing of Layer 2 — this level has no Layer 2 objects (` toggles L1/L2)"
             };
             if tbtn(ui, icon::STACK_SIMPLE, l2_tip, on_l2) {
                 self.set_edit_target(false, 2);
@@ -97,7 +98,7 @@ impl UiLevelEditor {
             ui.separator();
 
             // Layer / overlay visibility toggles.
-            if tbtn(ui, icon::GRID_FOUR, "Always show grid", self.always_show_grid) {
+            if tbtn(ui, icon::GRID_FOUR, "Always show grid (F8)", self.always_show_grid) {
                 self.always_show_grid = !self.always_show_grid;
             }
             if tbtn(ui, icon::SELECTION, "Show object overlay", self.show_object_overlay) {
@@ -194,6 +195,54 @@ impl UiLevelEditor {
             self.level_num = old_level; // restore until the user decides
         } else {
             self.load_level();
+        }
+    }
+
+    /// Lunar Magic keyboard shortcuts that operate on the level editor:
+    /// PageUp/PageDown step the level number, backtick toggles Layer 1/2, F8
+    /// toggles the grid, and Ctrl -/= zoom out/in.
+    fn handle_shortcuts(&mut self, ui: &mut Ui) {
+        // Don't steal keys while a widget (e.g. the level-number box) is focused.
+        if ui.ctx().memory(|m| m.focused().is_some()) {
+            return;
+        }
+
+        let (mut lvl_next, mut lvl_prev, mut toggle_l12, mut toggle_grid, mut zoom_in, mut zoom_out) =
+            (false, false, false, false, false, false);
+        ui.input_mut(|i| {
+            lvl_next = i.consume_key(Modifiers::NONE, Key::PageUp);
+            lvl_prev = i.consume_key(Modifiers::NONE, Key::PageDown);
+            toggle_l12 = i.consume_key(Modifiers::NONE, Key::Backtick);
+            toggle_grid = i.consume_key(Modifiers::NONE, Key::F8);
+            zoom_in = i.consume_key(Modifiers::COMMAND, Key::Equals) || i.consume_key(Modifiers::COMMAND, Key::Plus);
+            zoom_out = i.consume_key(Modifiers::COMMAND, Key::Minus);
+        });
+
+        if lvl_next {
+            let old = self.level_num;
+            self.level_num = (self.level_num + 1).min(0x1FF);
+            if self.level_num != old {
+                self.request_level_change(old);
+            }
+        }
+        if lvl_prev {
+            let old = self.level_num;
+            self.level_num = self.level_num.saturating_sub(1);
+            if self.level_num != old {
+                self.request_level_change(old);
+            }
+        }
+        if toggle_l12 {
+            self.set_edit_target(false, if self.edit_layer == 2 { 1 } else { 2 });
+        }
+        if toggle_grid {
+            self.always_show_grid = !self.always_show_grid;
+        }
+        if zoom_in {
+            self.zoom = (self.zoom + 0.25).min(3.0);
+        }
+        if zoom_out {
+            self.zoom = (self.zoom - 0.25).max(1.0);
         }
     }
 }
