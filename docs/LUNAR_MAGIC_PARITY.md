@@ -107,6 +107,7 @@ X"), and player (Mario/Yoshi) graphics customization.
 
 | Feature | Status | Notes |
 |---|---|---|
+| Lunar Magic-style level-editor toolbar | ✅ | `src/ui/editor_prototypes/level_editor/toolbar.rs` — horizontal icon toolbar (phosphor icons) mirroring LM's main window: Save-to-ROM / Reload / level-number box / zoom (row 1); Layer 1 / Layer 2 / sprite edit-target toggles, Select/Insert/Erase/Probe tools, grid+overlay+label view toggles, and sub-editor launchers Header/Map16/GFX/Palette/Sprite-behavior/Messages/Secondary-entrances/Title-credits (row 2); plus a bottom status bar (mode · edit target · level · size · selection). Controls were lifted out of `left_panel.rs`, which now holds only the tile/sprite palette + selection inspector. Icon buttons drive existing `UiLevelEditor` state, so all wiring was already functional. Not yet matched to LM's exact button order/tooltips/pixel-art icons (SMW Central toolbar reference was inaccessible) |
 | Address converter (PC/SNES) | ✅ | `src/ui/dev_utils/address_converter.rs` |
 | Project creator / welcome screen | ✅ | `src/ui/project_creator.rs`, `welcome.rs` |
 | Mapper auto-detection (LoROM/HiROM) | 🟡 | Detected from header; SA-1/ExLoROM/ExHiROM unsupported ([[mapper-autodetection]] memory) |

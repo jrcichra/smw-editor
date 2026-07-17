@@ -1,8 +1,7 @@
 use egui::{vec2, Color32, Rect, Sense, Slider, Ui};
-use smwe_widgets::value_switcher::{ValueSwitcher, ValueSwitcherButtons};
 
 use super::UiLevelEditor;
-use crate::ui::{editing_mode::EditingMode, style::toggle_button};
+use crate::ui::editing_mode::EditingMode;
 
 impl UiLevelEditor {
     pub(super) fn left_panel(&mut self, ui: &mut Ui) {
@@ -16,73 +15,9 @@ impl UiLevelEditor {
     }
 
     fn controls_panel(&mut self, ui: &mut Ui) {
-        let old_level = self.level_num;
-        let level_changed = {
-            let switcher = ValueSwitcher::new(&mut self.level_num, "Level", ValueSwitcherButtons::MinusPlus)
-                .range(0..=0x1FF)
-                .hexadecimal(3, false, true);
-            ui.add(switcher).changed()
-        };
-        if level_changed {
-            if self.has_unsaved_changes() {
-                // Show unsaved changes dialog
-                self.show_unsaved_dialog = true;
-                self.pending_level_num = Some(self.level_num);
-                self.level_num = old_level; // Restore old level until user decides
-            } else {
-                self.load_level();
-            }
-        }
-
-        ui.add(Slider::new(&mut self.zoom, 1.0..=3.0).step_by(0.25).text("Zoom"));
-        ui.checkbox(&mut self.always_show_grid, "Always show grid");
-        ui.checkbox(&mut self.show_object_overlay, "Show object overlay");
-        ui.checkbox(&mut self.show_sprite_overlay, "Show sprite overlay");
-        ui.checkbox(&mut self.show_object_labels, "Show object labels");
-
-        ui.separator();
-        ui.horizontal(|ui| {
-            ui.label("Edit:");
-            for (label, sprites) in [("Objects", false), ("Sprites", true)] {
-                if toggle_button(ui, label, self.edit_sprites == sprites) {
-                    self.edit_sprites = sprites;
-                    self.selected_object_indices.clear();
-                    self.selected_sprite_indices.clear();
-                }
-            }
-        });
-
-        // ── Editing mode toolbar ────────────────────────────
-        ui.separator();
-        ui.label("Mode:");
-        ui.horizontal(|ui| {
-            let modes = [
-                ("Select [1]", EditingMode::Select),
-                ("Draw [2]", EditingMode::Draw),
-                ("Erase [3]", EditingMode::Erase),
-                ("Probe [4]", EditingMode::Probe),
-            ];
-            for (label, mode) in modes {
-                if toggle_button(ui, label, self.editing_mode == mode) {
-                    self.editing_mode = mode;
-                }
-            }
-        });
-
-        // ── Layer selector ──────────────────────────────────
-        ui.horizontal(|ui| {
-            ui.label("Layer:");
-            let modes = [("L1", 1u8), ("L2", 2u8)];
-            for (label, layer) in modes {
-                if toggle_button(ui, label, self.edit_layer == layer) {
-                    self.edit_layer = layer;
-                    self.preview_for = None; // Force preview refresh
-                }
-            }
-            if !self.level_properties.has_layer2 {
-                ui.weak("(no L2)");
-            }
-        });
+        // Level navigation, zoom, edit-target, editing mode, layer selection, and
+        // the sub-editor launchers now live in the top toolbar (Lunar Magic-style).
+        // The left panel keeps the tile/sprite palette and the selection inspector.
 
         // ── Draw mode tile picker ──────────────────────────
         if self.editing_mode == EditingMode::Draw && self.edit_sprites {
@@ -218,41 +153,6 @@ impl UiLevelEditor {
                 props.level_dimensions_in_tiles().1
             ));
         }
-
-        // ── Editor launchers ────────────────────────────────────
-        ui.separator();
-        ui.horizontal(|ui| {
-            if ui.button("Level Header…").clicked() {
-                self.show_level_header = !self.show_level_header;
-            }
-            if ui.button("Palette…").clicked() {
-                self.show_palette_editor = true;
-            }
-        });
-        ui.horizontal(|ui| {
-            if ui.button("Secondary Entrances…").clicked() {
-                self.show_secondary_entrances = true;
-            }
-            if ui.button("Map16…").clicked() {
-                self.show_map16_editor = true;
-            }
-        });
-        ui.horizontal(|ui| {
-            if ui.button("Sprite Behavior…").clicked() {
-                self.show_sprite_tweaker_editor = true;
-            }
-            if ui.button("GFX Editor…").clicked() {
-                self.show_gfx_editor = true;
-            }
-            if ui.button("Messages…").clicked() {
-                self.show_message_editor = true;
-            }
-        });
-        ui.horizontal(|ui| {
-            if ui.button("Title/Credits…").clicked() {
-                self.show_title_credits_editor = true;
-            }
-        });
 
         ui.separator();
 

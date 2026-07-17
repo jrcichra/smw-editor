@@ -16,6 +16,7 @@ mod sprite_layer;
 mod sprite_tweaker_editor;
 mod tile_picker;
 mod title_credits_editor;
+mod toolbar;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -267,6 +268,9 @@ impl DockableEditorTool for UiLevelEditor {
         self.gfx_editor_window(&ctx);
         self.message_editor_window(&ctx);
         self.title_credits_editor_window(&ctx);
+        // Lunar Magic-style top toolbar + bottom status bar wrap the editor.
+        TopBottomPanel::top("level_editor.toolbar").show_inside(ui, |ui| self.toolbar(ui));
+        TopBottomPanel::bottom("level_editor.status").show_inside(ui, |ui| self.status_bar(ui));
         SidePanel::left("level_editor.left_panel").resizable(false).show_inside(ui, |ui| self.left_panel(ui));
         CentralPanel::default().frame(Frame::NONE.inner_margin(0.)).show_inside(ui, |ui| self.central_panel(ui));
     }
