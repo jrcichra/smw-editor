@@ -72,32 +72,58 @@ fn sprite_screen_and_local(spr: EditableSprite, vertical_level: bool) -> anyhow:
     }
 }
 
+// Undo/redo needs a lossless round-trip of `EditableSprite`, independent of level
+// orientation — it is NOT the packed ROM sprite format (see `serialize_bytes`, used only
+// when actually writing to ROM). Using the packed format here previously hardcoded
+// horizontal-level screen math in `to_bytes`, silently truncating/scrambling sprite
+// Y/screen on every undo of a vertical level.
+const UNDO_SPRITE_STRIDE: usize = 10;
+
 impl Undo for EditableSpriteLayer {
     fn from_bytes(bytes: Vec<u8>) -> Self {
-        let mut sprites = Vec::new();
-        let mut i = 0usize;
-        while i + 2 < bytes.len() {
-            if bytes[i] == 0xFF {
-                break;
-            }
-            let b0 = bytes[i];
-            let b1 = bytes[i + 1];
-            let sprite_id = bytes[i + 2];
-            let y = ((b0 >> 4) & 0x0F) | ((b0 & 0x01) << 4);
-            let x = b1 >> 4;
-            let screen = (b1 & 0x0F) | ((b0 & 0x02) << 3);
-            let extra_bits = (b0 >> 2) & 0x03;
-            sprites.push(EditableSprite { x: (screen as u32) * 16 + x as u32, y: y as u32, sprite_id, extra_bits });
-            i += 3;
-        }
+        let sprites = bytes
+            .chunks_exact(UNDO_SPRITE_STRIDE)
+            .map(|c| {
+                let sprite_id = c[0];
+                let extra_bits = c[1];
+                let x = u32::from_le_bytes([c[2], c[3], c[4], c[5]]);
+                let y = u32::from_le_bytes([c[6], c[7], c[8], c[9]]);
+                EditableSprite { x, y, sprite_id, extra_bits }
+            })
+            .collect();
         Self { sprites }
     }
 
     fn to_bytes(&self) -> Vec<u8> {
-        self.serialize_bytes(false).unwrap_or_else(|_| vec![0xFF])
+        let mut out = Vec::with_capacity(self.sprites.len() * UNDO_SPRITE_STRIDE);
+        for spr in &self.sprites {
+            out.push(spr.sprite_id);
+            out.push(spr.extra_bits);
+            out.extend_from_slice(&spr.x.to_le_bytes());
+            out.extend_from_slice(&spr.y.to_le_bytes());
+        }
+        out
     }
 
     fn size_bytes(&self) -> usize {
-        self.sprites.len() * 3 + 1
+        self.sprites.len() * UNDO_SPRITE_STRIDE
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn undo_snapshot_round_trips_vertical_sprite_coordinates() {
+        let layer = EditableSpriteLayer {
+            sprites: vec![
+                EditableSprite { x: 31, y: 511, sprite_id: 0x35, extra_bits: 3 },
+                EditableSprite { x: 0, y: 0, sprite_id: 0x01, extra_bits: 0 },
+            ],
+        };
+
+        let restored = EditableSpriteLayer::from_bytes(layer.to_bytes());
+        assert_eq!(restored.sprites, layer.sprites);
     }
 }

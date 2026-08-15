@@ -67,7 +67,7 @@ pub fn draw_welcome(ui: &mut Ui, open_requested: &mut bool) -> Option<PathBuf> {
                 ("🗺", "Level Editor", "Place and edit level objects"),
                 ("🌍", "World Map", "Edit overworld nodes and paths"),
                 ("👾", "Sprite Tiles", "Design custom sprite tile maps"),
-                ("🧱", "Block Editor", "Modify Map16 blocks and behaviour"),
+                ("🧱", "Map16 Editor", "Modify Map16 block graphics"),
                 ("🔢", "Address Converter", "Convert between ROM address formats"),
             ];
             for (icon, name, desc) in features {

@@ -15,7 +15,7 @@ impl UiLevelEditor {
             ui.horizontal(|ui| {
                 ui.label("Block:");
                 let mut bid = self.selected_map16_block_for_edit.unwrap_or(self.draw_block_id);
-                if ui.add(Slider::new(&mut bid, 0..=0x1FF).hexadecimal(3, false, true)).changed() {
+                if ui.add(Slider::new(&mut bid, 0..=0x3FFF).hexadecimal(4, false, true)).changed() {
                     self.selected_map16_block_for_edit = Some(bid);
                 }
                 if ui.small_button("Use draw block").clicked() {
@@ -24,6 +24,7 @@ impl UiLevelEditor {
             });
 
             let block_id = self.selected_map16_block_for_edit.unwrap_or(self.draw_block_id);
+            self.ensure_map16_block_ptr(block_id);
 
             // Get current tile words (from edits or ROM)
             let mut tile_words = self.get_block_tile_words(block_id);

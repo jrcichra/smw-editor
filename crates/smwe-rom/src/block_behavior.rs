@@ -23,6 +23,11 @@ pub enum BlockCategory {
     Solid,
     Slope,
     SlopeAssist,
+    /// Lunar Magic "extended" Map16 block (id >= 0x200). These are not part of
+    /// vanilla's hardcoded ID-range dispatch at all — their collision behavior
+    /// is whatever custom ASM the hack's extended-block system gives them, so
+    /// no vanilla category applies.
+    Extended,
 }
 
 impl BlockCategory {
@@ -33,18 +38,22 @@ impl BlockCategory {
             BlockCategory::Solid => "Solid (impassable)",
             BlockCategory::Slope => "Slope",
             BlockCategory::SlopeAssist => "Slope assist",
+            BlockCategory::Extended => "Extended (custom, hack-defined)",
         }
     }
 }
 
-/// The general interaction category for a Map16 block ID (0x000-0x1FF).
+/// The general interaction category for a Map16 block ID. IDs 0x000-0x1FF are
+/// vanilla's hardcoded dispatch ranges; 0x200+ are Lunar Magic "extended"
+/// blocks with no vanilla-defined behavior.
 pub fn category_of(block_id: u16) -> BlockCategory {
     match block_id {
         0x000..=0x0FF => BlockCategory::NonSolid,
         0x100..=0x110 => BlockCategory::Ledge,
         0x111..=0x16D => BlockCategory::Solid,
         0x16E..=0x1D7 => BlockCategory::Slope,
-        _ => BlockCategory::SlopeAssist, // 0x1D8-0x1FF
+        0x1D8..=0x1FF => BlockCategory::SlopeAssist,
+        _ => BlockCategory::Extended, // 0x200+
     }
 }
 
@@ -90,6 +99,8 @@ mod tests {
         assert_eq!(category_of(0x1D7), BlockCategory::Slope);
         assert_eq!(category_of(0x1D8), BlockCategory::SlopeAssist);
         assert_eq!(category_of(0x1FF), BlockCategory::SlopeAssist);
+        assert_eq!(category_of(0x200), BlockCategory::Extended);
+        assert_eq!(category_of(u16::MAX), BlockCategory::Extended);
     }
 
     #[test]

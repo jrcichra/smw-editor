@@ -130,7 +130,9 @@ pub struct UiLevelEditor {
 
     // Map16 editor
     map16_edits: HashMap<u16, [u16; 4]>,
-    map16_block_ptrs: Vec<u32>, // SNES address of each block's data (512 entries)
+    // SNES address of each block's data. Vanilla entries are populated at
+    // level load; Lunar Magic extended entries are resolved on demand.
+    map16_block_ptrs: Vec<u32>,
     selected_map16_block_for_edit: Option<u16>,
 
     // Sprite tweaker byte editor (global, per-sprite-ID behavior; shared across
@@ -884,8 +886,8 @@ impl UiLevelEditor {
         // ── Map16 block pointers ─────────────────────────────────────────────
         {
             let map16_bank = self.cpu.mem.cart.resolve("Map16Common").unwrap_or(0) & 0xFF0000;
-            let mut ptrs = vec![0u32; 512];
-            for (block_id, ptr) in ptrs.iter_mut().enumerate() {
+            let mut ptrs = vec![0u32; 0x4000];
+            for (block_id, ptr) in ptrs.iter_mut().take(0x200).enumerate() {
                 let ptr_lo_addr = 0x0FBE + block_id as u32 * 2;
                 if ptr_lo_addr + 1 < 0x10000 {
                     let offset = self.cpu.mem.load_u16(ptr_lo_addr) as u32;
@@ -899,6 +901,21 @@ impl UiLevelEditor {
 
         // Mark as clean (no unsaved edits)
         self.has_edits = false;
+    }
+
+    /// Resolve a Lunar Magic extended Map16 block only when the editor needs
+    /// it. The ROM routine has level-specific state, so this must happen after
+    /// the level was loaded into `self.cpu`.
+    pub(super) fn ensure_map16_block_ptr(&mut self, block_id: u16) {
+        if block_id < 0x200 || block_id as usize >= self.map16_block_ptrs.len() {
+            return;
+        }
+        let slot = &mut self.map16_block_ptrs[block_id as usize];
+        if *slot != 0 {
+            return;
+        }
+        let mut scratch = self.cpu.clone();
+        *slot = smwe_emu::emu::lm_ext_map16_data_addr(&mut scratch, block_id).unwrap_or(0);
     }
 
     #[allow(dead_code)]

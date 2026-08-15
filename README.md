@@ -53,14 +53,11 @@ Level editor additionally supports:
 
 ### In Development
 
-- Block editor UI (viewing and editing not yet implemented)
-- Level save/export to ROM
 - Overworld undo/redo
 
 ### Planned
 
-- Block editor (custom block creation)
-- Graphics editor
+- Block editor (novel custom behavior via ASM insertion)
 - ASM code editor
 - Music editor
 - Custom plugins and extensions

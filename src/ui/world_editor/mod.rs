@@ -1088,17 +1088,20 @@ fn write_overworld_l2_stream(
 fn patch_snes_pointer(rom_bytes: &mut [u8], old_snes: u32, new_snes: u32, label: &str) -> anyhow::Result<()> {
     let old_bytes = old_snes.to_le_bytes();
     let new_bytes = new_snes.to_le_bytes();
-    let rom_len = rom_bytes.len();
-    for i in 0..rom_len.saturating_sub(2) {
-        if rom_bytes[i] == old_bytes[0] && rom_bytes[i + 1] == old_bytes[1] && rom_bytes[i + 2] == old_bytes[2] {
-            rom_bytes[i] = new_bytes[0];
-            rom_bytes[i + 1] = new_bytes[1];
-            rom_bytes[i + 2] = new_bytes[2];
-            log::info!("{label} repointed from SNES ${old_snes:06X} to ${new_snes:06X}");
-            return Ok(());
-        }
-    }
-    anyhow::bail!("{label} could not find pointer to SNES ${old_snes:06X} for repointing")
+    let matches: Vec<usize> = rom_bytes
+        .windows(3)
+        .enumerate()
+        .filter_map(|(offset, window)| (window == &old_bytes[..3]).then_some(offset))
+        .collect();
+    let [offset] = matches.as_slice() else {
+        anyhow::bail!(
+            "{label} expected exactly one pointer to SNES ${old_snes:06X}, found {}; refusing to repoint",
+            matches.len()
+        );
+    };
+    rom_bytes[*offset..*offset + 3].copy_from_slice(&new_bytes[..3]);
+    log::info!("{label} repointed from SNES ${old_snes:06X} to ${new_snes:06X}");
+    Ok(())
 }
 
 fn ow_l1_addr(col: u32, row: u32) -> usize {

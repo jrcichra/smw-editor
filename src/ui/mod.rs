@@ -133,7 +133,7 @@ impl eframe::App for UiMainWindow {
         DockArea::new(&mut self.dock_state).style(self.dock_style.clone()).show(ctx, &mut EditorToolTabViewer);
 
         // Check if any level editor is requesting a save
-        self.check_for_save_requests();
+        self.check_for_save_requests(ctx);
 
         // Exit confirmation dialog
         if self.show_exit_dialog {
@@ -490,8 +490,36 @@ impl UiMainWindow {
         for (_, tab) in self.dock_state.iter_all_tabs() {
             tab.save_to_rom(&mut rom_bytes, has_smc_header)?;
         }
-        std::fs::write(dest_path, rom_bytes)
-            .with_context(|| format!("Failed to write ROM to {}", dest_path.display()))?;
+
+        // Keep a backup of the previous contents of dest_path (if any) before overwriting it,
+        // and write via a temp file + rename so a crash/full-disk mid-write can't corrupt the
+        // user's only copy of the ROM.
+        if dest_path.exists() {
+            let bak_path = dest_path.with_extension(format!(
+                "{}.bak",
+                dest_path.extension().and_then(|e| e.to_str()).unwrap_or("smc")
+            ));
+            std::fs::copy(dest_path, &bak_path)
+                .with_context(|| format!("Failed to back up {} to {}", dest_path.display(), bak_path.display()))?;
+        }
+
+        let dest_dir = dest_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+        let tmp_path = dest_dir.join(format!(
+            ".{}.tmp",
+            dest_path.file_name().and_then(|n| n.to_str()).unwrap_or("rom_save")
+        ));
+        {
+            let mut tmp_file = std::fs::File::create(&tmp_path)
+                .with_context(|| format!("Failed to create temp file {}", tmp_path.display()))?;
+            use std::io::Write;
+            tmp_file
+                .write_all(&rom_bytes)
+                .with_context(|| format!("Failed to write temp file {}", tmp_path.display()))?;
+            tmp_file.sync_all().with_context(|| format!("Failed to flush temp file {}", tmp_path.display()))?;
+        }
+        std::fs::rename(&tmp_path, dest_path).with_context(|| {
+            format!("Failed to move temp file {} into place at {}", tmp_path.display(), dest_path.display())
+        })?;
         Ok(())
     }
 
@@ -513,7 +541,7 @@ impl UiMainWindow {
         false
     }
 
-    fn check_for_save_requests(&mut self) {
+    fn check_for_save_requests(&mut self, ctx: &Context) {
         let mut should_save = false;
         for (_, tab) in self.dock_state.iter_all_tabs_mut() {
             if tab.take_save_request() {
@@ -526,6 +554,9 @@ impl UiMainWindow {
                     self.save_error = Some(format!("Save failed: {e}"));
                 } else {
                     log::info!("Saved ROM to {}", path.display());
+                    if let Err(e) = self.reload_rom_into_context(ctx, path) {
+                        self.save_error = Some(format!("Saved ROM, but reload failed: {e}"));
+                    }
                     for (_, tab) in self.dock_state.iter_all_tabs_mut() {
                         tab.on_save_succeeded();
                     }
