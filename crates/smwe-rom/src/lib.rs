@@ -39,6 +39,7 @@ use crate::{
     internal_header::{InternalHeaderParseError, RegionCode, RomInternalHeader},
     level::{
         dimensions::LevelHeights,
+        entrance_extras::{EntranceExtrasError, LevelEntranceExtrasData},
         secondary_entrance::{SecondaryEntrance, SecondaryExitExtData, SECONDARY_ENTRANCE_TABLE},
         sprite_header_ext::{SpriteHeaderExtData, SpriteHeaderExtError},
         Level,
@@ -60,26 +61,27 @@ use crate::{
 
 #[derive(Debug)]
 pub struct SmwRom {
-    pub rom:                 Rom,
-    pub internal_header:     RomInternalHeader,
-    pub levels:              Vec<Level>,
-    pub secondary_entrances: Vec<SecondaryEntrance>,
-    pub gfx:                 Gfx,
-    pub map16_tilesets:      Tilesets,
-    pub overworld:           OverworldData,
-    pub overworld_events:    OverworldEvents,
-    pub overworld_l2_events: OverworldL2Events,
-    pub sprite_tweakers:     SpriteTweakers,
-    pub message_boxes:       MessageBoxes,
-    pub boss_text:           BossText,
-    pub title_credits:       TitleCreditsData,
-    pub exanimation:         ExAnimationData,
-    pub secondary_exit_ext:  SecondaryExitExtData,
-    pub sprite_header_ext:   SpriteHeaderExtData,
-    pub exgfx:               exgfx::ExGfxData,
-    pub gfx_bypass:          exgfx::BypassData,
-    pub direct_map16:        DirectMap16Data,
-    pub level_heights:       LevelHeights,
+    pub rom:                   Rom,
+    pub internal_header:       RomInternalHeader,
+    pub levels:                Vec<Level>,
+    pub secondary_entrances:   Vec<SecondaryEntrance>,
+    pub gfx:                   Gfx,
+    pub map16_tilesets:        Tilesets,
+    pub overworld:             OverworldData,
+    pub overworld_events:      OverworldEvents,
+    pub overworld_l2_events:   OverworldL2Events,
+    pub sprite_tweakers:       SpriteTweakers,
+    pub message_boxes:         MessageBoxes,
+    pub boss_text:             BossText,
+    pub title_credits:         TitleCreditsData,
+    pub exanimation:           ExAnimationData,
+    pub secondary_exit_ext:    SecondaryExitExtData,
+    pub sprite_header_ext:     SpriteHeaderExtData,
+    pub exgfx:                 exgfx::ExGfxData,
+    pub gfx_bypass:            exgfx::BypassData,
+    pub direct_map16:          DirectMap16Data,
+    pub level_heights:         LevelHeights,
+    pub level_entrance_extras: LevelEntranceExtrasData,
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -210,6 +212,15 @@ impl SmwRom {
             }
             DirectMap16Data::default()
         });
+        log::info!("Parsing per-level entrance extras");
+        let level_entrance_extras = LevelEntranceExtrasData::parse(rom.bytes()).unwrap_or_else(|e| {
+            // NotFound is the normal case: a ROM nobody has authored
+            // entrance extras for yet simply has no block.
+            if !matches!(e, EntranceExtrasError::NotFound) {
+                log::warn!("Could not parse entrance-extras data: {e}");
+            }
+            LevelEntranceExtrasData::default()
+        });
 
         log::info!("Parsing dynamic level heights");
         let level_heights = LevelHeights::parse(rom.bytes()).unwrap_or_else(|e| {
@@ -242,6 +253,7 @@ impl SmwRom {
             gfx_bypass,
             direct_map16,
             level_heights,
+            level_entrance_extras,
         })
     }
 

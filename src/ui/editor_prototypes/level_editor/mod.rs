@@ -241,6 +241,10 @@ pub struct UiLevelEditor {
     // extended entries, 0x100 OW teleport table).
     secondary_exit_ext:          smwe_rom::level::secondary_entrance::SecondaryExitExtData,
     secondary_exit_ext_dirty:    bool,
+    // LM v3.00 per-level main-entrance extras (SMWENTR1 RATS block). The
+    // values live on `level_properties`; this flag tracks whether the RATS
+    // block needs rewriting on save.
+    entrance_extras_dirty:       bool,
     // Entrance selected for the extended-options panel (0x000..0x1FFF;
     // LM v2.50 type-full-values index combo).
     selected_secondary_entrance: u16,
@@ -645,6 +649,7 @@ impl UiLevelEditor {
             secondary_entrance_search: String::new(),
             secondary_exit_ext: smwe_rom::level::secondary_entrance::SecondaryExitExtData::default(),
             secondary_exit_ext_dirty: false,
+            entrance_extras_dirty: false,
             selected_secondary_entrance: 0,
             se_goto_text: String::new(),
             palettes: UndoableData::new(palette_editor::EditablePalettes::default()),
@@ -1230,6 +1235,29 @@ impl DockableEditorTool for UiLevelEditor {
                 .map_err(|e| anyhow::anyhow!("Secondary-exit extended-data write failed: {e}"))?;
         }
 
+        // ── LM v3.00 per-level entrance extras (SMWENTR1 RATS block) ─────────
+        // The values live on `level_properties`; merge on save: re-read the
+        // block and replace only this level's entry so other levels' extras
+        // are never clobbered.
+        if self.entrance_extras_dirty {
+            use smwe_rom::level::entrance_extras::{EntranceExtrasError, LevelEntranceExtras, LevelEntranceExtrasData};
+            let mut merged = match LevelEntranceExtrasData::parse(rom_bytes) {
+                Ok(data) => data,
+                Err(EntranceExtrasError::NotFound) => LevelEntranceExtrasData::default(),
+                Err(e) => anyhow::bail!("Entrance-extras read failed: {e}"),
+            };
+            let p = &self.level_properties;
+            merged.set(self.level_num, LevelEntranceExtras {
+                face_left:              p.face_left,
+                new_fg_bg_init:         p.new_fg_bg_init,
+                bg_relative_to_fg_only: p.bg_relative_to_fg_only,
+                bg_height:              p.bg_height,
+            });
+            merged
+                .write_to_rom(rom_bytes, header_offset)
+                .map_err(|e| anyhow::anyhow!("Entrance-extras write failed: {e}"))?;
+        }
+
         // ── Sprite tweaker bytes (global, $07F26C/$07F335/$07F3FE/$07F4C7/$07F590/$07F659) ──
         if self.sprite_tweakers_dirty {
             let tables = [
@@ -1599,6 +1627,7 @@ impl DockableEditorTool for UiLevelEditor {
         self.secondary_exit_ext_dirty = false;
         self.sprite_header_dirty = false;
         self.dm16_dirty = false;
+        self.entrance_extras_dirty = false;
         // ── LM 3.40 Auto-Set Number of Screens ────────────────────────────
         // Sync the in-memory header state with what save_to_rom just wrote,
         // so the Level Length slider shows the recomputed value and the
@@ -1742,7 +1771,10 @@ impl UiLevelEditor {
             // Dynamic level dimensions (LM v3.00): the height travels in a
             // RATS block, not the vanilla header, so load it alongside.
             let height_tiles = self.rom.level_heights.get(self.level_num);
-            self.level_properties = LevelProperties::from_level(level, height_tiles);
+            // Entrance extras (LM v3.00): editor-owned SMWENTR1 block.
+            let extras = self.rom.level_entrance_extras.extras_for(self.level_num);
+            self.level_properties = LevelProperties::from_level(level, height_tiles, &extras);
+            self.entrance_extras_dirty = false;
             let layer1 = EditableObjectLayer::from_level(level);
             self.layer1 = UndoableData::new(layer1);
             self.direct_map16 =

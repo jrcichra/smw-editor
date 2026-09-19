@@ -296,6 +296,22 @@ impl UiLevelEditor {
                     }
                 }
             }
+
+            // Lunar Magic v2.20: Alt+Right-click an entrance opens its
+            // properties. The marker region rarely overlaps an object/sprite,
+            // but when it does the Edit Manual dialog takes precedence there.
+            if is_hovering && ui.input(|i| i.modifiers.alt) && resp.clicked_by(egui::PointerButton::Secondary) {
+                if let Some(pos) = resp.hover_pos() {
+                    let hit = if self.edit_sprites {
+                        self.sprite_at(pos, origin, tile_sz).is_some()
+                    } else {
+                        self.object_at(pos, origin, tile_sz).is_some()
+                    };
+                    if !hit {
+                        self.show_level_header = true;
+                    }
+                }
+            }
         }
 
         // ── Grid overlay ──────────────────────────────────────

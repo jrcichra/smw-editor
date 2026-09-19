@@ -97,7 +97,8 @@ impl UiLevelEditor {
         out
     }
 
-    /// Short badge string for the extended options on `idx` ("W", "OW", "→M").
+    /// Short badge string for the extended options on `idx` ("W", "OW", "→M",
+    /// "FL", "FG").
     fn se_flag_badges(&self, idx: u16) -> String {
         let o = self.secondary_exit_ext.options_for(idx);
         let mut s = String::new();
@@ -109,6 +110,12 @@ impl UiLevelEditor {
         }
         if o.midway_redirect.is_some() {
             s.push_str("→M ");
+        }
+        if o.face_left {
+            s.push_str("FL ");
+        }
+        if o.new_fg_bg_init {
+            s.push_str("FG ");
         }
         s.pop();
         s
@@ -334,6 +341,22 @@ impl UiLevelEditor {
 
         // ── Water level ──
         if ui.checkbox(&mut opts.water_level, "Water level — the destination plays as a water level").changed() {
+            self.set_se_options(idx, opts);
+            return;
+        }
+
+        // ── Face left / new FG/BG init (LM v3.00) ──
+        if ui.checkbox(&mut opts.face_left, "Face left — Mario faces the left direction on this entrance").changed() {
+            self.set_se_options(idx, opts);
+            return;
+        }
+        if ui
+            .checkbox(
+                &mut opts.new_fg_bg_init,
+                "New FG/BG init system — FG relative to player, BG computed from FG/scroll/height",
+            )
+            .changed()
+        {
             self.set_se_options(idx, opts);
             return;
         }

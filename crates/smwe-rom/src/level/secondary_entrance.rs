@@ -130,6 +130,16 @@ pub struct SecondaryExitOptions {
     /// LM v3.00 "midway entrance redirect": use another level's midway
     /// entrance instead of this exit's own destination.
     pub midway_redirect:   Option<u16>,
+    /// LM v3.00 "Face left": Mario faces the left direction when entering
+    /// through this exit (also flips the "Shoot From Slanted Pipe Right"
+    /// entrance action).
+    pub face_left:         bool,
+    /// LM v3.00 new FG/BG init system for this entrance: FG initial position
+    /// is relative to the player, and the BG position is calculated from the
+    /// FG position, scroll settings, level height, and the destination
+    /// level's BG height (see
+    /// [`crate::level::entrance_extras::LevelEntranceExtras`]).
+    pub new_fg_bg_init:    bool,
 }
 
 /// One LM v3.00 Star/Pipe teleport-table entry: where on the overworld the
@@ -151,12 +161,16 @@ pub struct OwTeleportEntry {
 /// Magic at the start of the RATS payload identifying the secondary-exit
 /// extended-data block (distinct from the `EXANIM_MAGIC` block etc.).
 pub const SECEXIT_MAGIC: &[u8; 8] = b"SMWESEX2";
-const SECEXIT_VERSION: u8 = 1;
+/// v2 adds `SecondaryExitOptions::{face_left, new_fg_bg_init}` (LM v3.00
+/// entrance extras); v1 payloads still decode with those fields defaulted.
+const SECEXIT_VERSION: u8 = 2;
 
 /// Bit flags for the per-entry options record.
 const FLAG_WATER: u8 = 0b0000_0001;
 const FLAG_EXIT_OW: u8 = 0b0000_0010;
 const FLAG_MIDWAY_REDIRECT: u8 = 0b0000_0100;
+const FLAG_FACE_LEFT: u8 = 0b0000_1000;
+const FLAG_NEW_FG_BG_INIT: u8 = 0b0001_0000;
 
 #[derive(Debug, Error)]
 pub enum SecExitExtError {
@@ -231,6 +245,12 @@ fn encode_options(opts: &SecondaryExitOptions, out: &mut Vec<u8>) {
     if opts.midway_redirect.is_some() {
         flags |= FLAG_MIDWAY_REDIRECT;
     }
+    if opts.face_left {
+        flags |= FLAG_FACE_LEFT;
+    }
+    if opts.new_fg_bg_init {
+        flags |= FLAG_NEW_FG_BG_INIT;
+    }
     out.push(flags);
     out.push(match ow.exit_kind {
         OwExitKind::Normal => 0,
@@ -272,6 +292,8 @@ fn decode_options(input: &[u8]) -> Result<(SecondaryExitOptions, usize), SecExit
                 teleport: input[4],
             }),
             midway_redirect:   (flags & FLAG_MIDWAY_REDIRECT != 0).then_some(u16::from_le_bytes([input[5], input[6]])),
+            face_left:         flags & FLAG_FACE_LEFT != 0,
+            new_fg_bg_init:    flags & FLAG_NEW_FG_BG_INIT != 0,
         },
         7,
     ))
@@ -328,7 +350,9 @@ fn decode_payload(input: &[u8]) -> Result<SecondaryExitExtData, SecExitExtError>
     if input.len() < 11 || &input[..8] != SECEXIT_MAGIC {
         return Err(corrupt("bad magic"));
     }
-    if input[8] != SECEXIT_VERSION {
+    // v1 payloads decode with the v2 fields defaulted (see
+    // `SECEXIT_VERSION`); reject anything else.
+    if input[8] != 1 && input[8] != SECEXIT_VERSION {
         return Err(corrupt(&format!("unsupported version {}", input[8])));
     }
     let mut pos = 9;
@@ -470,16 +494,22 @@ mod tests {
     fn sample_data() -> SecondaryExitExtData {
         let mut data = SecondaryExitExtData::default();
         data.options.insert(0x001, SecondaryExitOptions {
-            water_level:       true,
+            water_level: true,
             exit_to_overworld: Some(OverworldExit {
                 exit_kind:  OwExitKind::Secret,
                 player:     OwPlayerSwitch::Luigi,
                 base_event: 0x2A,
                 teleport:   0x07,
             }),
-            midway_redirect:   Some(0x105),
+            midway_redirect: Some(0x105),
+            ..Default::default()
         });
         data.options.insert(0x1FF, SecondaryExitOptions { water_level: true, ..Default::default() });
+        data.options.insert(0x002, SecondaryExitOptions {
+            face_left: true,
+            new_fg_bg_init: true,
+            ..Default::default()
+        });
         // Index 0x2000 (out of range) must be rejected by the encoder.
         data.extended_entries.insert(0x200, [0x10, 0x20, 0x30, 0x08]);
         data.extended_entries.insert(0x1FFF, [0x00, 0x00, 0x00, 0x00]);
@@ -518,6 +548,27 @@ mod tests {
         let mut data = SecondaryExitExtData::default();
         data.options.insert(0x2000, SecondaryExitOptions { water_level: true, ..Default::default() });
         assert!(matches!(encode_payload(&data), Err(SecExitExtError::Corrupt(_))));
+    }
+
+    #[test]
+    fn v1_payload_decodes_with_new_fields_defaulted() {
+        // Hand-built v1 payload: magic + version 1 + one options record with
+        // only the v1 flags (water) set, no extended entries, no teleport
+        // table.
+        let mut payload = Vec::new();
+        payload.extend_from_slice(SECEXIT_MAGIC);
+        payload.push(1);
+        payload.extend_from_slice(&1u16.to_le_bytes()); // one options record
+        payload.extend_from_slice(&0x10u16.to_le_bytes());
+        payload.push(0b0000_0001); // FLAG_WATER only
+        payload.extend_from_slice(&[0, 0, 0, 0, 0, 0]); // kind/player/event/teleport/redirect
+        payload.extend_from_slice(&0u16.to_le_bytes()); // no extended entries
+        payload.push(0); // no teleport table
+        let back = decode_payload(&payload).expect("v1 decode");
+        let opts = back.options_for(0x10);
+        assert!(opts.water_level);
+        assert!(!opts.face_left, "v1 payload must default face_left off");
+        assert!(!opts.new_fg_bg_init, "v1 payload must default new_fg_bg_init off");
     }
 
     #[test]

@@ -24,6 +24,7 @@ use crate::{
 
 pub mod background;
 pub mod dimensions;
+pub mod entrance_extras;
 pub mod headers;
 pub mod object_layer;
 pub mod scroll;

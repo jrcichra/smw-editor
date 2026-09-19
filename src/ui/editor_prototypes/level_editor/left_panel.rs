@@ -782,6 +782,82 @@ impl UiLevelEditor {
                 row_slider!("BG Initial Pos:", p.bg_initial_pos, 0..=3_i32);
             });
 
+            // ── LM v3.00 entrance extras (main entrance) ──────────────────────
+            // No vanilla ROM storage — persisted in the editor's SMWENTR1 RATS
+            // block on save (see `entrance_extras_dirty`).
+            ui.separator();
+            ui.strong("Entrance Extras (LM v3.00)");
+            ui.label(
+                "Main-entrance options with no vanilla ROM storage. Saved into the\n\
+                 editor's RATS block (SMWENTR1); in-game playback needs Lunar Magic's\n\
+                 ASM hacks, which this editor does not install.",
+            );
+            let mut extras_changed = false;
+            {
+                let p = &mut self.level_properties;
+                egui::Grid::new("entrance_extras_grid").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+                    macro_rules! row_check_x {
+                        ($label:expr, $field:expr, $hover:expr) => {{
+                            ui.label($label).on_hover_text($hover);
+                            if ui.checkbox(&mut $field, "").on_hover_text($hover).changed() {
+                                changed = true;
+                                extras_changed = true;
+                            }
+                            ui.end_row();
+                        }};
+                    }
+                    row_check_x!(
+                        "Face Left:",
+                        p.face_left,
+                        "LM v3.00: Mario faces the left direction on the main entrance (also flips the \"Shoot From Slanted Pipe Right\" entrance action)."
+                    );
+                    row_check_x!(
+                        "New FG/BG Init System:",
+                        p.new_fg_bg_init,
+                        "LM v3.00: the FG initial position is relative to the player, and the BG position is calculated from the FG position, scroll settings, level height, and BG height."
+                    );
+                    ui.label("BG Relative to FG Only:").on_hover_text(
+                        "LM v3.00 sub-option, meant mainly for Layer 2 levels. Only meaningful with the new FG/BG init system.",
+                    );
+                    {
+                        let mut rel = p.bg_relative_to_fg_only;
+                        if ui
+                            .add_enabled(p.new_fg_bg_init, egui::Checkbox::new(&mut rel, ""))
+                            .on_hover_text(
+                                "LM v3.00 sub-option, meant mainly for Layer 2 levels. Only meaningful with the new FG/BG init system.",
+                            )
+                            .changed()
+                        {
+                            p.bg_relative_to_fg_only = rel;
+                            changed = true;
+                            extras_changed = true;
+                        }
+                    }
+                    ui.end_row();
+                    ui.label("BG Height:").on_hover_text(
+                        "LM v3.00: BG height setting in the \"Change Other Properties\" dialog. 0 = unset (behaves like the vanilla game).",
+                    );
+                    {
+                        let mut v = p.bg_height as i32;
+                        if ui
+                            .add(Slider::new(&mut v, 0..=255_i32).hexadecimal(2, false, false))
+                            .on_hover_text(
+                                "LM v3.00: BG height setting in the \"Change Other Properties\" dialog. 0 = unset (behaves like the vanilla game).",
+                            )
+                            .changed()
+                        {
+                            p.bg_height = v as u8;
+                            changed = true;
+                            extras_changed = true;
+                        }
+                    }
+                    ui.end_row();
+                });
+            }
+            if extras_changed {
+                self.entrance_extras_dirty = true;
+            }
+
             if self.level_properties.has_layer2 {
                 ui.separator();
                 ui.strong("Layer 2 Header");

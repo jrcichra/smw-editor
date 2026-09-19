@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use smwe_rom::level::{scroll::Layer2ScrollExt, Layer2Data, Level};
+use smwe_rom::level::{entrance_extras::LevelEntranceExtras, scroll::Layer2ScrollExt, Layer2Data, Level};
 
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct LevelProperties {
@@ -31,6 +31,14 @@ pub(super) struct LevelProperties {
     pub no_yoshi_level:             bool,
     pub unknown_vertical_pos_level: bool,
 
+    // LM v3.00 entrance extras (main entrance; "Change Other Properties"
+    // data). No vanilla storage — persisted in the editor's SMWENTR1 RATS
+    // block; in-game playback needs Lunar Magic's ASM hacks.
+    pub face_left:              bool,
+    pub new_fg_bg_init:         bool,
+    pub bg_relative_to_fg_only: bool,
+    pub bg_height:              u8,
+
     // LM 3.40+ Layer 2 scroll extension ($06FA00, SHCvvvvv). `layer2_scroll`
     // above is the paired preset (or the horizontal setting when separate).
     pub layer2_scroll_separate:  bool,
@@ -50,7 +58,7 @@ pub(super) struct LevelProperties {
 }
 
 impl LevelProperties {
-    pub fn from_level(level: &Level, level_height_tiles: u16) -> Self {
+    pub fn from_level(level: &Level, level_height_tiles: u16, extras: &LevelEntranceExtras) -> Self {
         let h = &level.primary_header;
         let s = &level.secondary_header;
         let is_vertical = s.vertical_level();
@@ -99,6 +107,10 @@ impl LevelProperties {
             bg_initial_pos: s.bg_initial_pos(),
             no_yoshi_level: s.no_yoshi_level(),
             unknown_vertical_pos_level: s.unknown_vertical_pos_level(),
+            face_left: extras.face_left,
+            new_fg_bg_init: extras.new_fg_bg_init,
+            bg_relative_to_fg_only: extras.bg_relative_to_fg_only,
+            bg_height: extras.bg_height,
             layer2_scroll_separate: ext.separate,
             layer2_hscroll_auto: ext.h_auto,
             layer2_vscroll: ext.vscroll,
