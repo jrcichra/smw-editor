@@ -1028,6 +1028,23 @@ impl DockableEditorTool for UiLevelEditor {
         });
         check_items(self.level_num, vertical, screens, &items)
     }
+    /// Ask a level-editor tab to open `level`, reusing its unsaved-changes
+    /// confirmation flow. No-op for tabs that are not level editors. Used by
+    /// Tools > Analyze Resources in Levels... for its jump links.
+    fn request_level_jump(&mut self, level: u16) {
+        if level == self.level_num {
+            return;
+        }
+        // Same unsaved-changes confirmation the toolbar's level switcher
+        // uses: the central panel's dialog consumes `pending_level_num`.
+        if self.has_unsaved_changes() {
+            self.show_unsaved_dialog = true;
+            self.pending_level_num = Some(level);
+        } else {
+            self.level_num = level;
+            self.load_level();
+        }
+    }
 
     fn open_layer1_from_address(&mut self, pc: u32) -> anyhow::Result<Option<(usize, usize)>> {
         self.import_layer1_from_address(pc).map(Some)

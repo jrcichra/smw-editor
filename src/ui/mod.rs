@@ -3,6 +3,7 @@ mod editing_mode;
 mod editor_prototypes;
 mod exanimation_dialog;
 mod exit_scan_dialog;
+mod resource_scan_dialog;
 mod style;
 mod tab_viewer;
 mod tool;
@@ -120,6 +121,11 @@ pub struct UiMainWindow {
     /// parity). The scan runs on a worker thread; this owns its state.
     show_exit_scan_dialog:     bool,
     exit_scan:                 exit_scan_dialog::ExitScanUi,
+    /// Resource-analysis dialog (Tools > Analyze Resources in Levels...,
+    /// LM v3.03/v3.20 parity). The scan runs on a worker thread; this owns
+    /// its state.
+    show_resource_scan_dialog: bool,
+    resource_scan:             resource_scan_dialog::ResourceScanUi,
     /// Set when user tries to close the app with unsaved changes
     show_exit_dialog:          bool,
     /// Restore points + original-ROM reference copy (Restore menu, LM v1.80).
@@ -226,6 +232,8 @@ impl UiMainWindow {
             share_data_status: None,
             show_exit_scan_dialog: false,
             exit_scan: exit_scan_dialog::ExitScanUi::new(),
+            show_resource_scan_dialog: false,
+            resource_scan: resource_scan_dialog::ResourceScanUi::new(),
             show_exit_dialog: false,
             restore_manager: RestoreManager::new(),
             ips_apply_dialog: FileDialog::new(),
@@ -333,6 +341,11 @@ impl eframe::App for UiMainWindow {
         // Exit-scan dialog (Tools > Scan for Undefined Exits..., LM v1.50/v1.60 parity).
         if self.show_exit_scan_dialog {
             self.exit_scan_window(ctx);
+        }
+        // Resource-analysis dialog (Tools > Analyze Resources in Levels...,
+        // LM v3.03/v3.20 parity).
+        if self.show_resource_scan_dialog {
+            self.resource_scan_window(ctx);
         }
         // IPS export same-directory warning (LM v1.80).
         self.show_ips_export_warning_dialog(ctx, rom.as_ref());
@@ -1813,6 +1826,10 @@ impl UiMainWindow {
                     }
                     if ui.button("Scan for Undefined Exits...").clicked() {
                         self.open_exit_scan();
+                        ui.close_menu();
+                    }
+                    if ui.button("Analyze Resources in Levels...").clicked() {
+                        self.open_resource_scan();
                         ui.close_menu();
                     }
                 });
