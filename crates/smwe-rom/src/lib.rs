@@ -26,6 +26,7 @@ pub mod music_bypass;
 pub mod mwl;
 pub mod objects;
 pub mod overworld;
+pub mod overworld_transfer;
 pub mod rom_expansion;
 pub mod snes_utils;
 pub mod sprite_tweakers;

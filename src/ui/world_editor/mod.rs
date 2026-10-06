@@ -54,6 +54,7 @@ use smwe_rom::{
     overworld::{
         secret_exits as ow_secret_exits,
         sprites as ow_sprites,
+        write_overworld_l2_stream,
         L2EventEntry,
         L2EventKind,
         OWL1_TILE_DATA_SIZE,
@@ -2448,62 +2449,6 @@ fn read_overworld_l2_words(cpu: &Cpu) -> Vec<u16> {
     let base = (0x7F4000 - 0x7E0000) as usize;
     let bytes = &cpu.mem.wram[base..base + 0x2000];
     bytes.chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect()
-}
-
-fn write_overworld_l2_stream(
-    rom_bytes: &mut [u8], has_smc_header: bool, start_pc_no_header: usize, output_len: usize, compressed: &[u8],
-    label: &str,
-) -> anyhow::Result<()> {
-    let header_offset = usize::from(has_smc_header) * 0x200;
-    let start = start_pc_no_header + header_offset;
-    let old_size = lc_rle2::compressed_size_for_output(
-        rom_bytes.get(start..).ok_or_else(|| anyhow::anyhow!("{label} ROM source start out of bounds"))?,
-        output_len,
-    );
-    if compressed.len() <= old_size {
-        let dst = rom_bytes
-            .get_mut(start..start + old_size)
-            .ok_or_else(|| anyhow::anyhow!("{label} ROM write range out of bounds"))?;
-        dst[..compressed.len()].copy_from_slice(compressed);
-        dst[compressed.len()..].fill(0);
-    } else {
-        let new_pc = find_free_space(rom_bytes, compressed.len(), 0x008000, header_offset)
-            .ok_or_else(|| anyhow::anyhow!("{label} no free space found for {} bytes", compressed.len()))?;
-
-        if let Some(dst) = rom_bytes.get_mut(start..start + old_size) {
-            dst.fill(0xFF);
-        }
-
-        let new_file = new_pc + header_offset;
-        rom_bytes
-            .get_mut(new_file..new_file + compressed.len())
-            .ok_or_else(|| anyhow::anyhow!("{label} new location write out of bounds"))?
-            .copy_from_slice(compressed);
-
-        let old_snes = AddrSnes::try_from_lorom(AddrPc(start_pc_no_header as u32))?.0;
-        let new_snes = AddrSnes::try_from_lorom(AddrPc(new_pc as u32))?.0;
-        patch_snes_pointer(rom_bytes, old_snes, new_snes, label)?;
-    }
-    Ok(())
-}
-
-fn patch_snes_pointer(rom_bytes: &mut [u8], old_snes: u32, new_snes: u32, label: &str) -> anyhow::Result<()> {
-    let old_bytes = old_snes.to_le_bytes();
-    let new_bytes = new_snes.to_le_bytes();
-    let matches: Vec<usize> = rom_bytes
-        .windows(3)
-        .enumerate()
-        .filter_map(|(offset, window)| (window == &old_bytes[..3]).then_some(offset))
-        .collect();
-    let [offset] = matches.as_slice() else {
-        anyhow::bail!(
-            "{label} expected exactly one pointer to SNES ${old_snes:06X}, found {}; refusing to repoint",
-            matches.len()
-        );
-    };
-    rom_bytes[*offset..*offset + 3].copy_from_slice(&new_bytes[..3]);
-    log::info!("{label} repointed from SNES ${old_snes:06X} to ${new_snes:06X}");
-    Ok(())
 }
 
 fn ow_l1_addr(col: u32, row: u32) -> usize {

@@ -451,6 +451,89 @@ fn windows2(v: &[u16]) -> impl Iterator<Item = &[u16]> {
     v.windows(2)
 }
 
+/// SNES address of the per-event RLE tilemap blob (`OWEventTileProp` in
+/// SMWDisX `bank_0C.asm`, `ORG $0C8000`). The blob is a sequence of packets —
+/// control byte `b`: `(b & 0x7F) + 1` bytes follow literally, or (bit 7 set) a
+/// single byte repeated `(b & 0x7F) + 1` times — terminated by a `$FFFF` word
+/// (see `CODE_04DD57`). Decoding the whole blob yields exactly
+/// [`OW_EVENT_TILEMAP_DECODED_LEN`] bytes into WRAM `OWEventTilemap`.
+pub const OW_EVENT_TILEMAP_PROP_SNES: AddrSnes = AddrSnes(0x0C8D00);
+
+/// Decoded size of the [`OW_EVENT_TILEMAP_PROP_SNES`] blob: WRAM
+/// `OWEventTilemap` is `skip 3328` in SMWDisX `rammap.asm`.
+pub const OW_EVENT_TILEMAP_DECODED_LEN: usize = 0x0D00;
+
+/// Write one RLE2-compressed overworld Layer 2 stream (`OWTileNumbers` /
+/// `OWTilemap`) into `rom_bytes`, repointing the game's stream pointer when
+/// the new payload no longer fits the old location. `start_pc_no_header` is
+/// the stream's vanilla PC file offset (without SMC header); `output_len` is
+/// the per-stream decompressed byte count.
+///
+/// When the payload fits, it is written in place over the old stream (any
+/// leftover tail zeroed); otherwise fresh free space is allocated, the old
+/// location is erased to `$FF`, and the single ROM reference to the old SNES
+/// address is patched to the new one.
+pub fn write_overworld_l2_stream(
+    rom_bytes: &mut [u8], has_smc_header: bool, start_pc_no_header: usize, output_len: usize, compressed: &[u8],
+    label: &str,
+) -> anyhow::Result<()> {
+    use crate::compression::lc_rle2;
+
+    let header_offset = usize::from(has_smc_header) * 0x200;
+    let start = start_pc_no_header + header_offset;
+    let old_size = lc_rle2::compressed_size_for_output(
+        rom_bytes.get(start..).ok_or_else(|| anyhow::anyhow!("{label} ROM source start out of bounds"))?,
+        output_len,
+    );
+    if compressed.len() <= old_size {
+        let dst = rom_bytes
+            .get_mut(start..start + old_size)
+            .ok_or_else(|| anyhow::anyhow!("{label} ROM write range out of bounds"))?;
+        dst[..compressed.len()].copy_from_slice(compressed);
+        dst[compressed.len()..].fill(0);
+    } else {
+        let new_pc = crate::freespace::find_free_space(rom_bytes, compressed.len(), 0x008000, header_offset)
+            .ok_or_else(|| anyhow::anyhow!("{label} no free space found for {} bytes", compressed.len()))?;
+
+        if let Some(dst) = rom_bytes.get_mut(start..start + old_size) {
+            dst.fill(0xFF);
+        }
+
+        let new_file = new_pc + header_offset;
+        rom_bytes
+            .get_mut(new_file..new_file + compressed.len())
+            .ok_or_else(|| anyhow::anyhow!("{label} new location write out of bounds"))?
+            .copy_from_slice(compressed);
+
+        let old_snes = AddrSnes::try_from_lorom(AddrPc(start_pc_no_header as u32))?.0;
+        let new_snes = AddrSnes::try_from_lorom(AddrPc(new_pc as u32))?.0;
+        patch_snes_pointer(rom_bytes, old_snes, new_snes, label)?;
+    }
+    Ok(())
+}
+
+/// Find the ROM file offset holding the 3-byte little-endian SNES pointer
+/// `old_snes`, and rewrite it to `new_snes`. Refuses unless exactly one
+/// reference exists, so a repoint never silently half-applies.
+fn patch_snes_pointer(rom_bytes: &mut [u8], old_snes: u32, new_snes: u32, label: &str) -> anyhow::Result<()> {
+    let old_bytes = old_snes.to_le_bytes();
+    let new_bytes = new_snes.to_le_bytes();
+    let matches: Vec<usize> = rom_bytes
+        .windows(3)
+        .enumerate()
+        .filter_map(|(offset, window)| (window == &old_bytes[..3]).then_some(offset))
+        .collect();
+    let [offset] = matches.as_slice() else {
+        anyhow::bail!(
+            "{label} expected exactly one pointer to SNES ${old_snes:06X}, found {}; refusing to repoint",
+            matches.len()
+        )
+    };
+    rom_bytes[*offset..*offset + 3].copy_from_slice(&new_bytes[..3]);
+    log::info!("{label} repointed from SNES ${old_snes:06X} to ${new_snes:06X}");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

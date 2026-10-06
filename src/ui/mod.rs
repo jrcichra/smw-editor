@@ -29,6 +29,7 @@ use smwe_rom::{
     level_deletion::{delete_levels, level_modified_vs, GAMEPLAY_CRITICAL_LEVELS},
     level_sharing::share_data_between_levels,
     overworld::level_number_for_index,
+    overworld_transfer::transfer_overworld,
     rom_expansion::{expand_rom, expansion_targets, format_size, split_smc_header},
     snes_utils::rom::Rom,
     SmwRom,
@@ -117,6 +118,15 @@ pub struct UiMainWindow {
     show_share_data_dialog:      bool,
     /// Status line shown in the share-data dialog.
     share_data_status:           Option<String>,
+    /// Copy-overworld dialog (File > Copy Overworld to Another ROM...,
+    /// LM v3.40 parity).
+    show_copy_ow_dialog:         bool,
+    /// Destination ROM picked for the overworld copy.
+    copy_ow_dest:                Option<PathBuf>,
+    /// Status line shown in the copy-overworld dialog.
+    copy_ow_status:              Option<String>,
+    /// In-egui file dialog for picking the copy-overworld destination ROM.
+    copy_ow_dest_dialog:         FileDialog,
     /// Exit-scan dialog (Tools > Scan for Undefined Exits..., LM v1.50/v1.60
     /// parity). The scan runs on a worker thread; this owns its state.
     show_exit_scan_dialog:       bool,
@@ -258,6 +268,10 @@ impl UiMainWindow {
             dialog_error: None,
             show_share_data_dialog: false,
             share_data_status: None,
+            show_copy_ow_dialog: false,
+            copy_ow_dest: None,
+            copy_ow_status: None,
+            copy_ow_dest_dialog: FileDialog::new(),
             show_exit_scan_dialog: false,
             exit_scan: exit_scan_dialog::ExitScanUi::new(),
             show_resource_scan_dialog: false,
@@ -379,6 +393,17 @@ impl eframe::App for UiMainWindow {
         // Share-data dialog (File > Levels > Share Data Between Levels to Save Space...).
         if self.show_share_data_dialog {
             self.share_data_window(ctx);
+        }
+        // Copy-overworld destination picker + confirm dialog
+        // (File > Copy Overworld to Another ROM..., LM v3.40 parity).
+        self.copy_ow_dest_dialog.update(ctx);
+        if let Some(path) = self.copy_ow_dest_dialog.take_picked() {
+            self.copy_ow_dest = Some(path);
+            self.copy_ow_status = None;
+            self.show_copy_ow_dialog = true;
+        }
+        if self.show_copy_ow_dialog {
+            self.copy_overworld_window(ctx);
         }
         // Exit-scan dialog (Tools > Scan for Undefined Exits..., LM v1.50/v1.60 parity).
         if self.show_exit_scan_dialog {
@@ -1396,6 +1421,89 @@ impl UiMainWindow {
         }
     }
 
+    /// "Copy Overworld to Another ROM" confirm dialog (File menu,
+    /// Lunar Magic v3.40 parity).
+    fn copy_overworld_window(&mut self, ctx: &Context) {
+        let mut open = true;
+        let mut close_requested = false;
+        let mut copy_requested = false;
+        let src_name =
+            self.rom_path.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "(no ROM open)".to_string());
+        let dest_name = self
+            .copy_ow_dest
+            .as_deref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "(no destination chosen)".to_string());
+        Window::new("Copy Overworld to Another ROM").open(&mut open).resizable(false).show(ctx, |ui| {
+            ui.label(format!("From (current ROM, unsaved edits included):\n{src_name}"));
+            ui.label(format!("To:\n{dest_name}"));
+            ui.separator();
+            ui.label(
+                "Copies the overworld — tilemaps, event data, overworld\n\
+                 sprites, palettes, submap music, level names, message-box\n\
+                 and boss-sequence text, start positions, reveal lists,\n\
+                 star/pipe warp links, secret exits, and overworld\n\
+                 ExAnimation — into the destination ROM.\n\n\
+                 The destination's levels, graphics, and other data are left\n\
+                 untouched; its checksum is repaired afterwards. A 512 KiB\n\
+                 destination is expanded to 1 MiB first when needed, and a\n\
+                 .bak backup of the destination is written before replacing\n\
+                 it. The source ROM is never modified.\n\n\
+                 The destination's current overworld data will be replaced.",
+            );
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button("Copy Overworld").clicked() {
+                    copy_requested = true;
+                }
+                if ui.button("Close").clicked() {
+                    close_requested = true;
+                }
+            });
+            if let Some(status) = &self.copy_ow_status.clone() {
+                ui.separator();
+                ui.label(status);
+            }
+        });
+        if !open || close_requested {
+            self.show_copy_ow_dialog = false;
+            self.copy_ow_status = None;
+            self.copy_ow_dest = None;
+        } else if copy_requested {
+            self.perform_copy_overworld();
+        }
+    }
+
+    /// Run the overworld transfer: merge unsaved tab edits into the source
+    /// image (like Save does), copy the overworld domain into the destination
+    /// ROM, and write it back atomically with a backup.
+    fn perform_copy_overworld(&mut self) {
+        let result = (|| -> anyhow::Result<String> {
+            let dest_path = self.copy_ow_dest.clone().ok_or_else(|| anyhow::anyhow!("No destination ROM chosen"))?;
+            let src_path = self.rom_path.clone().ok_or_else(|| anyhow::anyhow!("No ROM is open"))?;
+            if dest_path == src_path {
+                anyhow::bail!("The destination is the currently open ROM — pick a different ROM file");
+            }
+            // Refuses when the world editor holds changes that cannot be
+            // serialized, so the transfer never copies a half-known state.
+            let src_image = self.current_rom_image()?;
+            let dest_image = std::fs::read(&dest_path)
+                .with_context(|| format!("Failed to read destination ROM {}", dest_path.display()))?;
+            let outcome = transfer_overworld(&src_image, &dest_image)?;
+            Self::atomic_write_with_backup(&dest_path, &outcome.dest_bytes)?;
+            Ok(format!("Copied the overworld to {}.\n{}", dest_path.display(), outcome.report.summary()))
+        })();
+        match result {
+            Ok(status) => {
+                self.copy_ow_status = Some(status.clone());
+                log::info!("{status}");
+            }
+            Err(e) => {
+                self.copy_ow_status = Some(format!("Copy failed: {e:#}"));
+            }
+        }
+    }
+
     /// Run the share pass on the current ROM image (unsaved tab edits are
     /// merged in first), install the result atomically, and reload.
     fn perform_share_data(&mut self, ctx: &Context) {
@@ -1819,6 +1927,20 @@ impl UiMainWindow {
                             }
                             self.expand_status = None;
                             self.show_expand_dialog = true;
+                            ui.close_menu();
+                        }
+                        // Lunar Magic v3.40 parity: copy the overworld into
+                        // another ROM (a shortcut to the `-TransferOverworld`
+                        // command-line function).
+                        if ui.button("Copy Overworld to Another ROM...").clicked() {
+                            let initial_dir = self
+                                .rom_path
+                                .as_deref()
+                                .and_then(|p| p.parent())
+                                .map(|p| p.to_path_buf())
+                                .unwrap_or_else(|| PathBuf::from("."));
+                            self.copy_ow_dest_dialog = FileDialog::new().initial_directory(initial_dir);
+                            self.copy_ow_dest_dialog.pick_file();
                             ui.close_menu();
                         }
                         ui.separator();
