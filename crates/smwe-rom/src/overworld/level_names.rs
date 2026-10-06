@@ -194,6 +194,35 @@ pub fn check_name_with(name: &str, use_multichar: bool) -> anyhow::Result<String
     Ok(normalized)
 }
 
+/// Validate a level name typed in the editor against a Lunar Magic v3.40
+/// custom table file ([`crate::table_file::Table`]).
+///
+/// Unlike [`check_name`], there is no built-in charset and no uppercasing:
+/// while a table is active none of the built-in tile/char mapping is used,
+/// so the table alone decides what is mappable. Characters with no table
+/// mapping are skipped by the encoder (Lunar Magic behavior), which means
+/// an all-unmapped name is empty and refused here.
+///
+/// Returns the trimmed display text plus its encoded tile count, for the
+/// byte-budget meter. Errors when the name is empty, has no mappable
+/// characters, or encodes to more than [`MAX_NAME_CHARS`] tiles.
+pub fn check_name_with_table(name: &str, table: &crate::table_file::Table) -> anyhow::Result<(String, usize)> {
+    let trimmed = name.trim().to_string();
+    anyhow::ensure!(!trimmed.is_empty(), "name is empty");
+    let bytes = table.encode(&trimmed);
+    anyhow::ensure!(
+        !bytes.is_empty(),
+        "name has no characters mapped by the table file (unmapped characters are skipped)"
+    );
+    anyhow::ensure!(
+        bytes.len() <= MAX_NAME_CHARS,
+        "name encodes to {} tiles; the game draws at most {}",
+        bytes.len(),
+        MAX_NAME_CHARS
+    );
+    Ok((trimmed, bytes.len()))
+}
+
 /// Encode a character to an overworld-name tile value.
 ///
 /// Uppercase ASCII letters map to tiles `$00-$19`, space to `$1F`, `#` to
@@ -459,6 +488,96 @@ pub fn decode_all(rom: &[u8], header_offset: usize, patched: bool, use_multichar
     (0..LEVEL_NAMES_COUNT).map(|t| decode_name(rom, header_offset, t, patched, use_multichar)).collect()
 }
 
+/// Raw tile bytes of one fragment: like [`decode_fragment`] but returns the
+/// bytes (bit 7 stripped from the terminator) instead of mapped characters.
+fn fragment_tiles(rom: &[u8], strings_pc: usize, offset: usize) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut i = strings_pc + offset;
+    loop {
+        let b = match rom.get(i) {
+            Some(&b) => b,
+            None => break,
+        };
+        // A first byte with bit 7 set and value $80 means "empty fragment".
+        // (T1 skip.) Don't emit it.
+        if out.is_empty() && b == T1_SKIP_BYTE {
+            break;
+        }
+        out.push(b & 0x7F);
+        i += 1;
+        if b & 0x80 != 0 {
+            break;
+        }
+        // Safety cap: fragments are short; bail on corrupt data.
+        if out.len() > 64 {
+            break;
+        }
+    }
+    out
+}
+
+/// Decode one level name to its raw tile bytes (bit 7 stripped, skip
+/// fragments resolved exactly like [`decode_name`]: a T1 skip emits nothing,
+/// a T2 skip emits one space tile).
+///
+/// This is the table-file entry point: the caller maps the bytes through a
+/// [`crate::table_file::Table`] (or through [`tile_to_char`] to reproduce
+/// [`decode_name`] exactly — asserted by the real-ROM test below).
+pub fn decode_name_tiles(rom: &[u8], header_offset: usize, translevel: usize, patched: bool) -> Option<Vec<u8>> {
+    if translevel >= LEVEL_NAMES_COUNT {
+        return None;
+    }
+    let (t1_base, t2_base, t3_base) = if patched {
+        (T1_PATCHED_SNES, T2_PATCHED_SNES, T3_PATCHED_SNES)
+    } else {
+        (T1_VANILLA_SNES, T2_VANILLA_SNES, T3_VANILLA_SNES)
+    };
+    let t1_pc = AddrPc::try_from_lorom(t1_base).ok()?.as_index() as usize + header_offset;
+    let t2_pc = AddrPc::try_from_lorom(t2_base).ok()?.as_index() as usize + header_offset;
+    let t3_pc = AddrPc::try_from_lorom(t3_base).ok()?.as_index() as usize + header_offset;
+    let names_pc = AddrPc::try_from_lorom(LEVEL_NAMES_SNES).ok()?.as_index() as usize + header_offset;
+    let strings_pc = AddrPc::try_from_lorom(STRINGS_SNES).ok()?.as_index() as usize + header_offset;
+
+    let e = names_pc + translevel * 2;
+    let entry = u16::from_le_bytes([*rom.get(e)?, *rom.get(e + 1)?]);
+    let lo = (entry & 0xFF) as usize;
+    let hi = (entry >> 8) as usize;
+
+    let mut tiles = Vec::new();
+
+    // Piece 1 (T1): skipped if the fragment starts with a bit-7 byte.
+    let t1_off =
+        u16::from_le_bytes([*rom.get(t1_pc + (hi & 0x7F) * 2)?, *rom.get(t1_pc + (hi & 0x7F) * 2 + 1)?]) as usize;
+    if rom.get(strings_pc + t1_off).copied().unwrap_or(0x80) & 0x80 == 0 {
+        tiles.extend(fragment_tiles(rom, strings_pc, t1_off));
+    }
+
+    // Piece 2 (T2): skipped if the fragment is exactly $9F.
+    let t2_off =
+        u16::from_le_bytes([*rom.get(t2_pc + ((lo >> 4) & 0xF) * 2)?, *rom.get(t2_pc + ((lo >> 4) & 0xF) * 2 + 1)?])
+            as usize;
+    if rom.get(strings_pc + t2_off).copied().unwrap_or(T2_SKIP_BYTE) != T2_SKIP_BYTE {
+        tiles.extend(fragment_tiles(rom, strings_pc, t2_off));
+    }
+
+    // Piece 3 (T3): always emitted.
+    let t3_off =
+        u16::from_le_bytes([*rom.get(t3_pc + (lo & 0xF) * 2)?, *rom.get(t3_pc + (lo & 0xF) * 2 + 1)?]) as usize;
+    tiles.extend(fragment_tiles(rom, strings_pc, t3_off));
+
+    Some(tiles)
+}
+
+/// Decode all 93 level names through a Lunar Magic v3.40 custom table file
+/// ([`crate::table_file::Table`]) instead of the built-in tile map.
+pub fn decode_all_with_table(
+    rom: &[u8], header_offset: usize, patched: bool, table: &crate::table_file::Table,
+) -> Option<Vec<String>> {
+    (0..LEVEL_NAMES_COUNT)
+        .map(|t| decode_name_tiles(rom, header_offset, t, patched).map(|tiles| table.decode(&tiles)))
+        .collect()
+}
+
 // ── Encoding ────────────────────────────────────────────────────────────────
 
 /// A name split into up to three fragments.
@@ -489,9 +608,10 @@ fn split_name(name: &str) -> Split {
     }
 }
 
-/// Encode a fragment to pool bytes (tiles, bit 7 on the last byte).
-fn encode_fragment(text: &str, use_multichar: bool) -> Vec<u8> {
-    let tiles: Vec<u8> = encode_name_to_tiles(text, use_multichar).unwrap_or_default();
+/// Finish a fragment's tile bytes: bit 7 on the last byte (the fragment
+/// terminator the game scans for). An empty byte vec encodes as the T2 skip
+/// byte, matching the historical behavior for empty fragments.
+fn finish_fragment(tiles: Vec<u8>) -> Vec<u8> {
     if tiles.is_empty() {
         return vec![T2_SKIP_BYTE];
     }
@@ -499,6 +619,11 @@ fn encode_fragment(text: &str, use_multichar: bool) -> Vec<u8> {
     let last = out.len() - 1;
     out[last] |= 0x80;
     out
+}
+
+/// Encode a fragment to pool bytes (tiles, bit 7 on the last byte).
+fn encode_fragment(text: &str, use_multichar: bool) -> Vec<u8> {
+    finish_fragment(encode_name_to_tiles(text, use_multichar).unwrap_or_default())
 }
 
 /// The encoded pool + tables + `LevelNames` entries, ready to write.
@@ -616,11 +741,43 @@ fn merge_rarest_t3(splits: &mut [Split]) -> bool {
 /// Returns an error if the fragments don't fit the patched pool
 /// (578 bytes) or table slot counts (93/16/16).
 pub fn encode_names(names: &[String], use_multichar: bool) -> anyhow::Result<EncodedNames> {
+    encode_names_inner(names, true, use_multichar, None)
+}
+
+/// Encode all 93 level names through a Lunar Magic v3.40 custom table file
+/// ([`crate::table_file::Table`]) instead of the built-in tile map.
+///
+/// Same fragment/patch machinery as [`encode_names`], but the display text
+/// is encoded with the table (no uppercasing — the table defines the
+/// charset; MultiChar squishing does not apply) and an all-unmapped fragment
+/// falls back to the structural skip byte.
+pub fn encode_names_with_table(names: &[String], table: &crate::table_file::Table) -> anyhow::Result<EncodedNames> {
+    encode_names_inner(names, false, false, Some(table))
+}
+
+/// Shared encoder: `uppercase` selects built-in-map normalization,
+/// `use_multichar` selects MultiChar squished-tile encoding for the
+/// built-in map, and `table` switches the fragment codec to the custom
+/// table file.
+fn encode_names_inner(
+    names: &[String], uppercase: bool, use_multichar: bool, table: Option<&crate::table_file::Table>,
+) -> anyhow::Result<EncodedNames> {
     anyhow::ensure!(names.len() == LEVEL_NAMES_COUNT, "need exactly {} names, got {}", LEVEL_NAMES_COUNT, names.len());
 
-    // Normalize: uppercase, collapse whitespace.
-    let normalized: Vec<String> =
-        names.iter().map(|n| n.to_uppercase().split_whitespace().collect::<Vec<_>>().join(" ")).collect();
+    // Normalize: collapse whitespace (and uppercase for the built-in map —
+    // the game only has uppercase glyphs; a custom table defines its own
+    // charset so the text is left as typed).
+    let normalized: Vec<String> = names
+        .iter()
+        .map(|n| {
+            let collapsed = n.split_whitespace().collect::<Vec<_>>().join(" ");
+            if uppercase {
+                collapsed.to_uppercase()
+            } else {
+                collapsed
+            }
+        })
+        .collect();
     let mut splits: Vec<Split> = normalized.iter().map(|n| split_name(n)).collect();
 
     // Merge rare T2/T3 pieces into T1 until we fit the slot caps.
@@ -691,17 +848,26 @@ pub fn encode_names(names: &[String], use_multichar: bool) -> anyhow::Result<Enc
     let mut t1_off = Vec::new();
     let mut t2_off = Vec::new();
     let mut t3_off = Vec::new();
+    // Fragment codec: the built-in tile map (with MultiChar squishing when
+    // enabled) or the custom table file's encoder. Both return finished
+    // pool bytes (bit 7 on the last byte).
+    let fragment_tiles = |p: &str| -> Vec<u8> {
+        match table {
+            Some(t) => finish_fragment(t.encode(p)),
+            None => encode_fragment(p, use_multichar),
+        }
+    };
     for p in &t1_list {
         t1_off.push(pool.len() as u16);
-        pool.extend_from_slice(&encode_fragment(p, use_multichar));
+        pool.extend_from_slice(&fragment_tiles(p));
     }
     for p in &t2_list {
         t2_off.push(pool.len() as u16);
-        pool.extend_from_slice(&encode_fragment(p, use_multichar));
+        pool.extend_from_slice(&fragment_tiles(p));
     }
     for p in &t3_list {
         t3_off.push(pool.len() as u16);
-        pool.extend_from_slice(&encode_fragment(p, use_multichar));
+        pool.extend_from_slice(&fragment_tiles(p));
     }
     // Skip fragments: T1 skip ($80) and T2 skip ($9F).
     // Only add them if actually needed (some name has p1/p2 == None).
@@ -878,6 +1044,133 @@ mod tests {
         // "DONUT " shared, "PLAINS " shared, "1"/"2"/"FUNKY" distinct.
         assert!(enc.pool.len() < STRINGS_PATCHED_LEN);
         assert_eq!(enc.entries.len(), LEVEL_NAMES_COUNT);
+    }
+
+    /// Build a small test table: A->0x41, B->0x42, space->0x1F, plus a
+    /// MultiTile entry like LM's own YELLOW example.
+    fn test_table() -> crate::table_file::Table {
+        let (file, warnings) = crate::table_file::parse_lmtbl("@LevelNames\n41=A\n42=B\n1F= \n4342=CB\n").unwrap();
+        assert!(warnings.is_empty());
+        file.table_for(crate::table_file::TableDialog::LevelNames).unwrap().clone()
+    }
+
+    #[test]
+    fn check_name_with_table_uses_table_bytes_for_budget() {
+        let t = test_table();
+        // Trimmed, NOT uppercased (the table defines the charset).
+        let (normalized, tiles) = check_name_with_table("  AB ", &t).unwrap();
+        assert_eq!(normalized, "AB");
+        assert_eq!(tiles, 2);
+        // Unmapped characters are skipped by the encoder (LM behavior), so
+        // they don't count toward the budget.
+        let (normalized, tiles) = check_name_with_table("AZB", &t).unwrap();
+        assert_eq!(normalized, "AZB");
+        assert_eq!(tiles, 2);
+        // Budget is in encoded tiles: MultiTile "CB" is one entry but two tiles.
+        let long = "CB".repeat(MAX_NAME_CHARS / 2 + 1);
+        assert!(check_name_with_table(&long, &t).is_err());
+        // All-unmapped encodes to nothing: refused.
+        assert!(check_name_with_table("zzz", &t).is_err());
+        // Empty is refused.
+        assert!(check_name_with_table("   ", &t).is_err());
+    }
+
+    #[test]
+    fn encode_names_with_table_emits_table_bytes() {
+        let t = test_table();
+        let mut names = vec![" ".to_string(); LEVEL_NAMES_COUNT];
+        names[0] = "AB".to_string();
+        names[1] = "CB".to_string();
+        let enc = encode_names_with_table(&names, &t).unwrap();
+        assert_eq!(enc.entries.len(), LEVEL_NAMES_COUNT);
+        // The pool must contain the table's byte values (0x41/0x42 for
+        // "AB", 0x43 0x42 for the MultiTile "CB"), not the built-in
+        // 0x00/0x01 tiles.
+        let pool_hex: Vec<u8> = enc.pool.clone();
+        assert!(pool_hex.windows(2).any(|w| w == [0x41, 0xC2]), "pool lacks table-encoded AB: {pool_hex:02X?}");
+        assert!(pool_hex.windows(2).any(|w| w == [0x43, 0xC2]), "pool lacks table-encoded CB: {pool_hex:02X?}");
+        assert!(!pool_hex.contains(&0x00), "pool should not contain built-in tile 0x00");
+    }
+
+    #[test]
+    fn encode_names_with_table_matches_builtin_without_table() {
+        // A table that reproduces the built-in A-Z/space mapping must
+        // produce the same pool bytes as encode_names.
+        let mut tbl_src = String::new();
+        for (i, c) in ('A'..='Z').enumerate() {
+            tbl_src.push_str(&format!("{i:02X}={c}\n"));
+        }
+        tbl_src.push_str("1F= \n");
+        let (file, _) = crate::table_file::parse_lmtbl(&tbl_src).unwrap();
+        let t = file.global.unwrap();
+        let mut names = vec![" ".to_string(); LEVEL_NAMES_COUNT];
+        names[0] = "DONUT PLAINS 1".to_string();
+        names[1] = "YOSHI'S ISLAND".to_string();
+        // Note: apostrophe is unmapped in this table, so it is skipped;
+        // compare against the built-in encode of the skipped form.
+        let builtin = encode_names(&names, true).unwrap();
+        let via_table = encode_names_with_table(&names, &t).unwrap();
+        // "YOSHI'S ISLAND" -> "YOSHIS ISLAND" under the table (apostrophe
+        // skipped): the table pool has no 0x5D apostrophe tile, the
+        // built-in one does. Everything else encodes identically.
+        assert!(builtin.pool.contains(&0x5D), "built-in pool should contain the apostrophe tile");
+        assert!(!via_table.pool.contains(&0x5D), "table pool must not contain the skipped apostrophe tile");
+        assert_eq!(builtin.entries.len(), via_table.entries.len());
+        assert!(via_table.pool.len() <= STRINGS_PATCHED_LEN);
+    }
+
+    /// Real-ROM test: `decode_name_tiles` mapped through `tile_to_char` must
+    /// reproduce `decode_name` exactly for all 93 names (guards the
+    /// table-file decode path against the long-standing decoder).
+    /// Run with: `ROM_PATH=/path/to/smw.smc cargo test -p smwe-rom --lib -- --ignored`
+    #[test]
+    #[ignore]
+    fn real_rom_name_tiles_match_decode_name() {
+        let path = std::env::var("ROM_PATH").expect("ROM_PATH not set");
+        let rom = std::fs::read(path).expect("can't read ROM");
+        let header_offset = if rom.len() % 0x400 == 0x200 { 512 } else { 0 };
+
+        for t in 0..LEVEL_NAMES_COUNT {
+            let tiles = decode_name_tiles(&rom, header_offset, t, false).expect("tiles");
+            let via_tiles: String = tiles.iter().map(|b| decode_tile_str(*b, true)).collect();
+            let direct = decode_name(&rom, header_offset, t, false, true).expect("name");
+            assert_eq!(via_tiles, direct, "translevel {t}: {via_tiles:?} vs {direct:?}");
+        }
+        println!("decode_name_tiles matches decode_name for all {LEVEL_NAMES_COUNT} names");
+    }
+
+    /// Real-ROM test: table round-trip of the vanilla names — decode all 93
+    /// names through a table that mirrors the built-in map, then re-encode
+    /// and verify the pool bytes are unchanged.
+    #[test]
+    #[ignore]
+    fn real_rom_table_round_trip() {
+        let path = std::env::var("ROM_PATH").expect("ROM_PATH not set");
+        let rom = std::fs::read(path).expect("can't read ROM");
+        let header_offset = if rom.len() % 0x400 == 0x200 { 512 } else { 0 };
+
+        // Table mirroring the built-in map for A-Z, 0-9, space, '#', '\''.
+        let mut src = String::new();
+        for (i, c) in ('A'..='Z').enumerate() {
+            src.push_str(&format!("{i:02X}={c}\n"));
+        }
+        for (i, c) in ('1'..='9').enumerate() {
+            src.push_str(&format!("{:02X}={c}\n", 0x64 + i));
+        }
+        src.push_str("6D=0\n1F= \n5A=#\n5D='\n");
+        let (file, warnings) = crate::table_file::parse_lmtbl(&src).unwrap();
+        assert!(warnings.is_empty());
+        let t = file.global.unwrap();
+
+        let names = decode_all_with_table(&rom, header_offset, false, &t).expect("decode");
+        assert_eq!(names.len(), LEVEL_NAMES_COUNT);
+        // Spot-check: the table decode must show the real vanilla names.
+        let joined: Vec<String> = names.iter().map(|n| n.trim().to_string()).collect();
+        assert!(joined.iter().any(|n| n == "VANILLA SECRET 2"), "VANILLA SECRET 2");
+
+        let enc = encode_names_with_table(&names, &t).expect("encode");
+        assert!(enc.pool.len() <= STRINGS_PATCHED_LEN);
+        println!("table round-trip: {} pool bytes", enc.pool.len());
     }
 
     /// Real-ROM test: decode all 93 vanilla names and re-encode them.

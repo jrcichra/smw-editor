@@ -505,61 +505,69 @@ pub struct UiWorldEditor {
     /// read a custom table instead of the WRAM-computed one — see
     /// `smwe_rom::overworld::LEVEL_NUMBER_PATCH_OPERAND_SNES` for why this
     /// doesn't need new ASM code, just different data.
-    custom_level_numbers:  HashMap<usize, u8>,
-    level_numbers_dirty:   bool,
+    custom_level_numbers:   HashMap<usize, u8>,
+    level_numbers_dirty:    bool,
     /// Overworld sprite editing tool (LM overworld sprite mode parity):
     /// when true, the canvas shows sprite markers and click/drag edits
     /// sprites instead of tiles.
-    ow_sprite_tool:        bool,
+    ow_sprite_tool:         bool,
     /// Currently selected sprite in the sprite tool.
-    ow_sprite_selection:   Option<OwSpriteRef>,
+    ow_sprite_selection:    Option<OwSpriteRef>,
     /// Active sprite drag: the grabbed sprite plus the grab offset in map
     /// pixels (pointer pos minus sprite pos at grab time).
-    ow_sprite_drag:        Option<(OwSpriteRef, Vec2)>,
+    ow_sprite_drag:         Option<(OwSpriteRef, Vec2)>,
     /// Hex text buffer for the selected custom sprite's extra bytes, synced
     /// on selection change.
-    ow_extra_hex:          String,
+    ow_extra_hex:           String,
     /// Last validation error from a sprite field edit, if any.
-    ow_sprite_error:       Option<String>,
+    ow_sprite_error:        Option<String>,
     /// "Custom Overworld Sprite Record Sizes" dialog (LM v3.51 parity):
     /// open flag plus the draft per-sprite record sizes (127 entries for
     /// sprites 01..7F), synced from the ROM's table on open (defaults when
     /// the ROM has none).
-    ow_size_table_open:    bool,
-    ow_size_table_draft:   [u8; ow_sprites::SIZE_TABLE_LEN],
+    ow_size_table_open:     bool,
+    ow_size_table_draft:    [u8; ow_sprites::SIZE_TABLE_LEN],
     /// Sprite state as parsed at ROM load; compared on save so untouched
     /// sprite data is never rewritten (avoids orphaning RATS blocks). The
     /// third element is the size table as parsed at load.
     sprites_at_load: (ow_sprites::VanillaOwSprites, ow_sprites::CustomSpriteTable, Option<ow_sprites::SpriteSizeTable>),
     /// Whether the Secret Exits 2/3 window is open.
-    show_secret_exits:     bool,
+    show_secret_exits:      bool,
     /// Level number selected in the Secret Exits 2/3 window.
-    secret_exit_level:     u16,
+    secret_exit_level:      u16,
     /// Secret-exit settings as parsed at ROM load; compared on save so an
     /// untouched ROM keeps no `SMWSEXIT` block.
-    secret_exits_at_load:  ow_secret_exits::SecretExitSettings,
+    secret_exits_at_load:   ow_secret_exits::SecretExitSettings,
     /// Vanilla level names decoded from the ROM (93 entries, index =
     /// translevel). Used as the base for custom name edits.
-    vanilla_level_names:   Vec<String>,
+    vanilla_level_names:    Vec<String>,
     /// Custom level names by translevel. Absent entries use the vanilla name.
-    custom_level_names:    HashMap<u8, String>,
+    custom_level_names:     HashMap<u8, String>,
     /// True if any level name has been customized (requires the name-table
     /// relocation patch on save).
-    level_names_dirty:     bool,
+    level_names_dirty:      bool,
     /// Level-name text field buffer, synced to `level_name_for`.
-    level_name_edit:       String,
+    level_name_edit:        String,
     /// Translevel the name field (and error) currently belong to.
-    level_name_for:        Option<u8>,
+    level_name_for:         Option<u8>,
     /// Validation error from the last rejected name edit, if any.
-    level_name_error:      Option<String>,
+    level_name_error:       Option<String>,
+    /// Lunar Magic v3.40 custom table file (.lmtbl) for level names;
+    /// `None` = the built-in overworld-name tile map.
+    level_name_table:       Option<smwe_rom::table_file::Table>,
+    /// File name of the loaded level-name table, for display.
+    level_name_table_name:  Option<String>,
+    /// Last level-name table load status / parse warnings, shown under the
+    /// Load button.
+    level_name_table_error: Option<String>,
     /// Event-ownership table (`$05D608` events-by-translevel): raw byte per
     /// translevel (`0x00`–`0x5C`), `$FF` = no event. Edited via the
     /// event-ownership panel; written back in place on save.
-    event_ownership:       Vec<u8>,
+    event_ownership:        Vec<u8>,
     /// True if any event-ownership assignment has been changed.
-    event_ownership_dirty: bool,
+    event_ownership_dirty:  bool,
     /// Last time the overworld animated tiles were ticked.
-    last_anim_tick:        std::time::Instant,
+    last_anim_tick:         std::time::Instant,
 
     // ExAnimation (custom overworld tile/palette animation, LM v2.40 parity).
     exanimation:             smwe_rom::exanimation::ExAnimationData,
@@ -768,6 +776,9 @@ impl UiWorldEditor {
             level_name_edit: String::new(),
             level_name_for: None,
             level_name_error: None,
+            level_name_table: None,
+            level_name_table_name: None,
+            level_name_table_error: None,
             event_ownership,
             event_ownership_dirty: false,
             last_anim_tick: std::time::Instant::now(),
@@ -1083,8 +1094,13 @@ impl DockableEditorTool for UiWorldEditor {
                 }
             }
             let use_multichar = crate::editor_options::EditorOptions::load().use_multichar_tiles;
-            let encoded = ln::encode_names(&names, use_multichar)
-                .map_err(|e| anyhow::anyhow!("Cannot encode level names: {e}"))?;
+            let encoded = match &self.level_name_table {
+                // Lunar Magic v3.40 custom table file: the display strings
+                // were validated through the table, so encode them with it.
+                Some(t) => ln::encode_names_with_table(&names, t),
+                None => ln::encode_names(&names, use_multichar),
+            }
+            .map_err(|e| anyhow::anyhow!("Cannot encode level names: {e}"))?;
             let header_offset = usize::from(has_smc_header) * 0x200;
             ln::apply_to_rom(rom_bytes, header_offset, &encoded)
                 .map_err(|e| anyhow::anyhow!("Cannot apply level-name patch: {e}"))?;
@@ -1710,6 +1726,10 @@ impl UiWorldEditor {
                             // ── Level name editor ───────────────────────────
                             // Translevel indexes into the 93-entry name table.
                             let translevel_u8 = (translevel & 0xFF) as u8;
+                            // Active Lunar Magic v3.40 custom table file
+                            // (cloned so the handlers below can mutate
+                            // `self` without borrow issues).
+                            let table = self.level_name_table.clone();
                             let vanilla_name =
                                 self.vanilla_level_names.get(translevel as usize).cloned().unwrap_or_default();
                             // Keep the text buffer synced: selecting a
@@ -1732,16 +1752,33 @@ impl UiWorldEditor {
                                 );
                                 if resp.changed() {
                                     use smwe_rom::overworld::level_names as ln;
-                                    let use_multichar =
-                                        crate::editor_options::EditorOptions::load().use_multichar_tiles;
                                     let trimmed = self.level_name_edit.trim().to_string();
-                                    if trimmed.is_empty() || trimmed.to_uppercase() == vanilla_name.to_uppercase() {
+                                    // Back to the vanilla name clears the
+                                    // override. With a table the comparison
+                                    // is exact (the table defines the
+                                    // charset); without one it stays
+                                    // case-insensitive like before.
+                                    let matches_vanilla = match &table {
+                                        Some(_) => trimmed == vanilla_name,
+                                        None => {
+                                            trimmed.is_empty()
+                                                || trimmed.to_uppercase() == vanilla_name.to_uppercase()
+                                        }
+                                    };
+                                    if matches_vanilla {
                                         self.custom_level_names.remove(&translevel_u8);
                                         self.level_name_error = None;
                                         self.level_names_dirty = true;
                                         self.has_edits = true;
                                     } else {
-                                        match ln::check_name_with(&trimmed, use_multichar) {
+                                        let use_multichar =
+                                            crate::editor_options::EditorOptions::load().use_multichar_tiles;
+                                        let result = match &table {
+                                            Some(t) => ln::check_name_with_table(&trimmed, t)
+                                                .map(|(normalized, _)| normalized),
+                                            None => ln::check_name_with(&trimmed, use_multichar),
+                                        };
+                                        match result {
                                             Ok(normalized) => {
                                                 self.custom_level_names.insert(translevel_u8, normalized);
                                                 self.level_name_error = None;
@@ -1796,11 +1833,15 @@ impl UiWorldEditor {
                             // editor: the game draws at most MAX_NAME_TILES
                             // tiles per name (CODE_049D07's $26-byte stripe).
                             // With MultiChar tiles, characters can outnumber
-                            // tiles ("LL" is one tile).
+                            // tiles ("LL" is one tile). With a custom table
+                            // file the budget counts encoded tiles.
                             {
                                 use smwe_rom::overworld::level_names as ln;
                                 let use_multichar = crate::editor_options::EditorOptions::load().use_multichar_tiles;
-                                let used = ln::count_name_tiles(self.level_name_edit.trim(), use_multichar);
+                                let used = match &table {
+                                    Some(t) => t.encode(self.level_name_edit.trim()).len(),
+                                    None => ln::count_name_tiles(self.level_name_edit.trim(), use_multichar),
+                                };
                                 let budget_color = if self.level_name_error.is_some() || used > ln::MAX_NAME_TILES {
                                     egui::Color32::from_rgb(220, 60, 60)
                                 } else {
@@ -1814,12 +1855,98 @@ impl UiWorldEditor {
                                     ui.colored_label(egui::Color32::from_rgb(220, 60, 60), format!("  {err}"));
                                 }
                             }
+                            // Lunar Magic v3.40 "Custom Table File" (.lmtbl)
+                            // support: a table replaces the built-in
+                            // overworld-name tile map for this panel, so
+                            // names can be displayed/edited in a different
+                            // language.
+                            ui.horizontal(|ui| {
+                                ui.label("  ");
+                                match (&self.level_name_table_name, &self.level_name_table) {
+                                    (Some(name), Some(t)) => {
+                                        ui.label(format!("Table file: {name} ({} entries)", t.len()));
+                                    }
+                                    _ => {
+                                        ui.label("Table file: built-in name tiles");
+                                    }
+                                }
+                                if ui.button("Load Table File...").clicked() {
+                                    if let Some(path) = rfd::FileDialog::new()
+                                        .add_filter("Lunar Magic table file", &["lmtbl"])
+                                        .pick_file()
+                                    {
+                                        match smwe_rom::table_file::load_table_file_for_dialog(
+                                            &path,
+                                            smwe_rom::table_file::TableDialog::LevelNames,
+                                        ) {
+                                            Ok((new_table, name, warnings)) => {
+                                                let had_custom = !self.custom_level_names.is_empty();
+                                                // Re-decode the vanilla
+                                                // names through the table.
+                                                // Custom names were validated
+                                                // under the previous mapping
+                                                // and are dropped rather than
+                                                // re-encoded through a table
+                                                // that might skip their
+                                                // characters.
+                                                self.vanilla_level_names =
+                                                    smwe_rom::overworld::level_names::decode_all_with_table(
+                                                        self.rom.rom_bytes(),
+                                                        0,
+                                                        false,
+                                                        &new_table,
+                                                    )
+                                                    .unwrap_or_default();
+                                                self.custom_level_names.clear();
+                                                self.level_name_table = Some(new_table);
+                                                self.level_name_table_name = Some(name);
+                                                self.level_name_for = None;
+                                                self.level_name_error = None;
+                                                let mut notes = warnings;
+                                                if had_custom {
+                                                    notes.insert(0, "Table loaded — custom names validated under the previous mapping were cleared.".to_string());
+                                                }
+                                                self.level_name_table_error = if notes.is_empty() {
+                                                    None
+                                                } else {
+                                                    Some(notes.join("\n"))
+                                                };
+                                            }
+                                            Err(e) => {
+                                                self.level_name_table_error = Some(e.to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                                if self.level_name_table.is_some() && ui.button("Clear Table").clicked() {
+                                    self.vanilla_level_names = smwe_rom::overworld::level_names::decode_all(
+                                        self.rom.rom_bytes(),
+                                        0,
+                                        false,
+                                        crate::editor_options::EditorOptions::load().use_multichar_tiles,
+                                    )
+                                    .unwrap_or_default();
+                                    self.custom_level_names.clear();
+                                    self.level_name_table = None;
+                                    self.level_name_table_name = None;
+                                    self.level_name_table_error = None;
+                                    self.level_name_error = None;
+                                    self.level_name_for = None;
+                                }
+                            });
+                            if let Some(err) = self.level_name_table_error.as_deref() {
+                                ui.colored_label(egui::Color32::from_rgb(220, 160, 60), format!("  {err}"));
+                            }
                             if self.custom_level_names.contains_key(&translevel_u8) {
                                 ui.colored_label(
                                     egui::Color32::from_rgb(220, 160, 60),
                                     "  Custom name — needs the name-table relocation patch on save",
                                 );
-                                ui.small("  A–Z 0–9 space # ' supported");
+                                if table.is_some() {
+                                    ui.small("  Table active (LM v3.40): unmapped bytes show as <XX>; unmapped typed characters are skipped");
+                                } else {
+                                    ui.small("  A–Z 0–9 space # ' supported");
+                                }
                             }
                         }
                     }

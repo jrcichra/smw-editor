@@ -443,6 +443,14 @@ pub struct UiLevelEditor {
     message_text_edit:       String,
     /// Which message `message_text_edit` is synced to.
     message_text_for:        Option<usize>,
+    /// Lunar Magic v3.40 custom table file (.lmtbl) for the message box
+    /// editor; `None` = the built-in message font map.
+    message_table:           Option<smwe_rom::table_file::Table>,
+    /// File name of the loaded message table, for display.
+    message_table_name:      Option<String>,
+    /// Last message-table load failure / parse warnings, shown under the
+    /// Load button.
+    message_table_error:     Option<String>,
 
     // Boss sequence text editor (global, fixed-size stripe blobs in bank $0C).
     boss_text:                smwe_rom::boss_text::BossText,
@@ -454,6 +462,14 @@ pub struct UiLevelEditor {
     /// (boss, msg, tile-hash) the text buffer is synced to.
     boss_text_edit_for:       Option<(usize, usize, u64)>,
     boss_text_error:          Option<String>,
+    /// Lunar Magic v3.40 custom table file (.lmtbl) for the boss sequence
+    /// text editor; `None` = the built-in boss font map.
+    boss_table:               Option<smwe_rom::table_file::Table>,
+    /// File name of the loaded boss table, for display.
+    boss_table_name:          Option<String>,
+    /// Last boss-table load failure / parse warnings, shown under the Load
+    /// button.
+    boss_table_error:         Option<String>,
     /// Cached raster texture for the selected message's tile strip.
     boss_text_raster_texture: Option<egui::TextureHandle>,
     /// (boss, msg, tile-hash) the raster texture was built for.
@@ -822,6 +838,9 @@ impl UiLevelEditor {
             message_text_for: None,
             message_text_bytes_hash: 0,
             message_text_error: None,
+            message_table: None,
+            message_table_name: None,
+            message_table_error: None,
             boss_text,
             boss_text_dirty: false,
             show_boss_text_editor: false,
@@ -830,6 +849,9 @@ impl UiLevelEditor {
             boss_text_edit: String::new(),
             boss_text_edit_for: None,
             boss_text_error: None,
+            boss_table: None,
+            boss_table_name: None,
+            boss_table_error: None,
             boss_text_raster_texture: None,
             boss_text_raster_for: None,
             show_xref_search: false,

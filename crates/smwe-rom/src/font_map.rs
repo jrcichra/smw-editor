@@ -248,6 +248,80 @@ pub fn encode_message_checked(map: &FontMap, original: &[u8], budget: usize, tex
     Ok(bytes)
 }
 
+/// Decode message bytes to editable text through a Lunar Magic v3.40 custom
+/// table file ([`crate::table_file::Table`]) instead of the built-in font
+/// map.
+///
+/// The 8×18 row structure is unchanged (it comes from the real `CODE_05B208`
+/// via [`message_cells`]); only the tile→character mapping is replaced.
+/// Each row's cell bytes (bit 7 already masked by `message_cells`) are
+/// decoded with the table's greedy longest-match; unmapped bytes show as
+/// the table's `<XX>` hex escapes.
+pub fn decode_message_with_table(table: &crate::table_file::Table, bytes: &[u8]) -> String {
+    message_cells(bytes).iter().map(|row| table.decode(row)).collect::<Vec<_>>().join("\n")
+}
+
+/// Encode edited message text back to raw message bytes through a Lunar
+/// Magic v3.40 custom table file ([`crate::table_file::Table`]).
+///
+/// Mirrors [`encode_editable_text`] but the tile↔character mapping comes
+/// from the table: up to 8 lines, each line's table-encoded bytes must fit
+/// the game's 18 cells per row. Like the built-in encoder, trailing spaces
+/// of each row are dropped and the last content byte gets bit 7 (row-fill);
+/// a fully blank row encodes to the table's space byte(s) with bit 7, or a
+/// single `0x9F` when the table doesn't map space (the vanilla pattern).
+///
+/// Differences from the built-in encoder, all following from the table
+/// replacing the mapping entirely (per the "Custom Table File" help topic):
+/// - Unmapped characters are skipped, never an error.
+/// - There is no graphic-placeholder concept: `<XX>` escapes are
+///   display-only (typing them encodes the four characters through the
+///   table like any other text).
+/// - `original` is not needed (no placeholder preservation).
+///
+/// Like [`encode_message_checked`], refuses text whose encoded bytes exceed
+/// `budget` (the message's vanilla byte span) instead of truncating.
+pub fn encode_message_with_table(
+    table: &crate::table_file::Table, budget: usize, text: &str,
+) -> anyhow::Result<Vec<u8>> {
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.len() > 8 {
+        anyhow::bail!("message text has {} lines; the game draws exactly 8 rows", lines.len());
+    }
+    let mut out = Vec::new();
+    for r in 0..8 {
+        let line = lines.get(r).copied().unwrap_or("");
+        // Drop trailing spaces: the game fills the rest of the row from
+        // the bit-7 flag, exactly like the built-in encoder.
+        let content = line.trim_end_matches(' ');
+        let bytes = table.encode(content);
+        if bytes.len() > 18 {
+            anyhow::bail!("line {} encodes to {} bytes; the game draws 18 cells per row", r + 1, bytes.len());
+        }
+        if bytes.is_empty() {
+            // Fully blank row: the table's space encoding with the
+            // row-fill flag; vanilla 0x9F when space is unmapped.
+            let mut blank = table.encode(" ");
+            if blank.is_empty() {
+                blank.push(0x1F);
+            }
+            let last = blank.len() - 1;
+            blank[last] |= 0x80;
+            out.extend_from_slice(&blank);
+        } else {
+            out.extend_from_slice(&bytes);
+            // Bit 7 on the last content byte: fill the rest of the row
+            // with $1F blanks (the real CODE_05B208 semantics).
+            let last_byte = out.last_mut().expect("non-empty row pushed no bytes");
+            *last_byte |= 0x80;
+        }
+    }
+    if out.len() > budget {
+        anyhow::bail!("encoded text is {} bytes, over this message's {}-byte budget", out.len(), budget);
+    }
+    Ok(out)
+}
+
 /// Derive a [`FontMap`] from `(byte sequence, expected 8×18 text rows)` pairs.
 ///
 /// Each pair's text is the 8 rows of 18 characters the message decodes to.
@@ -541,6 +615,71 @@ mod tests {
         assert!(text.starts_with("A�"), "graphic byte must decode as placeholder: {text:?}");
         let back = encode_editable_text(&map, &bytes, &text).unwrap();
         assert_eq!(back, bytes, "placeholder must reuse the original graphic byte");
+    }
+
+    /// Table used by the table-file tests: 00=A, 01=B, 1F=space.
+    fn test_table() -> crate::table_file::Table {
+        let (file, warnings) = crate::table_file::parse_lmtbl("@MessageBox\n00=A\n01=B\n1F= \n").unwrap();
+        assert!(warnings.is_empty());
+        file.table_for(crate::table_file::TableDialog::MessageBox).unwrap().clone()
+    }
+
+    #[test]
+    fn table_decode_keeps_row_structure_with_hex_escapes() {
+        let t = test_table();
+        // Row 0: A, unmapped 0x60, B+fill; rows 1-7: blank.
+        let bytes: Vec<u8> = vec![0x00, 0x60, 0x81, 0x9F, 0x9F, 0x9F, 0x9F, 0x9F, 0x9F];
+        let text = decode_message_with_table(&t, &bytes);
+        let rows: Vec<&str> = text.lines().collect();
+        assert_eq!(rows.len(), 8);
+        // Row 0 cells: 00 60 01 1F*15 -> "A<60>B" + 15 spaces.
+        assert_eq!(rows[0], "A<60>B               ");
+        for r in &rows[1..] {
+            assert_eq!(*r, "                  ");
+        }
+    }
+
+    #[test]
+    fn table_encode_sets_row_fill_and_drops_trailing_spaces() {
+        let t = test_table();
+        // "AB" on row 0, rest blank: trailing spaces are dropped like the
+        // built-in encoder, so this is 2 + 7 bytes, not 8*18.
+        let text = "AB\n".to_string() + &"\n".repeat(7);
+        let bytes = encode_message_with_table(&t, 256, &text).unwrap();
+        assert_eq!(bytes, vec![0x00, 0x81, 0x9F, 0x9F, 0x9F, 0x9F, 0x9F, 0x9F, 0x9F]);
+    }
+
+    #[test]
+    fn table_decode_encode_round_trips() {
+        let t = test_table();
+        let bytes: Vec<u8> = vec![0x00, 0x81, 0x9F, 0x9F, 0x9F, 0x9F, 0x9F, 0x9F, 0x9F];
+        let text = decode_message_with_table(&t, &bytes);
+        let back = encode_message_with_table(&t, 256, &text).unwrap();
+        assert_eq!(back, bytes);
+    }
+
+    #[test]
+    fn table_encode_skips_unmapped_chars_instead_of_erroring() {
+        let t = test_table();
+        // 'Z' is unmapped: skipped (LM behavior), unlike the built-in
+        // encoder which errors on unknown characters.
+        let bytes = encode_message_with_table(&t, 256, "AZB").unwrap();
+        assert_eq!(&bytes[0..2], &[0x00, 0x81]);
+    }
+
+    #[test]
+    fn table_encode_rejects_overlong_rows_and_over_budget() {
+        let t = test_table();
+        // 19 bytes on one row: refused (18 cells per row).
+        let err = encode_message_with_table(&t, 256, &"A".repeat(19)).unwrap_err();
+        assert!(err.to_string().contains("18 cells"), "unexpected error: {err}");
+        // 9 lines: refused (8 rows).
+        let err = encode_message_with_table(&t, 256, &"A\n".repeat(9)).unwrap_err();
+        assert!(err.to_string().contains("8 rows"), "unexpected error: {err}");
+        // Over the message's byte budget: refused, not truncated.
+        // ("AB" encodes to 9 bytes: 2 + 7 blank rows.)
+        let err = encode_message_with_table(&t, 8, "AB").unwrap_err();
+        assert!(err.to_string().contains("over this message's"), "unexpected error: {err}");
     }
 
     #[test]

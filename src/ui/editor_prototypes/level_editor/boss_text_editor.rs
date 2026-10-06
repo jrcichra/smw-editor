@@ -50,6 +50,51 @@ impl UiLevelEditor {
                     }
                     ui.small("(LM v3.20: clear-text / clear-all buttons)");
                 });
+                // Lunar Magic v3.40 "Custom Table File" (.lmtbl) support:
+                // a table replaces the built-in tile↔character mapping for
+                // this dialog.
+                ui.horizontal(|ui| {
+                    match (&self.boss_table_name, &self.boss_table) {
+                        (Some(name), Some(t)) => {
+                            ui.label(format!("Table file: {name} ({} entries)", t.len()));
+                        }
+                        _ => {
+                            ui.label("Table file: built-in boss font");
+                        }
+                    }
+                    if ui.button("Load Table File...").clicked() {
+                        if let Some(path) =
+                            rfd::FileDialog::new().add_filter("Lunar Magic table file", &["lmtbl"]).pick_file()
+                        {
+                            match smwe_rom::table_file::load_table_file_for_dialog(
+                                &path,
+                                smwe_rom::table_file::TableDialog::BossSequence,
+                            ) {
+                                Ok((table, name, warnings)) => {
+                                    self.boss_table = Some(table);
+                                    self.boss_table_name = Some(name);
+                                    // Force the text buffer to re-decode
+                                    // through the new mapping.
+                                    self.boss_text_edit_for = None;
+                                    self.boss_table_error =
+                                        if warnings.is_empty() { None } else { Some(warnings.join("\n")) };
+                                }
+                                Err(e) => {
+                                    self.boss_table_error = Some(e.to_string());
+                                }
+                            }
+                        }
+                    }
+                    if self.boss_table.is_some() && ui.button("Clear Table").clicked() {
+                        self.boss_table = None;
+                        self.boss_table_name = None;
+                        self.boss_table_error = None;
+                        self.boss_text_edit_for = None;
+                    }
+                });
+                if let Some(err) = self.boss_table_error.as_deref() {
+                    ui.colored_label(egui::Color32::from_rgb(220, 160, 60), err);
+                }
                 ui.separator();
 
                 ui.horizontal(|ui| {
@@ -68,6 +113,7 @@ impl UiLevelEditor {
                     ui.separator();
 
                     // Message list for the selected boss.
+                    let table = self.boss_table.clone();
                     ScrollArea::vertical().max_height(380.0).id_salt("boss_msg_list").show(ui, |ui| {
                         let b = self.boss_text_boss;
                         let count = self.boss_text.messages.get(b).map(Vec::len).unwrap_or(0);
@@ -75,7 +121,7 @@ impl UiLevelEditor {
                             let preview: String = self
                                 .boss_text
                                 .messages[b][m]
-                                .text()
+                                .text_with_table(table.as_ref())
                                 .chars()
                                 .take(24)
                                 .collect();
@@ -105,7 +151,7 @@ impl UiLevelEditor {
                         // Keep the text buffer synced with the message bytes.
                         let key = (b, m, byte_hash_msg(msg));
                         if self.boss_text_edit_for != Some(key) {
-                            self.boss_text_edit = msg.text();
+                            self.boss_text_edit = msg.text_with_table(table.as_ref());
                             // Trim trailing padding spaces for editing comfort;
                             // set_text re-pads on encode.
                             self.boss_text_edit = self.boss_text_edit.trim_end().to_string();
@@ -124,7 +170,14 @@ impl UiLevelEditor {
                                 self.boss_text.messages[b][m].len()
                             ),
                         );
-                        ui.small("Characters: A-Z a-z 0-9 # ! . \" , ? ' and space.");
+                        if table.is_some() {
+                            ui.small(
+                                "Table active (LM v3.40): the tile budget counts encoded bytes; \
+                                 unmapped typed characters are skipped.",
+                            );
+                        } else {
+                            ui.small("Characters: A-Z a-z 0-9 # ! . \" , ? ' and space.");
+                        }
 
                         let text_resp = ui.add(
                             egui::TextEdit::singleline(&mut self.boss_text_edit)
@@ -132,7 +185,9 @@ impl UiLevelEditor {
                                 .desired_width(f32::INFINITY),
                         );
                         if text_resp.changed() {
-                            match self.boss_text.messages[b][m].set_text(&self.boss_text_edit) {
+                            match self.boss_text.messages[b][m]
+                                .set_text_with_table(&self.boss_text_edit, table.as_ref())
+                            {
                                 Ok(()) => {
                                     self.boss_text_error = None;
                                     self.boss_text_dirty = true;
@@ -190,10 +245,11 @@ impl UiLevelEditor {
                             }
                         }
 
-                        // Readable text (decoded with the boss font map).
+                        // Readable text (decoded with the boss font map, or the
+                        // active table file).
                         ui.separator();
                         ui.label("Decoded text:");
-                        let decoded = self.boss_text.messages[b][m].text();
+                        let decoded = self.boss_text.messages[b][m].text_with_table(table.as_ref());
                         ui.label(egui::RichText::new(decoded).text_style(egui::TextStyle::Monospace));
                     });
                 });

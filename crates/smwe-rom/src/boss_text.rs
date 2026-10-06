@@ -103,8 +103,22 @@ impl BossMessage {
     /// Decode to readable text via the boss font map. Unmapped tiles decode
     /// as `'�'`.
     pub fn text(&self) -> String {
-        let map = boss_font_map();
-        self.char_bytes().iter().map(|&b| map.char_for(b).unwrap_or('�')).collect()
+        self.text_with_table(None)
+    }
+
+    /// Decode to readable text, optionally through a Lunar Magic v3.40
+    /// custom table file ([`crate::table_file::Table`]) instead of the
+    /// built-in boss font map. With a table, unmapped tiles decode as the
+    /// table's `<XX>` hex escapes.
+    pub fn text_with_table(&self, table: Option<&crate::table_file::Table>) -> String {
+        let bytes = self.char_bytes();
+        match table {
+            Some(t) => t.decode(&bytes),
+            None => {
+                let map = boss_font_map();
+                bytes.iter().map(|&b| map.char_for(b).unwrap_or('�')).collect()
+            }
+        }
     }
 
     /// Number of character positions (tiles) in this message.
@@ -122,20 +136,56 @@ impl BossMessage {
     /// Shorter text is space-padded to the slot length; longer text is an
     /// error. Unmapped characters are an error.
     pub fn set_text(&mut self, text: &str) -> anyhow::Result<()> {
-        let map = boss_font_map();
-        let chars: Vec<char> = text.chars().collect();
+        self.set_text_with_table(text, None)
+    }
+
+    /// Replace the message text, optionally through a Lunar Magic v3.40
+    /// custom table file ([`crate::table_file::Table`]) instead of the
+    /// built-in boss font map.
+    ///
+    /// With `None`, behaves exactly like [`set_text`]. With a table, the
+    /// text is encoded with the table's greedy longest-match; the budget is
+    /// counted in *bytes* (a MultiTile entry emits several tiles per match),
+    /// so over-long input is refused exactly when the encoded bytes exceed
+    /// the slot. Shorter text is padded to the slot length with the table's
+    /// encoding of `" "` (falling back to the vanilla space tile `0x1F`
+    /// when the table doesn't map space). Unmapped characters are skipped,
+    /// per the "Custom Table File" help topic — never an error.
+    pub fn set_text_with_table(&mut self, text: &str, table: Option<&crate::table_file::Table>) -> anyhow::Result<()> {
         let total = self.len();
-        if chars.len() > total {
-            anyhow::bail!("Text is {} chars but the message slot holds only {total} — shorten it", chars.len());
+        let mut bytes: Vec<u8> = match table {
+            Some(t) => t.encode(text),
+            None => {
+                let map = boss_font_map();
+                let mut b = Vec::with_capacity(text.chars().count());
+                for c in text.chars() {
+                    b.push(
+                        map.byte_for(c)
+                            .ok_or_else(|| anyhow::anyhow!("Character {c:?} has no tile in the boss font"))?,
+                    );
+                }
+                b
+            }
+        };
+        if bytes.len() > total {
+            anyhow::bail!("Text encodes to {} tiles but the message slot holds only {total} — shorten it", bytes.len());
         }
-        // Encode chars to tile bytes, padding with spaces.
-        let mut bytes: Vec<u8> = Vec::with_capacity(total);
-        for &c in &chars {
-            let b = map.byte_for(c).ok_or_else(|| anyhow::anyhow!("Character {c:?} has no tile in the boss font"))?;
-            bytes.push(b);
-        }
+        // Pad to the slot length.
+        let pad: Vec<u8> = match table {
+            Some(t) => {
+                let p = t.encode(" ");
+                if p.is_empty() {
+                    vec![0x1F]
+                } else {
+                    p
+                }
+            }
+            None => vec![0x1F],
+        };
+        let mut pi = 0;
         while bytes.len() < total {
-            bytes.push(0x1F); // space
+            bytes.push(pad[pi % pad.len()]);
+            pi += 1;
         }
         // Write back into the tile words, preserving attribute bytes ($39).
         let mut idx = 0;
@@ -386,6 +436,72 @@ mod tests {
             raw_len:  4 + 4 + 1,
         };
         assert!(msg.set_text("abc").is_err());
+    }
+
+    /// Table used by the table-file tests: 07=H, 48=i, 1F=space, plus a
+    /// MultiTile entry 4849=HI.
+    fn test_table() -> crate::table_file::Table {
+        let (file, warnings) = crate::table_file::parse_lmtbl("@BossSequence\n07=H\n48=i\n1F= \n4849=HI\n").unwrap();
+        assert!(warnings.is_empty());
+        file.table_for(crate::table_file::TableDialog::BossSequence).unwrap().clone()
+    }
+
+    fn test_msg() -> BossMessage {
+        BossMessage {
+            snes:     AddrSnes(0x0CBE85),
+            commands: vec![BossStripeCommand { vram: 0x5264, flags_len: 0x002F, tiles: vec![0x391F; 24] }],
+            raw_len:  4 + 48 + 1,
+        }
+    }
+
+    #[test]
+    fn table_text_decodes_with_hex_escapes() {
+        let t = test_table();
+        let mut msg = test_msg();
+        // Tiles: H, unmapped 0x60, then spaces.
+        msg.commands[0].tiles[0] = 0x3907;
+        msg.commands[0].tiles[1] = 0x3960;
+        let text = msg.text_with_table(Some(&t));
+        assert!(text.starts_with("H<60>"), "unexpected decode: {text:?}");
+        // Without a table, the built-in map is used.
+        assert!(msg.text().starts_with("H�"), "unexpected built-in decode: {:?}", msg.text());
+    }
+
+    #[test]
+    fn table_set_text_counts_bytes_and_pads_with_table_space() {
+        let t = test_table();
+        let mut msg = test_msg();
+        // "HI" via the MultiTile entry -> 2 tiles, not 1 char.
+        msg.set_text_with_table("HI", Some(&t)).unwrap();
+        let bytes = msg.char_bytes();
+        assert_eq!(&bytes[0..2], &[0x48, 0x49]);
+        // Padded with the table's space (0x1F) to the 24-tile slot.
+        assert!(bytes[2..].iter().all(|&b| b == 0x1F));
+        assert_eq!(msg.to_bytes().len(), msg.raw_len);
+    }
+
+    #[test]
+    fn table_set_text_skips_unmapped_chars_and_rejects_byte_overflow() {
+        let t = test_table();
+        let mut msg = test_msg();
+        // 'Z' is unmapped: skipped, not an error.
+        msg.set_text_with_table("HZi", Some(&t)).unwrap();
+        assert_eq!(&msg.char_bytes()[0..2], &[0x07, 0x48]);
+        // 13 "HI" pairs = 26 tiles > 24-tile slot: refused (byte budget).
+        let mut msg2 = test_msg();
+        assert!(msg2.set_text_with_table(&"HI".repeat(13), Some(&t)).is_err());
+        // 12 pairs = 24 tiles: exactly fits.
+        let mut msg3 = test_msg();
+        assert!(msg3.set_text_with_table(&"HI".repeat(12), Some(&t)).is_ok());
+    }
+
+    #[test]
+    fn table_set_text_without_table_matches_set_text() {
+        let mut a = test_msg();
+        let mut b = test_msg();
+        a.set_text("Hi castle #1").unwrap();
+        b.set_text_with_table("Hi castle #1", None).unwrap();
+        assert_eq!(a.char_bytes(), b.char_bytes());
     }
 
     #[test]

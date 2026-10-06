@@ -56,6 +56,52 @@ impl UiLevelEditor {
             .default_size([560.0, 700.0])
             .show(ctx, |ui| {
                 ui.label("Type real text — it encodes to font-tile bytes live. 8 rows × 18 cells; longer lines are rejected.");
+                // Lunar Magic v3.40 "Custom Table File" (.lmtbl) support:
+                // a table replaces the built-in tile↔character mapping for
+                // this dialog, so text can be displayed/edited in a
+                // different language.
+                ui.horizontal(|ui| {
+                    match (&self.message_table_name, &self.message_table) {
+                        (Some(name), Some(t)) => {
+                            ui.label(format!("Table file: {name} ({} entries)", t.len()));
+                        }
+                        _ => {
+                            ui.label("Table file: built-in font map");
+                        }
+                    }
+                    if ui.button("Load Table File...").clicked() {
+                        if let Some(path) =
+                            rfd::FileDialog::new().add_filter("Lunar Magic table file", &["lmtbl"]).pick_file()
+                        {
+                            match smwe_rom::table_file::load_table_file_for_dialog(
+                                &path,
+                                smwe_rom::table_file::TableDialog::MessageBox,
+                            ) {
+                                Ok((table, name, warnings)) => {
+                                    self.message_table = Some(table);
+                                    self.message_table_name = Some(name);
+                                    // Force the text buffer to re-decode
+                                    // through the new mapping.
+                                    self.message_text_for = None;
+                                    self.message_table_error =
+                                        if warnings.is_empty() { None } else { Some(warnings.join("\n")) };
+                                }
+                                Err(e) => {
+                                    self.message_table_error = Some(e.to_string());
+                                }
+                            }
+                        }
+                    }
+                    if self.message_table.is_some() && ui.button("Clear Table").clicked() {
+                        self.message_table = None;
+                        self.message_table_name = None;
+                        self.message_table_error = None;
+                        self.message_text_for = None;
+                    }
+                });
+                if let Some(err) = self.message_table_error.as_deref() {
+                    ui.colored_label(egui::Color32::from_rgb(220, 160, 60), err);
+                }
                 let total = self.message_boxes.total_size();
                 let over_budget = total > MESSAGE_BOXES_MAX_SIZE;
                 let color = if over_budget {
@@ -86,15 +132,23 @@ impl UiLevelEditor {
                     ui.vertical(|ui| {
                         let i = self.message_editor_selected;
                         let map = FontMap::real();
+                        // Active custom table (cloned so the encode path
+                        // below can mutate `self` without borrow issues).
+                        let table = self.message_table.clone();
                         ui.label(format!("Editing: {}", MESSAGE_NAMES[i]));
 
-                        // Keep the text buffer synced: a selection change, or
-                        // an edit via the raw byte grid below, re-decodes it.
+                        // Keep the text buffer synced: a selection change, a
+                        // table load/clear, or an edit via the raw byte grid
+                        // below, re-decodes it.
                         let cur_hash = byte_hash(&self.message_boxes.messages[i]);
                         if self.message_text_for != Some(i) || cur_hash != self.message_text_bytes_hash
                         {
-                            self.message_text_edit =
-                                decode_editable_text(&map, &self.message_boxes.messages[i]);
+                            self.message_text_edit = match &table {
+                                Some(t) => {
+                                    smwe_rom::font_map::decode_message_with_table(t, &self.message_boxes.messages[i])
+                                }
+                                None => decode_editable_text(&map, &self.message_boxes.messages[i]),
+                            };
                             self.message_text_for = Some(i);
                             self.message_text_bytes_hash = cur_hash;
                             self.message_text_error = None;
@@ -108,7 +162,14 @@ impl UiLevelEditor {
                             ui.style().visuals.text_color()
                         };
                         ui.colored_label(budget_color, format!("Text encodes to {used} / {budget} bytes"));
-                        ui.small("'�' marks a graphic tile: keep it in place to preserve the graphic, delete it to drop it.");
+                        if table.is_some() {
+                            ui.small(
+                                "Table active (LM v3.40): unmapped bytes show as <XX> (display-only); \
+                                 unmapped typed characters are skipped.",
+                            );
+                        } else {
+                            ui.small("'�' marks a graphic tile: keep it in place to preserve the graphic, delete it to drop it.");
+                        }
 
                         let text_resp = ui.add(
                             egui::TextEdit::multiline(&mut self.message_text_edit)
@@ -118,8 +179,13 @@ impl UiLevelEditor {
                         );
                         if text_resp.changed() {
                             let original = self.message_boxes.messages[i].clone();
-                            match encode_message_checked(&map, &original, budget, &self.message_text_edit)
-                            {
+                            let result = match &table {
+                                Some(t) => {
+                                    smwe_rom::font_map::encode_message_with_table(t, budget, &self.message_text_edit)
+                                }
+                                None => encode_message_checked(&map, &original, budget, &self.message_text_edit),
+                            };
+                            match result {
                                 Ok(bytes) => {
                                     self.message_boxes.messages[i] = bytes;
                                     self.message_text_bytes_hash =
